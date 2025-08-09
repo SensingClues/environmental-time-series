@@ -78,6 +78,81 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
   return(ts_plot)
 }
 
+# Function to plot Burned Area distribution
+plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
+                               country_name = NULL, resolution = NULL,
+                               plot_width = 15, plot_height = 8,
+                               ylim_range = NULL,
+                               test_start_date = NULL, test_end_date = NULL,
+                               label_test = "Burned Area 2024",
+                               label_train = "Burned Area 2019-2023",
+                               label_mean = "Burned Area Average 2019-2023",
+                               save_path = NULL,
+                               filename = "BurnedArea_timeseries.png") {
+  
+  # Set y value range for plot
+  if (is.null(ylim_range)) {
+    ylim_range <- c(min(train_data$upper_ci)-10, max(train_data$upper_ci)+250)
+  }
+  
+  # Add Month Name to dataframes
+  test_data$Month_Name <- month.name[as.numeric(test_data$Month)]
+  train_data$Month_Name <- month.name[as.numeric(train_data$Month)]
+  
+  # Make month name vector, to customize order of x axis 
+  invisible(Sys.setlocale("LC_TIME", "C")) # or "English"
+  month_vector <- format(seq(test_start_date, test_end_date, by="month"), "%B")
+  
+  # Set plot size
+  options(repr.plot.width = plot_width, repr.plot.height = plot_height)
+  
+  # Create the plot
+  ts_plot <- ggplot(NULL, aes(x = factor(Month_Name, levels=month_vector),
+                              y = mean_val, group = 1)) +
+    geom_point(data = train_data, size = 5,
+               fill = "#2781cf") + # point-average train data
+    geom_line(data = train_data) +
+    geom_ribbon(data = train_data, aes(ymin = lower_ci, ymax = upper_ci),
+                alpha = 0.2, fill = "#2781cf") + # Shaded CI ribbon
+    geom_point(data = test_data, size = 5, shape = 23,
+               fill = "#9662b3") + # point-average test data
+    theme_minimal() +
+    labs(
+      title = paste0(strsplit(country_name, "_")[[1]][1], " Burned Area size (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
+      x = "Month",
+      y = "Mean Burned Area Size (km2)"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+      axis.text.y = element_text(size = 15), 
+      axis.title.x = element_text(size = 20, margin = margin(15, 0, 0, 0)),
+      axis.title.y = element_text(size = 20, margin = margin(0, 15, 0, 0)),
+      plot.title = element_text(size = 20, hjust = 0.5)
+    ) +
+    ylim(ylim_range) +
+    geom_text(x = 8, y = ylim_range[2] - 10, label = label_test, size = 6,
+              color = "#9662b3", hjust = 0) + # add text to label plot
+    geom_text(x = 8, y = ylim_range[2] - 30, label = label_train, size = 6,
+              color = "#2781cf", hjust = 0) + # add text to label plot
+    geom_text(x = 8, y = ylim_range[2] - 50, label = label_mean, size = 6,
+              color = "black", hjust = 0) # add text to label plot
+  
+  # Save plot if save_path is provided
+  if (!is.null(save_path)) {
+    # Ensure the save directory exists
+    if (!dir.exists(save_path)) {
+      dir.create(save_path, recursive = TRUE)
+    }
+    
+    # Save the plot to the specified location
+    ggsave(filename = file.path(save_path, filename),plot = ts_plot,
+           width = plot_width, height = plot_height, units = "in")
+  }
+  
+  # Return the plot
+  return(ts_plot)
+}
+
 # Function to plot NDVI distribution per crop type, with confidence intervals. Assumes land_use column in train_data_grouped
 plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
                                  country_name = NULL, resolution = NULL,
@@ -178,6 +253,92 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
            height = plot_height, units = "in")
   }
 
+  # Return the plot
+  return(map_plot)
+}
+
+# Function to plot 2D maps for a specific month over several years
+plot_ba_maps <- function(data = NULL, month_to_plot = "01",
+                         plot_width = 15, plot_height = 8,
+                         zlim_range = c(0, 1), ncol = 6,
+                         save_path = NULL, filename = "BA_maps.png") {
+  # Set plot size
+  options(repr.plot.width = plot_width, repr.plot.height = plot_height)
+  
+  # Define a color map from brown to green
+  colors <- c("lightgrey", "darkred")
+  
+  # Filter the data for the specified month
+  data_filtered <- data[data$Month == month_to_plot, ]
+  data_filtered$BurnedArea <- factor(data_filtered$BurnedArea)
+  
+  # Filter data to only the select year and the previous one
+  this_and_last_year <- data_filtered %>%
+    dplyr::select(Year) %>%
+    unique() %>%
+    pull()
+  this_and_last_year <- tail(this_and_last_year, n = 2)
+  data_filtered <- data_filtered %>%
+    dplyr::filter(Year %in% this_and_last_year)
+
+  # Summarize area sizes and percentages per Year
+  area_labels <- data_filtered %>%
+    distinct(Year, BurnedArea_Size, Percentage_Burned) %>%
+    mutate(label = ifelse(BurnedArea_Size <= 1, 
+                          paste0(Year, "\nBurned Area: 0 km² (0%)"), 
+                          paste0(Year, "\nBurned Area: ", round(BurnedArea_Size, 1), " km² (", round(Percentage_Burned, 1), "%)"))) %>%
+    select(Year, label) %>%
+    tibble::deframe()
+  
+  ba_change <- data_filtered %>%
+    distinct(Year, BurnedArea_Size) %>%
+    mutate(changeBurnedArea = BurnedArea_Size - lag(BurnedArea_Size)) %>%
+    select(changeBurnedArea) %>%
+    tibble::deframe()
+  BurnedArea_change <- round(ba_change[2], 1)
+  
+  # Generate the plot
+  map_plot <- ggplot(data_filtered, aes(x = x, y = y, fill = BurnedArea)) +
+    geom_raster() +
+    scale_fill_manual(values = colors,
+                      labels = c("Unburned", "Burned")) +
+    facet_wrap(~ Year, ncol = ncol, labeller = labeller(Year = area_labels)) +
+    labs(
+      title = paste0("Burned Area development over ", month.name[as.numeric(month_to_plot)], 
+                     " in the past year - ", abs(BurnedArea_change), ifelse(BurnedArea_change > 0, 
+                                                                            " km² burned more", 
+                                                                            " km² burned less")),
+      fill = "Burned Area",
+      x = "Longitude",
+      y = "Latitude"
+    ) +
+    theme_minimal() +
+    theme(
+      aspect.ratio = 1.6, # Keep a consistent aspect ratio
+      panel.spacing = unit(2, "lines"), # Space between panels
+      strip.text = element_text(size = 15), # Adjust facet labels
+      axis.text.x = element_text(hjust = 1, size = 15), 
+      axis.text.y = element_text(size = 15), 
+      axis.title.x = element_text(size = 20, margin = margin(15, 0, 0, 0)),
+      axis.title.y = element_text(size = 20, margin = margin(0, 15, 0, 0)),
+      legend.text = element_text(size = 15),
+      legend.title = element_text(size = 15),
+      plot.title = element_text(size = 20, hjust = 0.5)
+    )
+  
+  # Save the plot if save_path is provided
+  if (!is.null(save_path)) {
+    # Ensure the save directory exists
+    if (!dir.exists(save_path)) {
+      dir.create(save_path, recursive = TRUE)
+    }
+    
+    # Save the plot to the specified location
+    ggsave(filename = file.path(save_path, filename),
+           plot = map_plot, width = plot_width,
+           height = plot_height, units = "in")
+  }
+  
   # Return the plot
   return(map_plot)
 }
