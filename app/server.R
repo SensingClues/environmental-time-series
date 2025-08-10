@@ -6,6 +6,7 @@ source("pages/data_collection.R")
 source("pages/NDVI_timeseries.R")
 source("pages/NDVI_heatmap.R")
 source("pages/LandCover_explorer.R")
+source("pages/BurnedArea_Explorer.R")
 
 # Define server logic for displaying dynamic content
 shinyServer(function(input, output, session) {
@@ -48,6 +49,14 @@ shinyServer(function(input, output, session) {
       landCoverUI("landCover") 
     })
     landCoverServer("landCover")
+  })
+  
+  # Define content to display when "Burned Area Explorer" is clicked
+  observeEvent(input$BurnedArea_explorer, {
+    output$pageContent <- renderUI({
+      BurnedAreaUI("burnedArea") 
+    })
+    BurnedAreaServer("burnedArea")
   })
  
 

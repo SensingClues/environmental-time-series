@@ -62,6 +62,12 @@ get_filenames <- function(filepath = NULL, data_type = "NDVI",
                                        country_name = country_name)
   }
 
+  if (data_type == "BurnedArea") {
+    out_files <- get_ba_filenames(ba_path = filepath,
+                                  file_extension = file_extension,
+                                  country_name = country_name)
+  }
+  
   cat("\nLoading", data_type, "data for", country_name, "\n", sep = " ")
   return(out_files)
 }
@@ -85,6 +91,17 @@ get_landuse_filenames <- function(landuse_path = NULL, file_extension = ".geojso
   )
 
   return(landuse_files)
+}
+
+## get list of Burned Area filenames in folder
+get_ba_filenames <- function(ba_path = NULL, file_extension = ".tif",
+                             country_name = NULL) {
+  
+  ba_files <- list.files(ba_path,
+                         pattern = paste0("BurnedArea", ".*", country_name, ".*", file_extension, "$")
+  )
+  
+  return(ba_files)
 }
 
 ## get list of aoi filenames in folder
@@ -157,6 +174,31 @@ get_ndvi_raster <- function(ndvi_files = NULL, data_path = NULL,
   return(ndvi_out)
 }
 
+## get raster BA data 
+get_ba_raster <- function(ba_files = NULL, data_path = NULL,
+                            projection = "EPSG:4326", dates = NULL,
+                            aoi_proj = NULL) {
+  
+  # load raster data for all months, and stack
+  ba_rast <- terra::rast(file.path(data_path, ba_files))
+  
+  # transform (by projecting) the raster data to useful coordinate system
+  ba_out <- terra::project(ba_rast, projection)
+  
+  if (!is.null(aoi_proj)) {
+    # Mask the raster, to remove background values (if any).
+    ba_out <- terra::mask(ba_out, aoi_proj)
+  }
+  
+  # change layer names for plotting
+  names(ba_out) <- c(dates)
+  
+  # add time info for transformations
+  time(ba_out) <- as.Date(paste0(dates, "-01"))
+  
+  return(ba_out)
+}
+
 ## convert raster to dataframe
 raster_to_df <- function(raster, date) {
   out_df <- as.data.frame(raster, xy = TRUE) %>%
@@ -186,6 +228,47 @@ get_ndvi_df <- function(ndvi_rast = NULL, dates = NULL) {
   colnames(ndvi_df)[3] <- "NDVI"
 
   return(ndvi_df)
+}
+
+get_ba_df <- function(ba_rast = NULL, dates = NULL) {
+  
+  # Extract raster layers for each date and store in dataframe
+  raster_dfs <- lapply(as.Date(paste0(dates, "-01")), function(date_key) {
+    raster_layer <- ba_rast[[time(ba_rast) == date_key]]
+    raster_to_df(raster_layer, date_key)
+  })
+  
+  # Combine all data frames into one bigger one
+  ba_df <- bind_rows(raster_dfs)
+  
+  # split dates into month and year columns
+  ba_df <- transform(ba_df,
+                     Year = format(YearMonth, "%Y"),
+                     Month = format(YearMonth, "%m"))
+  
+  # change column name for plotting
+  colnames(ba_df)[3] <- "BurnDate"
+  
+  # Create boolean for burned yes/no
+  ba_df$BurnedArea <- ifelse(ba_df$BurnDate > 0, 1, 0)
+  
+  burned_area_sizes <- lapply(unique(ba_df$YearMonth), function(date_key) {
+    raster_layer <- ba_rast[[time(ba_rast) == as.Date(date_key)]]
+    TotalArea_Size <- sum(expanse(raster_layer, unit="km"))
+    burned_rast <- classify(raster_layer, matrix(c(-Inf, 0, NA), ncol = 3, byrow = TRUE))
+    BurnedArea_Size <- sum(expanse(burned_rast, unit = "km"), na.rm = TRUE)
+    Percentage_Burned <- ifelse(BurnedArea_Size <= 1, 0, (BurnedArea_Size/TotalArea_Size) * 100)
+    data.frame(YearMonth = as.Date(date_key), 
+               BurnedArea_Size = BurnedArea_Size, 
+               TotalArea_Size = TotalArea_Size, 
+               Percentage_Burned = Percentage_Burned)
+  })
+  
+  # Join burned area sizes back to ba_df
+  burned_area_df <- bind_rows(burned_area_sizes)
+  ba_df <- left_join(ba_df, burned_area_df, by = "YearMonth")
+  
+  return(ba_df)
 }
 
 # calculate NDVI modulation in 2D space
@@ -232,6 +315,27 @@ get_summary_ndvi_df <- function(ndvi_df = NULL) {
   return(summary_ndvi_df)
 }
 
+# calculate BA area mean, SD, and confidence intervals per month
+get_summary_ba_df <- function(ba_df = NULL) {
+  
+  summary_ba_df <- ba_df %>%
+    group_by(Year, Month) %>%
+    summarize(
+      mean_ym_ba = mean(BurnedArea_Size)
+    ) %>% # 1st get the monthly mean BA, for each year separately
+    group_by(Month) %>%
+    summarize(
+      mean_val = mean(mean_ym_ba),
+      lower_ci = mean(mean_ym_ba) - 1.96 * sd(mean_ym_ba) / sqrt(length(mean_ym_ba)), # 95% CI lower bound
+      upper_ci = mean(mean_ym_ba) + 1.96 * sd(mean_ym_ba) / sqrt(length(mean_ym_ba)) # 95% CI upper bound
+    ) %>%
+    mutate(
+      lower_ci = if_else(lower_ci < 0, 0, lower_ci)
+    )
+  
+  return(summary_ba_df)
+}
+
 # convert list of NDVI filenames to data frame
 get_filename_df <- function(ndvi_files = NULL) {
 
@@ -251,5 +355,27 @@ get_filename_df <- function(ndvi_files = NULL) {
   files_df$year <- as.integer(files_df$year)
   files_df$month <- as.integer(files_df$month)
 
+  return(files_df)
+}
+
+# convert list of BA filenames to data frame
+get_ba_filename_df <- function(ba_files = NULL) {
+  
+  # Assert that ba_files is not empty
+  if (is.null(ba_files) || length(ba_files) == 0) {
+    stop("No BA files provided.")
+  }
+  ## put filenames in table, with info for year and month
+  files_df <- tibble(filenames = ba_files) %>%
+    mutate(dates = gsub("(\\d{4}-\\d{2})_.*", "\\1", filenames))
+  files_df <- separate(files_df, "dates", c("year", "month"), sep="-", remove=F)
+  
+  # put dates into time operator
+  files_df$dates <- as.Date(paste0(files_df$dates, "-01"))
+  
+  # turn year and month into int, for easier operations
+  files_df$year <- as.integer(files_df$year)
+  files_df$month <- as.integer(files_df$month)
+  
   return(files_df)
 }
