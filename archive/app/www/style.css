@@ -1,0 +1,35 @@
+$blue:    #1E88E5;
+$indigo:  #3949AB;
+$purple:  #5E35B1;
+$pink:    #D81B60;
+$red:     #E53935;
+$orange:  #FB8C00;
+$yellow:  #FDD835;
+$green:   #43A047;
+$teal:    #00897B;
+$cyan:    #00ACC1;
+
+$primary:       #004D40;
+$secondary:     #FFAB00;
+$success:       #00897B;
+$info:          #607D8B;
+$warning:       #FB8C00;
+$danger:        #E53935;
+$light:         $gray-100;
+$dark:          $gray-800;
+
+body {
+  font-family: Verdana;  
+  
+}
+
+.well {
+  background-color: #004D40;
+  color: #ECEFF1;
+}
+
+.action_button {
+  background-color: #FB8C00; 
+  color: white; 
+  font-size: 100%
+}
