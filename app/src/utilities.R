@@ -132,7 +132,7 @@ get_aoi_filenames <- function(aoi_path = NULL, file_extension = ".geojson",
                               country_name = NULL) {
   
   aoi_files <- list.files(aoi_path,
-                          pattern = paste0("AoI", ".*", country_name, ".*", file_extension, "$")
+                          pattern = paste0("AoI.*", country_name, ".*", file_extension, "$")
   )
   
   return(aoi_files)

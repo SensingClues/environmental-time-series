@@ -43,7 +43,7 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
                fill = "#9662b3") + # point-average test data
     theme_minimal() +
     labs(
-      title = paste0(country_name, " NDVI (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
+      title = paste0("NDVI (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
       x = "Month",
       y = "Mean NDVI"
     ) +
@@ -123,7 +123,7 @@ plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
                fill = "#9662b3") + # point-average test data
     theme_minimal() +
     labs(
-      title = paste0(strsplit(country_name, "_")[[1]][1], " Burned Area size (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
+      title = paste0("Burned Area size (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
       x = "Month",
       y = "Mean Burned Area Size (km2)"
     ) +
@@ -177,7 +177,7 @@ plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
     geom_ribbon(aes(ymin = lower_ci, ymax = upper_ci), alpha = 0.2, color = NA) +
     theme_minimal() +
     labs(
-      title = paste0(country_name, " NDVI (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
+      title = paste0("NDVI (", ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution), "m res)"),
       x = "Month", 
       y = "Mean NDVI",
       color = "Land Use Type",

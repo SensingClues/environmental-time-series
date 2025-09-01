@@ -82,10 +82,10 @@ server <- function(input, output, session) {
   
   # Update selector inputs based on the selected tab
   countrychoices_rv <- reactiveValues(
-    choise_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia", "Ancares Courel, Spain" = "Spain", 
+    choise_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
                                             "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
                         BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL")),
-    selected_set = list(NDVIexplorerTab = "Zambia", 
+    selected_set = list(NDVIexplorerTab = "Zambia_Mponda", 
                         BAexplorerTab = "Zambia_WL")
   )
   
@@ -498,8 +498,11 @@ server <- function(input, output, session) {
   # Render a container for the plot or error message
   output$ba_map_container <- renderUI({
     # Default UI is just an image placeholder
-    div(class = "image-fill top-center",
-        imageOutput("ba_map_output"), height = "auto")
+    fluidRow(
+      column(8, div(class = "image-fill top-center",
+                    imageOutput("ba_map_output"), height = "100%")),
+      column(4, htmlOutput("placeholder_ba_leaflet"))
+    )
   }) 
     
   # Set Reactive values
