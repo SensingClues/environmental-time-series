@@ -1,0 +1,35 @@
+name: Deploy R Application to Shiny Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: true
+        default: 'main'
+  push:
+    branches:
+      - dev
+      - main  # Adjust this as necessary
+
+env:
+  # Path to shiny folder on server to deploy to
+  shiny-path: ${{ github.ref == 'refs/heads/main' && '/deploy/data/shiny/apps/environmentaltimeseries' || '/deploy/data/shiny/apps/test/environmentaltimeseries' }}
+
+jobs:
+  deploy-to-shiny-server:
+    runs-on: self-hosted  # Make sure this is pointing to your self-hosted runner
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}  # Use input branch or the branch from the push
+          path: ./repo
+
+      - name: Sync files to the Shiny Server directory
+        run: |
+          mkdir -p ${{ env.shiny-path }}
+          sudo chown -R $USER:$USER ${{ env.shiny-path }}
+          rsync -av --delete ./repo/app/ ${{ env.shiny-path }}
+          sudo chmod -R o+w ${{ env.shiny-path }}/www
+          touch ${{ env.shiny-path }}/restart.txt
