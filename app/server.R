@@ -499,9 +499,9 @@ server <- function(input, output, session) {
   output$ba_map_container <- renderUI({
     # Default UI is just an image placeholder
     fluidRow(
-      column(8, div(class = "image-fill top-center",
+      column(7, div(class = "image-fill top-center",
                     imageOutput("ba_map_output"), height = "100%")),
-      column(4, htmlOutput("placeholder_ba_leaflet"))
+      column(5, htmlOutput("ba_leaflet_map"))
     )
   }) 
     
@@ -540,9 +540,9 @@ server <- function(input, output, session) {
     resolution <- input$resolution
     
     if(input$year == lubridate::year(Sys.Date())) {
-      end_month <- lubridate::month(Sys.Date()) - 1
+      end_month <- lubridate::month(Sys.Date()) - 2
       end_year <- input$year
-      if(end_month == 0) {
+      if(end_month <= 0) {
         end_month <- 12
         end_year <- end_year - 1
       }
@@ -651,6 +651,56 @@ server <- function(input, output, session) {
         div(style = "color: red;", strong("Error: "), "An error occurred while generating the Burned Area data. Check that the necessary data files exist.", br(), br(), paste("Details:", e$message))
       })
       message("Error generating static Burned Area map: ", e$message)
+    })
+    
+    #### BA Leaflet map
+    # Define script and figure paths
+    ba_figure_input_filename <- paste0("figure_BurnedAreamaps_", country_name, "_", 
+                                       map_month, "_", map_year, "_", resolution, "m.geojson")
+    ba_figure_output_filename <- paste0("figure_BurnedAreamaps_", country_name, "_", 
+                                        map_month, "_", map_year, "_", resolution, "m.html")
+    ba_figure_path <- file.path(figures_dir, ba_figure_output_filename)
+    ba_figure_input_path <- file.path(figures_dir, ba_figure_input_filename)
+    
+    # Use tryCatch to handle missing data or any errors
+    tryCatch({
+      # If figure not stored yet, try to generate it
+      if (!file.exists(ba_figure_path)) {
+        
+        # Ensure the figures directory exists
+        if (!dir.exists(figures_dir)) {
+          dir.create(figures_dir, recursive = TRUE)
+        }
+        
+        # Create explorer plot
+        plot_ba_geojson_from_a_folder(
+          input_file_path = ba_figure_input_path,
+          data_dir = data_dir,
+          country = country_name,
+          save_path = figures_dir,
+          filename = ba_figure_output_filename)
+      }
+      
+      # Render the generated (or existing) HTML
+      output$ba_leaflet_map <- renderUI({
+        tags$iframe(
+          src = paste0("figures/", ba_figure_output_filename),
+          width = "100%",
+          height = "400px",
+          frameborder = 0)
+      })
+    }, error = function(e) {
+      # In case of error (likely missing data files), display a helpful message in the UI
+      output$ba_leaflet_map <- renderUI({
+        div(style = "color: red; margin-left: 10px; margin-top: 10px;",
+            strong("Error: "),
+            "An error occurred while generating or reading the Burned Area geojson data. ",
+            "This may be due to missing files or incorrect file paths. ",
+            "Please verify that the necessary data files exist in '", data_dir, "'.", br(), br(),
+            paste("Details:", e$message)
+        )})      
+      # You could also log the error or print it to console
+      message("Error generating Burned Area map: ", e$message)
     })
   })
   
