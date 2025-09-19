@@ -495,6 +495,82 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   return(map)
 }
 
+plot_ba_geojson_from_a_folder <- function(input_file_path, data_dir = data_dir, country = country_name, 
+                                          save_path = NULL, filename = NULL, basemap = "OpenStreetMap") {
+  
+  message(paste("Plotting GeoJSON file from folder:", input_file_path))
+  # Check if the GeoJSON file exists in the folder
+  if (!file.exists(input_file_path)) {
+    stop("No GeoJSON files found in the specified folder.")
+  }
+  
+  # Load and transform AoI file to plot in case there is no burned area
+  aoi_files <- list.files(file.path(data_dir, "AoI"), pattern = paste0("AoI_.*", country, ".*\\.geojson$"))
+  if (length(aoi_files) == 0) {
+    stop("No Area of Interest file found for the selected country.")
+  }
+  aoi_shape <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]))
+  aoi_shape <- sf::st_transform(aoi_shape, crs = 4326)
+  
+  # Create a leaflet map with the specified basemap
+  map <- leaflet() %>%
+    addProviderTiles(providers[[basemap]]) %>%
+    # Always plot AOI
+    addPolygons(data = aoi_shape,
+                color = "green",
+                weight = 2,
+                opacity = 0.5,
+                fillOpacity = 0,    # transparent fill
+                group = "AOI")
+  
+  # Read and transform the GeoJSON file to WGS 84 (EPSG:4326)
+  geojson_data <- sf::st_read(input_file_path)
+  geojson_data <- sf::st_transform(geojson_data, crs = 4326)
+  
+  # Identify the date column (first non-geometry column)
+  date_col <- setdiff(names(geojson_data), attr(geojson_data, "sf_column"))  
+  
+  # Filter only burned patches (values > 0)
+  burned_area_data <- geojson_data[geojson_data[[date_col]] > 0, ]  
+  burned_area_data <- st_union(burned_area_data)
+  
+  if (!sf::st_is_empty(burned_area_data)) {
+    # Add the GeoJSON data to the map with a different color
+    map <- map %>%
+      addPolygons(data = burned_area_data, 
+                  color = "#ED022A", 
+                  weight = 2, 
+                  opacity = 0.6, 
+                  fillOpacity = 0.3,
+                  group = "Burned Area")
+  }
+  
+  # Add the layers control and legend to the map
+  map <- map %>%
+    addLayersControl(
+      overlayGroups = c("Burned Area"),
+      options = layersControlOptions(collapsed = FALSE)) %>%
+    addLegend("bottomright", 
+              colors = "#ED022A", 
+              labels = "Burned Area", 
+              title = "Legend",
+              opacity = 1)
+  
+  # Save the plot if save_path is provided
+  if (!is.null(save_path)) {
+    # Ensure the save directory exists
+    if (!dir.exists(save_path)) {
+      dir.create(save_path, recursive = TRUE)
+    }
+    
+    # Save the map as an HTML file
+    saveWidget(map, file.path(save_path, filename), selfcontained = TRUE)
+  }
+  
+  # Return the map
+  return(map)
+}
+
 # Function to plot delta NDVI on a Leaflet map
 plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
                                        zlim_range = c(-.25, .25),
