@@ -2,3 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# Ignore all files in the app/www/figures directory (for caching)
+app/www/figures/*

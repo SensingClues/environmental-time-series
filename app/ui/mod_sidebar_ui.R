@@ -20,7 +20,7 @@ mod_sidebar_ui <- function(id) {
       ),
       p(i18n$t("labels.aboutETSAText")), # "Generate maps and stats for any topic you’ve gathered information on."
       tags$a(i18n$t("labels.aboutReadmore"),
-             href = "https://www.sensingclues.org/environmental-time-series-anaylsis",
+             href = "https://www.sensingclues.org/environmental-time-series-analysis",
              class = "readmore",
              target = "_blank")
     ),
