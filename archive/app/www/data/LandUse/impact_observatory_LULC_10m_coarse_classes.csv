@@ -1,0 +1,10 @@
+Description,Value,Color
+Water,1,#1f77b4
+Trees,2,#2ca02c
+Flooded vegetation,4,#17becf
+Crops,5,#ff7f0e
+Built Area,7,#9467bd
+Bare ground,8,#8c564b
+Snow/Ice,9,#e377c2
+Clouds,10,#7f7f7f
+Rangeland,11,#bcbd22

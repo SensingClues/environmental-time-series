@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "Spain_Clouds",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::32629" } },
+"features": [
+{ "type": "Feature", "properties": { }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 685190.0, 4763260.0 ], [ 685190.0, 4763250.0 ], [ 685200.0, 4763250.0 ], [ 685200.0, 4763260.0 ], [ 685190.0, 4763260.0 ] ] ] } }
+]
+}

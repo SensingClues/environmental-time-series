@@ -1,0 +1,34 @@
+depends: 
+  httr,
+  jsonlite,
+  dplyr,
+  stringr,
+  data.tree,
+  lubridate,
+  ggplot2,
+  RColorBrewer,
+  sf,
+  geojsonsf,
+  shiny,
+  shiny.i18n,
+  shinyjs,
+  shinyTree,
+  shinybusy,
+  shinyWidgets,
+  rgdal,
+  raster,
+  sp,
+  terra,
+  tidyr,
+  plotly,
+  ipc,
+  future,
+  promises,
+  leaflet,
+  leaflet.extras,
+  loggit,
+  htmlwidgets
+remotes:
+  shinyTree/shinyTree
+  
+
