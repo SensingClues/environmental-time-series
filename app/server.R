@@ -33,56 +33,9 @@ server <- function(input, output, session) {
   # GENERAL & SIDEBAR
   # ---------------------------------------------------------------------------------------------------
   
-  # Start  NDVI Timeseries Tab
-  
-  # Code to adjust input choices based on subtab (not entirely working but good inspiration)
-  # countrychoices_rv <- reactiveValues(
-  #   choise_set = list(
-  #     NDVItsTab = c("Mponda, Zambia" = "Zambia", "Ancares Courel, Spain" = "Spain", 
-  #                   "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
-  #     NDVIdeltaTab = c("Mponda, Zambia" = "Zambia", "Ancares Courel, Spain" = "Spain", 
-  #                      "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
-  #     LCexplorerTab = c("Mponda, Zambia" = "Zambia", "Ancares Courel, Spain" = "Spain", 
-  #                       "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
-  #     BAtimeseries = c("West Lunga, Zambia" = "Zambia_WL"),
-  #     BAmapexplorer = c("West Lunga, Zambia" = "Zambia_WL")
-  #   ),
-  #   selected_set = list(NDVItsTab = "Zambia", NDVIdeltaTab = "Zambia", LCexplorerTab = "Zambia",
-                        # BAtimeseries = "Zambia_WL",BAmapexplorer = "Zambia_WL"))
-  # 
-  # resolutionchoices_rv <- reactiveValues(
-  #   choise_set = list(
-  #     NDVItsTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
-  #                   "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"),
-  #     NDVIdeltaTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
-  #                      "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"),
-  #     LCexplorerTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
-  #                       "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"),
-  #     BAtimeseries = c("500 (Terra MODIS)" = "500"),
-  #     BAmapexplorer = c("500 (Terra MODIS)" = "500")
-  #   ),
-  #   selected_set = list(NDVItsTab = "Sentinel_1000", NDVIdeltaTab = "Sentinel_1000", LCexplorerTab = "Sentinel_1000",
-                        # BAtimeseries = "500", BAmapexplorer = "500"))
-  #
-  # observeEvent(c(input$tabs, input$basubtabs, input$ndvisubtabs), {
-  #   if (input$tabs == "NDVIexplorerTab") {
-  #     updateSelectInput(session, "country",
-  #                       choices = countrychoices_rv$choise_set[[input$ndvisubtabs]], 
-  #                       selected = countrychoices_rv$selected_set[[input$ndvisubtabs]])
-  #     updateSelectInput(session, "resolution",
-  #                       choices = resolutionchoices_rv$choise_set[[input$ndvisubtabs]], 
-  #                       selected = resolutionchoices_rv$selected_set[[input$ndvisubtabs]])
-  #   } else if (input$tabs == "BAexplorerTab") {
-  #     updateSelectInput(session, "country",
-  #                       choices = countrychoices_rv$choise_set[[input$basubtabs]], 
-  #                       selected = countrychoices_rv$selected_set[[input$basubtabs]])
-  #     updateSelectInput(session, "resolution",
-  #                       choices = resolutionchoices_rv$choise_set[[input$basubtabs]], 
-  #                       selected = resolutionchoices_rv$selected_set[[input$basubtabs]])}})
-  
-  # Update selector inputs based on the selected tab
+  # Create selector choice sets based on the selected tab (NDVI or BA Explorer)
   countrychoices_rv <- reactiveValues(
-    choise_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
+    choice_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
                                             "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
                         BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL")),
     selected_set = list(NDVIexplorerTab = "Zambia_Mponda", 
@@ -90,19 +43,20 @@ server <- function(input, output, session) {
   )
   
   resolutionchoices_rv <- reactiveValues(
-    choise_set =   list(NDVIexplorerTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
+    choice_set =   list(NDVIexplorerTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
                                             "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"),
                         BAexplorerTab = c("500 (Terra MODIS)" = "500")),
     selected_set = list(NDVIexplorerTab = "Sentinel_1000", 
                         BAexplorerTab = "500")
   )
   
-  observeEvent(input$tabs, {
+  # Observe selected tab and update choices according to the one selected
+  observeEvent(input$tabs, { 
     updateSelectInput(session, "country",
-                      choices = countrychoices_rv$choise_set[[input$tabs]], 
+                      choices = countrychoices_rv$choice_set[[input$tabs]], 
                       selected = countrychoices_rv$selected_set[[input$tabs]])
     updateSelectInput(session, "resolution",
-                      choices = resolutionchoices_rv$choise_set[[input$tabs]], 
+                      choices = resolutionchoices_rv$choice_set[[input$tabs]], 
                       selected = resolutionchoices_rv$selected_set[[input$tabs]])
   })
   
@@ -117,10 +71,11 @@ server <- function(input, output, session) {
     }
   })
   
-  # Set Reactive values
+  # Set Reactive values for AoI shape and error message
   aoi_shape_rv <- reactiveVal(NULL)
   error_message_rv <- reactiveVal(NULL)
   
+  # Update month selector based on the selected year
   observeEvent(input$year, {
     req(input$year)
     
@@ -137,6 +92,7 @@ server <- function(input, output, session) {
   observeEvent(input$country, {
     req(input$country)
     error_message_rv(NULL) # Clear any previous errors
+    
     tryCatch({
       aoi_files <- list.files(file.path(data_dir, "AoI"), pattern = paste0("AoI_.*", input$country, ".*\\.geojson$"))
       if (length(aoi_files) == 0) {
@@ -146,17 +102,25 @@ server <- function(input, output, session) {
       shape <- sf::st_transform(shape, crs = 4326)
       
       aoi_shape_rv(shape) # Update the reactive value with the loaded shape
+      error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
-      error_message_rv(e$message)
+      error_message_rv(e$message) 
       aoi_shape_rv(NULL) # Set to NULL on error
+      showNotification(HTML("The project area cannot be loaded due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
     })
   }, ignoreNULL = TRUE, ignoreInit = FALSE) # 'ignoreInit = FALSE' makes it run on startup
   
+  # Return empty world map if no shape, otherwise create map with selected AoI
   output$map <- renderLeaflet({
     shape <- aoi_shape_rv()
-    if (is.null(shape)) { # Return empty map if no shape
-      return(leaflet(options = leafletOptions(zoomControl = FALSE)) %>% addTiles())
+    if (is.null(shape)) { 
+      return(leaflet(options = leafletOptions(zoomControl = FALSE)) %>% 
+               addTiles()) # Return empty world map if no shape
     } 
     
     bounds <- sf::st_bbox(shape)
@@ -167,23 +131,48 @@ server <- function(input, output, session) {
       fitBounds(bounds[[1]], bounds[[2]], bounds[[3]], bounds[[4]])
   })
   
+  
   # ---------------------------------------------------------------------------------------------------
   # NDVI TIME SERIES CHART
   # ---------------------------------------------------------------------------------------------------
+  
+  # Reactive flag to control whether the NDVI timeseries UI should be shown
+  ndvi_ts_ready <- reactiveVal(FALSE)
+  
   # Render a container for the plot or error message
   output$ndvi_ts_plot_container <- renderUI({
-    # Default UI is just an image placeholder
-    div(class = "image-fill top-center",
-        imageOutput("ndvi_ts_plot_output"), height = "auto")
+    error_msg <- error_message_rv()
+    
+    if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
+      div(class = "image-fill top-center",
+          imageOutput("ndvi_ts_plot_output"), 
+          height = "auto")
+    } else {
+      return(NULL) # Return empty UI
+    }
+  })
+  
+  # Clear the image when switching tabs or subtabs
+  observeEvent(list(input$tabs, input$ndvisubtabs), {
+    ndvi_ts_ready(FALSE)
+    error_message_rv(NULL) 
+    
+    output$ndvi_ts_plot_output <- NULL
   })
   
   # Observe the Generate Figure button
   observeEvent(input$generate_ndvi_ts_figures, {
+    message("=========== Starting NDVI Time Series Generation =============")
+    
+    # To be extra sure that no figure is shown, clear previous error messages
+    ndvi_ts_ready(FALSE)
+    error_message_rv(NULL)
     
     # Get user inputs
     country_name <- input$country
     resolution <- input$resolution
 
+    # Handling to avoid end/start of new year errors
     if(input$year == lubridate::year(Sys.Date())) {
       end_month <- lubridate::month(Sys.Date()) - 1
       end_year <- input$year
@@ -227,64 +216,93 @@ server <- function(input, output, session) {
       
       # If no error so far, render the image
       output$ndvi_ts_plot_output <- renderImage({
-        list(
-          src   = figure_path,
-          alt   = "NDVI timeseries"
-        )
+        list(src   = figure_path,
+             alt   = "NDVI timeseries")
       }, deleteFile = FALSE)
       
-    }, error = function(e) {
+      ndvi_ts_ready(TRUE) # Mark UI as ready (renderUI will now return the container)
+      error_message_rv(NULL) # Clear any previous error messages
       
-      # If an error occurs (commonly missing data), replace the default UI with a message
-      output$ndvi_ts_plot_container <- renderUI({
-        div(
-          style = "color: red; margin-left: 10px; margin-top: 20px;",
-          strong("Error: "),
-          "An error occurred while generating or reading the NDVI timeseries data. ",
-          "This may be due to missing files or incorrect file paths. ",
-          "Please verify that the necessary data files exist in '", data_dir, "'.",
-          br(), br(),
-          paste("Details:", e$message), br(),
-          paste("Country Name:", country_name), br(), 
-          paste("Resolution:", resolution), br(),
-          paste("End Year:", end_year), br(),
-          paste("End Month:", end_month), br(),
-          paste("Figures Directory:", figures_dir), br(),
-          paste("Data Directory:", data_dir))
-      })
+    }, error = function(e) {
+      # Clear server outputs so nothing can re-appear
+      ndvi_ts_ready(FALSE)
+      error_message_rv(e$message)
+      output$ndvi_ts_plot_output <- NULL
+      
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating NDVI timeseries (old message)---", "\n",
+              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("End Year:", end_year), "\n",
+              paste("End Month:", end_month), "\n",
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir))
       
       # Optionally, also log the error to the console for debugging
       message("Error generating NDVI timeseries: ", e$message)
     })
+    message("=========== End of NDVI Time Series Generation =============")
   })
   
-  #### End NDVI timeseries part
-  
+
   # ---------------------------------------------------------------------------------------------------
   # NDVI LAND COVER EXPLORER SERIES CHART
   # ---------------------------------------------------------------------------------------------------
   
+  # Reactive flag to control whether the NDVI Land Cover UI should be shown
+  ndvi_lc_ready <- reactiveVal(FALSE)
+  
   # Render a container for the plot or error message
   output$lc_plot_container <- renderUI({
-    # Default UI is just an image placeholder
-    fluidRow(
-      column(7, 
-             div(class = "image-fill top-center",
-                 imageOutput("ndvi_plot_output"), height = "100%")),
-      column(5, htmlOutput("landcover_map_output"))
-    )
+    error_msg <- error_message_rv()
+    
+    if (is.null(error_msg) && isTRUE(ndvi_lc_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
+      fluidRow(
+        column(7, 
+               div(class = "image-fill top-center",
+                   imageOutput("ndvi_plot_output"), height = "100%")),
+        column(5, uiOutput("landcover_map_output"))
+      )
+    } else {
+      return(NULL) # Return empty UI
+    }
   })
+  
+  # Clear the image when switching tabs or subtabs
+  observeEvent(list(input$tabs, input$ndvisubtabs), {
+    ndvi_lc_ready(FALSE)
+    error_message_rv(NULL)
+    
+    # Clear server outputs so nothing can re-appear
+    output$ndvi_plot_output <- NULL
+    output$landcover_map_output <- renderUI(NULL)   
+  }, ignoreInit = TRUE)
   
   # Observe the Generate Figure button
   observeEvent(input$generate_lc_figures, {
+    message("=========== Starting NDVI Land Cover Generation =============")
+    
+    # To be extra sure that no figure is shown, clear previous error messages
+    ndvi_lc_ready(FALSE)
+    error_message_rv(NULL)
     
     # Get user inputs
     country_name <- input$country
-    # end_month <- ifelse(input$year == lubridate::year(Sys.Date()), lubridate::month(Sys.Date())-1, 12)
-    # end_year <- input$year
     resolution <- input$resolution
     landcover_Type <- input$landcover_Type
     
+    # Handling to avoid end/start of new year errors
     if(input$year == lubridate::year(Sys.Date())) {
       end_month <- lubridate::month(Sys.Date()) - 1
       end_year <- input$year
@@ -330,32 +348,44 @@ server <- function(input, output, session) {
       
       # If no error so far, render the image
       output$ndvi_plot_output <- renderImage({
-        list(src   = figure_path,
-             alt   = "Land Cover")
+        list(src = figure_path, alt = "Land Cover")
       }, deleteFile = FALSE)
       
     }, error = function(e) {
+      # Clear server outputs so nothing can re-appear
+      ndvi_lc_ready(FALSE)
+      error_message_rv(e$message)
+      output$ndvi_plot_output <- NULL
+      output$landcover_map_output <- renderUI(NULL)
       
-      # If an error occurs (commonly missing data), replace the default UI with a message
-      output$ndvi_plot_output <- renderUI({
-        div(
-          style = "color: red; margin-left: 10px; margin-top: 20px;",
-          strong("Error: "),
-          "An error occurred while generating or reading the Land Cover NDVI Timeseries data. ",
-          "This may be due to missing files or incorrect file paths. ",
-          "Please verify that the necessary data files exist in '", data_dir, "'.",
-          br(), br(),
-          paste("Details:", e$message)
-        )
-      })
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating NDVI Land Cover (old message)---", "\n",
+              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("End Year:", end_year), "\n",
+              paste("End Month:", end_month), "\n", 
+              paste("Land Cover Type:", landcover_Type), "\n",
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir), "\n",
+              paste("Land Cover Figure Directory:", lc_figure_path))
       
       # Optionally, also log the error to the console for debugging
       message("Error generating Land Cover NDVI Timeseries: ", e$message)
     })
     
     #### Land Cover map
-    # Get user inputs
-    country_name <- input$country
+    # Get additional inputs for folder selection
     map_year <- "2023"
     vector_src <- "S2_10m_LULC"
     
@@ -397,42 +427,85 @@ server <- function(input, output, session) {
         )
       })
       
+      ndvi_lc_ready(TRUE) # Mark UI as ready as both figures are generated (renderUI will now return the container)
+      error_message_rv(NULL) # Clear any previous error messages
+
     }, error = function(e) {
+      # Clear server outputs so nothing can re-appear
+      ndvi_lc_ready(FALSE)
+      error_message_rv(e$message)
+      output$ndvi_plot_output <- NULL
+      output$landcover_map_output <- renderUI(NULL)
       
-      # In case of error (likely missing data files), display a helpful message in the UI
-      output$landcover_map_output <- renderUI({
-        div(
-          style = "color: red; margin-left: 10px; margin-top: 10px;",
-          strong("Error: "),
-          "An error occurred while generating or reading the land use geojson data. ",
-          "This may be due to missing files or incorrect file paths. ",
-          "Please verify that the necessary data files exist in '", data_dir, "'.",
-          br(), 
-          br(),
-          paste("Details:", e$message)
-        )
-      })
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating NDVI Land Cover (old message)---", "\n",
+              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("End Year:", end_year), "\n",
+              paste("End Month:", end_month), "\n", 
+              paste("Land Cover Type:", landcover_Type), "\n",
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir), "\n",
+              paste("Land Cover Figure Directory:", lc_figure_path))
       
       # You could also log the error or print it to console
       message("Error generating land use map: ", e$message)
     })
+    message("=========== End of NDVI Land Cover Generation =============")
   })
 
+  
   # ---------------------------------------------------------------------------------------------------
   # NDVI DELTA MAP AND CHARTS
   # --------------------------------------------------------------------------------------------------- 
 
+  # Reactive flag to control whether the NDVI Delta Map UI should be shown
+  ndvi_dm_ready <- reactiveVal(FALSE)
+  
   # Render a container for the plot or error message
   output$dm_plot_container <- renderUI({
-    # Default UI is just an image placeholder
-    fluidRow(
-      column(8, div(class = "image-fill top-center",
-                    imageOutput("ndvi_histmap_output"), height = "100%")),
-      column(4, htmlOutput("ndvi_delta_map_output"))
-    )
-  })  
+    error_msg <- error_message_rv()
+    
+    if (is.null(error_msg) && isTRUE(ndvi_dm_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
+      fluidRow(
+        column(8, div(class = "image-fill top-center",
+                      imageOutput("ndvi_histmap_output"), height = "100%")),
+        column(4, htmlOutput("ndvi_delta_map_output"))
+      )
+    } else {
+      return(NULL) # Return empty UI
+    }
+  })
+  
+  # Clear the image when switching tabs or subtabs
+  observeEvent(list(input$tabs, input$ndvisubtabs), {
+    ndvi_dm_ready(FALSE)
+    error_message_rv(NULL)
+    
+    # Clear server outputs so nothing can re-appear
+    output$ndvi_histmap_output <- NULL
+    output$ndvi_delta_map_output <- renderUI(NULL)   
+  }, ignoreInit = TRUE)
+  
   
   observeEvent(input$generate_ndvi_delta_plot, {
+    message("=========== Starting NDVI Delta Plot Generation =============")
+    
+    # To be extra sure that no figure is shown, clear previous error messages
+    ndvi_dm_ready(FALSE)
+    error_message_rv(NULL)
+    
     # NDVI Map Plots
     country_name <- input$country
     map_month <- match(input$month, month.name)
@@ -452,10 +525,35 @@ server <- function(input, output, session) {
         list(src = figure_path, 
              alt = "NDVI 2D map")
       }, deleteFile = FALSE)
+    
     }, error = function(e) {
-      output$ndvi_histmap_output <- renderUI({
-        div(style = "color: red;", strong("Error: "), "An error occurred while generating the NDVI data. Check that the necessary data files exist.", br(), br(), paste("Details:", e$message))
-      })
+      # Clear server outputs so nothing can re-appear
+      ndvi_dm_ready(FALSE)
+      error_message_rv(e$message)
+      output$ndvi_histmap_output <- NULL
+      output$ndvi_delta_map_output <- renderUI(NULL) 
+      
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating NDVI Delta Map (old message)---", "\n",
+              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("Map Year:", map_year), "\n",
+              paste("Map Month:", map_month), "\n", 
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir), "\n",
+              paste("Delta Map Figure Directory:", figure_path))
+      
       message("Error generating static NDVI map: ", e$message)
     })
 
@@ -476,36 +574,72 @@ server <- function(input, output, session) {
                     height = "500px", 
                     frameborder = 0)
       })
+      
+      ndvi_dm_ready(TRUE) # Mark UI as ready when both figures are rendered successfully (renderUI will now return the container)
+      error_message_rv(NULL) # Clear any previous error messages
+      
     }, error = function(e) {
-      output$ndvi_delta_map_output <- renderUI({
-        div(style = "color: red;", strong("Error: "), "An error occurred while generating the delta NDVI data. Check that the necessary data files exist.", br(), br(), paste("Details:", e$message))
-      })
+      # Clear server outputs so nothing can re-appear
+      ndvi_dm_ready(FALSE)
+      error_message_rv(e$message)
+      output$ndvi_histmap_output <- NULL
+      output$ndvi_delta_map_output <- renderUI(NULL) 
+      
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating NDVI Delta Map (old message)---", "\n",
+              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("Map Year:", map_year), "\n",
+              paste("Map Month:", map_month), "\n", 
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir), "\n",
+              paste("Delta Map Figure Directory:", figure_path))
+      
       message("Error generating delta NDVI map: ", e$message)
     })
+    message("=========== End of NDVI Delta Plot Generation =============")
   })
  
   # ---------------------------------------------------------------------------------------------------
   # BURNED AREA MAP AND EXPLORER FUNCTIONALITY
   # ---------------------------------------------------------------------------------------------------  
 
-  # Render a container for the timeseries plot or error message
-  output$ba_plot_container <- renderUI({
-    # Default UI is just an image placeholder
-    div(class = "image-fill top-center",
-        imageOutput("ba_plot_output"), height = "auto")
-  })  
+  # Reactive flag to control whether the BA timeseries UI should be shown
+  ba_ts_ready <- reactiveVal(FALSE)
   
   # Render a container for the plot or error message
-  output$ba_map_container <- renderUI({
-    # Default UI is just an image placeholder
-    fluidRow(
-      column(7, div(class = "image-fill top-center",
-                    imageOutput("ba_map_output"), height = "100%")),
-      column(5, htmlOutput("ba_leaflet_map"))
-    )
-  }) 
+  output$ba_plot_container <- renderUI({
+    error_msg <- error_message_rv()
     
-  # Set Reactive values
+    if (is.null(error_msg) && isTRUE(ba_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
+      div(class = "image-fill top-center",
+          imageOutput("ba_plot_output"), height = "auto")
+    } else {
+      return(NULL) # Return empty UI
+    }
+  })
+  
+  # Clear the image when switching tabs or subtabs
+  observeEvent(list(input$tabs, input$basubtabs), {
+    ba_ts_ready(FALSE)
+    error_message_rv(NULL) 
+    
+    # Clear server outputs so nothing can re-appear
+    output$ba_plot_output <- NULL
+  })
+  
+  # Set Reactive values for error message, GeoJSON export path checker and map_generated toggle
   error_message_rv <- reactiveVal(NULL)
   geojson_export_path_rv <- reactiveVal(NULL)
   map_generated <- reactiveVal(FALSE)  # Track if map has been generated
@@ -531,14 +665,17 @@ server <- function(input, output, session) {
   
   # Observe the Generate Figure button
   observeEvent(input$generate_ba_ts_figures, {
+    message("=========== Starting Burned Area Time Series Generation =============")
     
-    # BA Plot
+    # To be extra sure that no figure is shown, clear previous error messages
+    ba_ts_ready(FALSE)
+    error_message_rv(NULL)
+
     # Get user inputs
     country_name <- input$country
-    #end_month <- ifelse(input$year == lubridate::year(Sys.Date()), lubridate::month(Sys.Date())-1, 12)
-    #end_year <- input$year
     resolution <- input$resolution
     
+    # Handling to avoid end/start of new year errors
     if(input$year == lubridate::year(Sys.Date())) {
       end_month <- lubridate::month(Sys.Date()) - 2
       end_year <- input$year
@@ -585,39 +722,88 @@ server <- function(input, output, session) {
              # width = "100%", 
              alt = "Burned Area timeseries")
       }, deleteFile = FALSE)
-    }, error = function(e) {
-      # If an error occurs (commonly missing data), replace the default UI with a message
-      output$ba_plot_output <- renderUI({
-        div(
-          style = "color: red; margin-top: 20px;",
-          strong("Error: "),
-          "An error occurred while generating or reading the Burned Area timeseries data. ",
-          "This may be due to missing files or incorrect file paths. ",
-          "Please verify that the necessary data files exist in '", data_dir, "'.",
-          br(), br(),
-          paste("Details:", e$message), br(),
-          paste("Country Name:", country_name), br(),
-          paste("Resolution:", resolution), br(),
-          paste("End Year:", end_year), br(),
-          paste("End Month:", end_month), br(),
-          paste("Figures Directory:", figures_dir), br(),
-          paste("Data Directory:", data_dir))
-      })
       
-      # Optionally, also log the error to the console for debugging
+      ba_ts_ready(TRUE) # Mark UI as ready (renderUI will now return the container)
+      error_message_rv(NULL) # Clear any previous error messages
+      
+    }, error = function(e) {
+      # Clear server outputs so nothing can re-appear
+      ba_ts_ready(FALSE)
+      error_message_rv(e$message) 
+      output$ba_plot_output <- NULL
+      
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Also log the error to the console for debugging
+      message("---Error generating Burned Area timeseries (old message)---", "\n",
+              "An error occurred while generating or reading the Burned Area timeseries data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("End Year:", end_year), "\n",
+              paste("End Month:", end_month), "\n",
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir))
+      
+      # Also log the error to the console for debugging
       message("Error generating Burned Area timeseries: ", e$message)
     })
+    message("=========== End of Burned Area Time Series Generation =============")
+  })
+  
+  
+  #######################################################################
+  ########### BA Map Explorer ###########################################
+  #######################################################################
+  
+  # Reactive flag to control whether the BA Map UI should be shown
+  ba_map_ready <- reactiveVal(FALSE)
+  
+  # Render a container for the plot or error message
+  output$ba_map_container <- renderUI({
+    error_msg <- error_message_rv()
+    
+    if (is.null(error_msg) && isTRUE(ba_map_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
+      fluidRow(
+        column(7, div(class = "image-fill top-center",
+                      imageOutput("ba_map_output"), height = "100%")),
+        column(5, uiOutput("ba_leaflet_map"))
+      )
+    } else {
+      return(NULL) # Return empty UI
+    }
+  })
+  
+  # Clear the image when switching tabs or subtabs
+  observeEvent(list(input$tabs, input$basubtabs), {
+    ba_map_ready(FALSE)
+    error_message_rv(NULL) 
+    
+    # Clear server outputs so nothing can re-appear
+    output$ba_map_output <- NULL
+    output$ba_leaflet_map <- NULL
   })
   
   # Observe the Generate Figure button
   observeEvent(input$generate_ba_map_figures, {
+    message("=========== Starting Burned Area Map Generation =============")
     
-    # BA Map
+    # To be extra sure that no figure is shown, clear previous error messages
+    ba_map_ready(FALSE)
+    error_message_rv(NULL)
+    
     # Get user inputs
     country_name <- input$country
-    resolution <- input$resolution
-    map_month <- match(input$month, month.name)
-    map_year <- input$year
+    resolution   <- input$resolution
+    map_month    <- match(input$month, month.name)
+    map_year     <- input$year
     
     # Define script and figure paths
     figure_filename_bam <- paste0("figure_BurnedAreamaps_", country_name, "_", 
@@ -642,14 +828,43 @@ server <- function(input, output, session) {
              # width = "100%", 
              alt = "Burned Area 2D map")
       }, deleteFile = FALSE)
+      
       # Create GeoJSON export path (same logic as in the function) and update reactive values
       geojson_export_path <- file.path(figures_dir, paste0(tools::file_path_sans_ext(figure_filename_bam), ".geojson"))
       geojson_export_path_rv(geojson_export_path)
-      map_generated(TRUE)
+      
+      map_generated(TRUE) # Mark map generated as TRUE to enable the GeoJSON download button
+      error_message_rv(NULL) # Clear any previous error messages
+      
     }, error = function(e) {
-      output$ba_map_output <- renderUI({
-        div(style = "color: red;", strong("Error: "), "An error occurred while generating the Burned Area data. Check that the necessary data files exist.", br(), br(), paste("Details:", e$message))
-      })
+      # Clear server outputs so nothing can re-appear
+      ba_map_ready(FALSE)
+      error_message_rv(e$message)
+      output$ba_map_output <- NULL
+      output$ba_leaflet_map <- NULL
+      
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating BA Map (old message)---", "\n",
+              "An error occurred while generating or reading the BA map data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("Map Year:", map_year), "\n",
+              paste("Map Month:", map_month), "\n", 
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir), "\n",
+              paste("BA Map Figure Directory:", figure_path_bam), "\n",
+              paste("GeoJSON Export Directory:", geojson_export_path))
+      
       message("Error generating static Burned Area map: ", e$message)
     })
     
@@ -689,20 +904,43 @@ server <- function(input, output, session) {
           height = "400px",
           frameborder = 0)
       })
+      
+      ba_map_ready(TRUE) # Mark UI as ready when both figures are rendered successfully (renderUI will now return the container)
+      error_message_rv(NULL) # Clear any previous error messages
     }, error = function(e) {
-      # In case of error (likely missing data files), display a helpful message in the UI
-      output$ba_leaflet_map <- renderUI({
-        div(style = "color: red; margin-left: 10px; margin-top: 10px;",
-            strong("Error: "),
-            "An error occurred while generating or reading the Burned Area geojson data. ",
-            "This may be due to missing files or incorrect file paths. ",
-            "Please verify that the necessary data files exist in '", data_dir, "'.", br(), br(),
-            paste("Details:", e$message)
-        )})      
+      # Clear server outputs so nothing can re-appear
+      ba_map_ready(FALSE)
+      error_message_rv(e$message)
+      output$ba_map_output <- NULL
+      output$ba_leaflet_map <- NULL
+      
+      # Show error notification to user
+      showNotification(HTML("The figure cannot be generated due to missing GeoJSON data. 
+       Please contact us at 
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
+                       type = "error", 
+                       duration = 6)
+      
+      # Optionally, also log the error to the console for debugging
+      message("---Error generating BA Map or export (old message)---", "\n",
+              "An error occurred while generating or reading the BA map data. ", "\n",
+              "This may be due to missing files or incorrect file paths. ", "\n",
+              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+              paste("Details:", e$message), "\n",
+              paste("Country Name:", country_name), "\n",
+              paste("Resolution:", resolution), "\n",
+              paste("Map Year:", map_year), "\n",
+              paste("Map Month:", map_month), "\n", 
+              paste("Figures Directory:", figures_dir), "\n",
+              paste("Data Directory:", data_dir), "\n",
+              paste("BA Map Figure Directory:", figure_path_bam), "\n",
+              paste("GeoJSON Export Directory:", geojson_export_path))
+      
       # You could also log the error or print it to console
-      message("Error generating Burned Area map: ", e$message)
+      message("Error generating Burned Area map/export: ", e$message)
+      })   
+    message("=========== End of Burned Area Map Generation =============")
     })
-  })
   
   # Shiny download handler that uses the reactive value to access the GeoJSON path and filename
   output$download_ba_geojson <- downloadHandler(
