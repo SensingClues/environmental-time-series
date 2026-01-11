@@ -75,6 +75,17 @@ server <- function(input, output, session) {
   aoi_shape_rv <- reactiveVal(NULL)
   error_message_rv <- reactiveVal(NULL)
   
+  # Initialise year and month selector accounting for change of year
+  observeEvent(TRUE, {
+    current_year  <- lubridate::year(Sys.Date())
+    current_month <- lubridate::month(Sys.Date())
+    
+    if (current_month == 1) {
+      updateSelectInput(session, "year",
+                        selected = current_year - 1)
+    }
+  }, once = TRUE)
+  
   # Update month selector based on the selected year
   observeEvent(input$year, {
     req(input$year)
@@ -863,7 +874,7 @@ server <- function(input, output, session) {
               paste("Figures Directory:", figures_dir), "\n",
               paste("Data Directory:", data_dir), "\n",
               paste("BA Map Figure Directory:", figure_path_bam), "\n",
-              paste("GeoJSON Export Directory:", geojson_export_path))
+              paste("GeoJSON Export Directory:", geojson_export_path_rv()))
       
       message("Error generating static Burned Area map: ", e$message)
     })
@@ -934,7 +945,7 @@ server <- function(input, output, session) {
               paste("Figures Directory:", figures_dir), "\n",
               paste("Data Directory:", data_dir), "\n",
               paste("BA Map Figure Directory:", figure_path_bam), "\n",
-              paste("GeoJSON Export Directory:", geojson_export_path))
+              paste("GeoJSON Export Directory:", geojson_export_path_rv()))
       
       # You could also log the error or print it to console
       message("Error generating Burned Area map/export: ", e$message)
