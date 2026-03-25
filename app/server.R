@@ -149,15 +149,27 @@ server <- function(input, output, session) {
   
   # Reactive flag to control whether the NDVI timeseries UI should be shown
   ndvi_ts_ready <- reactiveVal(FALSE)
+  # Plotly figure: set after successful generate (works with conditional UI + renderPlotly).
+  ndvi_ts_plot_obj <- reactiveVal(NULL)
+  
+  output$ndvi_ts_plot_output <- plotly::renderPlotly({
+    p <- ndvi_ts_plot_obj()
+    shiny::req(p)
+    p
+  })
   
   # Render a container for the plot or error message
   output$ndvi_ts_plot_container <- renderUI({
     error_msg <- error_message_rv()
     
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
-      div(class = "image-fill top-center",
-          plotlyOutput("ndvi_ts_plot_output", height = "640px"),
-          height = "auto")
+      div(
+        class = "image-fill top-center",
+        style = "display: flex; flex-direction: column; align-items: stretch; width: 100%;",
+        ndvi_anomaly_titles_ui(input$resolution),
+        plotlyOutput("ndvi_ts_plot_output", height = "640px"),
+        height = "auto"
+      )
     } else {
       return(NULL) # Return empty UI
     }
@@ -166,9 +178,8 @@ server <- function(input, output, session) {
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_ts_ready(FALSE)
-    error_message_rv(NULL) 
-    
-    output$ndvi_ts_plot_output <- NULL
+    error_message_rv(NULL)
+    ndvi_ts_plot_obj(NULL)
   })
   
   # Observe the Generate Figure button
@@ -177,6 +188,7 @@ server <- function(input, output, session) {
     
     # To be extra sure that no figure is shown, clear previous error messages
     ndvi_ts_ready(FALSE)
+    ndvi_ts_plot_obj(NULL)
     error_message_rv(NULL)
     
     # Get user inputs
@@ -215,18 +227,15 @@ server <- function(input, output, session) {
         figure_filename = NULL
       )
       
-      output$ndvi_ts_plot_output <- plotly::renderPlotly({
-        ndvi_plotly
-      })
-      
-      ndvi_ts_ready(TRUE) # Mark UI as ready (renderUI will now return the container)
+      ndvi_ts_ready(TRUE)
+      ndvi_ts_plot_obj(ndvi_plotly)
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_ts_ready(FALSE)
+      ndvi_ts_plot_obj(NULL)
       error_message_rv(e$message)
-      output$ndvi_ts_plot_output <- NULL
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
