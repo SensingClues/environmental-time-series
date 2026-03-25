@@ -27,7 +27,8 @@ depends:
   leaflet,
   leaflet.extras,
   loggit,
-  htmlwidgets
+  htmlwidgets,
+  trend
 remotes:
   shinyTree/shinyTree
   

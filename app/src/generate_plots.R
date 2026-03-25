@@ -75,7 +75,8 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
   )
   
   if (isTRUE(return_plot)) {
-    return(ndvi_ts_plot)
+    stats <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
+    return(list(plot = ndvi_ts_plot, stats = stats))
   }
   
   invisible(NULL)

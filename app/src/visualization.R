@@ -168,6 +168,165 @@ ndvi_anomaly_titles_ui <- function(resolution = NULL) {
   )
 }
 
+# --- NDVI Explorer insight cards (Wilcoxon + Seasonal Mann–Kendall) -----------------
+
+ndvi_insight_wilcox_tooltip <- function() {
+  paste(
+    "This result is based on a Wilcoxon signed-rank test applied to monthly NDVI anomalies for the selected year.",
+    "It checks whether vegetation conditions in the selected year are significantly different from the historical monthly average.",
+    sep = "\n"
+  )
+}
+
+ndvi_insight_smk_tooltip <- function() {
+  paste(
+    "This result is based on the Seasonal Mann–Kendall test.",
+    "It evaluates whether vegetation greenness shows a consistent long-term increase or decrease over multiple years while accounting for seasonal patterns.",
+    sep = "\n"
+  )
+}
+
+#' Wilcoxon (monthly anomalies vs 0) and Seasonal Mann–Kendall on full monthly series.
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope)
+compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
+  train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+  test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+  climatology_df <- get_monthly_climatology(train_monthly)
+  plot_df <- make_anomaly_data(test_monthly, climatology_df)
+
+  anom <- stats::na.omit(plot_df$anomaly)
+  wilcox_p <- NA_real_
+  wilcox_median <- NA_real_
+  if (length(anom) >= 3L) {
+    wt <- stats::wilcox.test(anom, mu = 0)
+    wilcox_p <- unname(wt$p.value)
+    wilcox_median <- stats::median(anom)
+  }
+
+  smk_p <- NA_real_
+  sen_slope <- NA_real_
+  ndvi_monthly_full <- dplyr::bind_rows(train_monthly, test_monthly) %>%
+    dplyr::distinct(YearMonth, .keep_all = TRUE) %>%
+    dplyr::arrange(YearMonth)
+  if (nrow(ndvi_monthly_full) >= 24L) {
+    st <- ndvi_monthly_full$YearMonth[1]
+    ndvi_ts <- stats::ts(
+      ndvi_monthly_full$NDVI,
+      start = c(lubridate::year(st), lubridate::month(st)),
+      frequency = 12
+    )
+    smk <- tryCatch(trend::smk.test(ndvi_ts), error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(ndvi_ts), error = function(e) NULL)
+    if (!is.null(smk)) smk_p <- unname(smk$p.value)
+    if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
+  }
+
+  list(
+    wilcox_p = wilcox_p,
+    wilcox_median = wilcox_median,
+    smk_p = smk_p,
+    sen_slope = sen_slope
+  )
+}
+
+ndvi_insight_card_base_style <- function() {
+  "background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 10px; padding: 15px; height: 100%; box-sizing: border-box;"
+}
+
+ndvi_insight_icon_style <- function() {
+  "color: #0073e6; margin-left: 0.35em; cursor: help;"
+}
+
+#' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
+ndvi_insight_wilcox_card_ui <- function(stats) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$wilcox_p
+  med <- stats$wilcox_median
+  icon_st <- ndvi_insight_icon_style()
+  if (is.na(p)) {
+    main <- "Not enough data for this summary"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
+    main <- "Above normal vegetation"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
+    main <- "Below normal vegetation"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else {
+    main <- "No significant difference from normal"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  shiny::tags$div(
+    style = ndvi_insight_card_base_style(),
+    shiny::tags$h4(
+      style = "font-size: 16px; margin: 0 0 12px 0; font-weight: 600;",
+      "Current Year Condition",
+      shiny::tags$span(
+        title = ndvi_insight_wilcox_tooltip(),
+        style = icon_st,
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      style = paste0("font-size: 20px; font-weight: bold; color: ", col, "; line-height: 1.3;"),
+      main
+    ),
+    shiny::tags$div(
+      style = "font-size: 13px; color: #666; margin-top: 10px;",
+      p_lab
+    )
+  )
+}
+
+#' Shiny UI: Long-Term Trend card (Seasonal Mann–Kendall + Sen slope sign).
+ndvi_insight_smk_card_ui <- function(stats) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$smk_p
+  slope <- stats$sen_slope
+  icon_st <- ndvi_insight_icon_style()
+  if (is.na(p) || is.na(slope)) {
+    main <- "Long-term trend cannot be assessed from this series"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+  } else if (p < 0.05 && slope > 0) {
+    main <- "Significant increasing trend"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else if (p < 0.05 && slope < 0) {
+    main <- "Significant decreasing trend"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else {
+    main <- "No significant long-term trend"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  shiny::tags$div(
+    style = ndvi_insight_card_base_style(),
+    shiny::tags$h4(
+      style = "font-size: 16px; margin: 0 0 12px 0; font-weight: 600;",
+      "Long-Term Trend",
+      shiny::tags$span(
+        title = ndvi_insight_smk_tooltip(),
+        style = icon_st,
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      style = paste0("font-size: 20px; font-weight: bold; color: ", col, "; line-height: 1.3;"),
+      main
+    ),
+    shiny::tags$div(
+      style = "font-size: 13px; color: #666; margin-top: 10px;",
+      p_lab
+    )
+  )
+}
+
 #' Interactive NDVI time series vs training climatology and historic range (plotly).
 #' Titles with help icon: use ndvi_anomaly_titles_ui() in Shiny above plotlyOutput.
 plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {

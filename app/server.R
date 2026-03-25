@@ -151,6 +151,7 @@ server <- function(input, output, session) {
   ndvi_ts_ready <- reactiveVal(FALSE)
   # Plotly figure: set after successful generate (works with conditional UI + renderPlotly).
   ndvi_ts_plot_obj <- reactiveVal(NULL)
+  ndvi_ts_stats <- reactiveVal(NULL)
   
   output$ndvi_ts_plot_output <- plotly::renderPlotly({
     p <- ndvi_ts_plot_obj()
@@ -167,7 +168,7 @@ server <- function(input, output, session) {
         class = "image-fill top-center",
         style = "display: flex; flex-direction: column; align-items: stretch; width: 100%;",
         ndvi_anomaly_titles_ui(input$resolution),
-        plotlyOutput("ndvi_ts_plot_output", height = "640px"),
+        plotlyOutput("ndvi_ts_plot_output", height = "550px"),
         height = "auto"
       )
     } else {
@@ -175,11 +176,28 @@ server <- function(input, output, session) {
     }
   })
   
+  output$wilcoxon_card <- renderUI({
+    s <- ndvi_ts_stats()
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
+      return(NULL)
+    }
+    ndvi_insight_wilcox_card_ui(s)
+  })
+  
+  output$smk_card <- renderUI({
+    s <- ndvi_ts_stats()
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
+      return(NULL)
+    }
+    ndvi_insight_smk_card_ui(s)
+  })
+  
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_ts_ready(FALSE)
     error_message_rv(NULL)
     ndvi_ts_plot_obj(NULL)
+    ndvi_ts_stats(NULL)
   })
   
   # Observe the Generate Figure button
@@ -189,6 +207,7 @@ server <- function(input, output, session) {
     # To be extra sure that no figure is shown, clear previous error messages
     ndvi_ts_ready(FALSE)
     ndvi_ts_plot_obj(NULL)
+    ndvi_ts_stats(NULL)
     error_message_rv(NULL)
     
     # Get user inputs
@@ -216,7 +235,7 @@ server <- function(input, output, session) {
         dir.create(figures_dir, recursive = TRUE)
       }
       
-      ndvi_plotly <- generate_timeseries(
+      ndvi_result <- generate_timeseries(
         country_name    = country_name,
         resolution      = resolution,
         end_year        = end_year,
@@ -228,13 +247,15 @@ server <- function(input, output, session) {
       )
       
       ndvi_ts_ready(TRUE)
-      ndvi_ts_plot_obj(ndvi_plotly)
+      ndvi_ts_plot_obj(ndvi_result$plot)
+      ndvi_ts_stats(ndvi_result$stats)
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_ts_ready(FALSE)
       ndvi_ts_plot_obj(NULL)
+      ndvi_ts_stats(NULL)
       error_message_rv(e$message)
       
       # Show error notification to user
