@@ -134,8 +134,43 @@ ndvi_resolution_title_suffix <- function(resolution) {
   )
 }
 
+# Tooltip for NDVI help icon (HTML title attribute; \\n for line breaks in native tooltip).
+ndvi_anomaly_help_tooltip_text <- function() {
+  paste(
+    "NDVI measures how green vegetation is from satellite data.",
+    "Higher values = more vegetation.",
+    "Lower values = less vegetation.",
+    "This chart shows whether current conditions are better or worse than usual.",
+    sep = "\n"
+  )
+}
+
+# Shiny UI: tags$h4 title + tags$span circled-i with native multiline tooltip above plotlyOutput.
+ndvi_anomaly_titles_ui <- function(resolution = NULL) {
+  res_suffix <- ndvi_resolution_title_suffix(resolution)
+  tip <- ndvi_anomaly_help_tooltip_text()
+  icon_style <- paste(
+    "color: #0073e6;",
+    "margin-left: 0.35em;",
+    "cursor: help;"
+  )
+  shiny::tags$div(
+    style = "display: block; width: 100%; box-sizing: border-box;",
+    shiny::tags$h4(
+      style = "text-align: center; margin: 0 0 0.75em 0;",
+      paste0("NDVI Anomaly", res_suffix),
+      shiny::tags$span(
+        title = tip,
+        style = icon_style,
+        "ⓘ"
+      )
+    )
+  )
+}
+
 #' Interactive NDVI time series vs training climatology and historic range (plotly).
-plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolution = NULL) {
+#' Titles with help icon: use ndvi_anomaly_titles_ui() in Shiny above plotlyOutput.
+plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
 
@@ -144,8 +179,6 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolut
 
   plot_df <- make_anomaly_data(test_monthly, climatology_df) %>%
     dplyr::left_join(historic_range, by = "Month")
-
-  res_suffix <- ndvi_resolution_title_suffix(resolution)
 
   common_xaxis <- list(
     title      = "Month / Year",
@@ -185,11 +218,6 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolut
       hovertemplate   = "Date: %{x|%b %Y}<br>Historical average: %{y:.3f}<extra></extra>"
     ) %>%
     plotly::layout(
-      title = list(
-        text    = paste0("NDVI Compared with Historical Average", res_suffix),
-        x       = 0.5,
-        xanchor = "center"
-      ),
       xaxis = common_xaxis,
       yaxis = list(title = "NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"),
       template = "plotly_white",
@@ -197,11 +225,11 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolut
       legend = list(
         orientation = "h",
         x           = 1,
-        y           = 1.18,
+        y           = 1.05,
         xanchor     = "right",
         yanchor     = "top"
       ),
-      margin = list(t = 110, r = 30, l = 60, b = 60)
+      margin = list(t = 50, r = 30, l = 60, b = 60)
     )
 
   p2 <- plotly::plot_ly(
@@ -220,11 +248,6 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolut
     showlegend = FALSE
   ) %>%
     plotly::layout(
-      title = list(
-        text    = paste0("NDVI Anomaly", res_suffix),
-        x       = 0.5,
-        xanchor = "center"
-      ),
       xaxis = common_xaxis,
       yaxis = list(
         title           = "NDVI Anomaly",
@@ -235,7 +258,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolut
         gridcolor       = "rgba(0,0,0,0.08)"
       ),
       template = "plotly_white",
-      margin   = list(t = 60, r = 30, l = 60, b = 80)
+      margin   = list(t = 30, r = 30, l = 60, b = 80)
     )
 
   plotly::subplot(
@@ -246,7 +269,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolut
     titleY  = TRUE
   ) %>%
     plotly::layout(
-      margin = list(t = 120, r = 30, l = 60, b = 80)
+      margin = list(t = 20, r = 30, l = 60, b = 80)
     )
 }
 

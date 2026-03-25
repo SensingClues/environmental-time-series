@@ -71,8 +71,7 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
   ## Interactive plotly: NDVI vs climatology + historic range + monthly anomalies
   ndvi_ts_plot <- plot_ndvi_anomaly(
     train_ndvi_df = train_ndvi_df,
-    test_ndvi_df  = test_ndvi_df,
-    resolution    = resolution
+    test_ndvi_df  = test_ndvi_df
   )
   
   if (isTRUE(return_plot)) {
