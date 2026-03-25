@@ -17,7 +17,7 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
   
   # Set y value range for plot
   if (is.null(ylim_range)) {
-    ylim_range <- c(min(train_data$upper_ci)-0.25, max(train_data$upper_ci)+0.15)
+    ylim_range <- c(min(train_data$upper_ci) - 0.25, max(train_data$upper_ci) + 0.15)
   }
   
   # Add Month Name to dataframes
@@ -81,6 +81,173 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
   
   # Return the plot
   return(ts_plot)
+}
+
+# --- NDVI anomaly (Plotly): monthly NDVI vs climatology + historic min/max band ----
+
+aggregate_monthly_ndvi <- function(df) {
+  df %>%
+    dplyr::mutate(YearMonth = as.Date(YearMonth)) %>%
+    dplyr::filter(!is.na(YearMonth), !is.na(NDVI)) %>%
+    dplyr::group_by(YearMonth) %>%
+    dplyr::summarise(NDVI = mean(NDVI, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::arrange(YearMonth) %>%
+    dplyr::mutate(
+      Year  = lubridate::year(YearMonth),
+      Month = lubridate::month(YearMonth)
+    )
+}
+
+get_monthly_climatology <- function(train_df) {
+  train_df %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(climatology = mean(NDVI, na.rm = TRUE), .groups = "drop")
+}
+
+get_monthly_historic_range <- function(train_monthly) {
+  train_monthly %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(
+      lower = min(NDVI, na.rm = TRUE),
+      upper = max(NDVI, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+make_anomaly_data <- function(test_df, climatology_df) {
+  test_df %>%
+    dplyr::left_join(climatology_df, by = "Month") %>%
+    dplyr::mutate(
+      anomaly   = NDVI - climatology,
+      bar_color = ifelse(anomaly >= 0, "#009E73", "#D55E00")
+    )
+}
+
+ndvi_resolution_title_suffix <- function(resolution) {
+  if (is.null(resolution) || !nzchar(as.character(resolution))) {
+    return("")
+  }
+  paste0(
+    " (",
+    ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution),
+    "m res)"
+  )
+}
+
+#' Interactive NDVI time series vs training climatology and historic range (plotly).
+plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, resolution = NULL) {
+  train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+  test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+
+  climatology_df <- get_monthly_climatology(train_monthly)
+  historic_range   <- get_monthly_historic_range(train_monthly)
+
+  plot_df <- make_anomaly_data(test_monthly, climatology_df) %>%
+    dplyr::left_join(historic_range, by = "Month")
+
+  res_suffix <- ndvi_resolution_title_suffix(resolution)
+
+  common_xaxis <- list(
+    title      = "Month / Year",
+    tickmode   = "linear",
+    dtick      = "M1",
+    tickformat = "%b %Y",
+    tickangle  = -45,
+    showgrid   = FALSE
+  )
+
+  p1 <- plotly::plot_ly() %>%
+    plotly::add_ribbons(
+      data      = plot_df,
+      x         = ~YearMonth,
+      ymin      = ~lower,
+      ymax      = ~upper,
+      name      = "NDVI historic range (train)",
+      legendgroup = "historic",
+      fillcolor = "rgba(39, 129, 207, 0.2)",
+      line      = list(color = "transparent"),
+      hoverinfo = "skip"
+    ) %>%
+    plotly::add_lines(
+      data            = plot_df,
+      x               = ~YearMonth, y = ~NDVI,
+      type            = "scatter", mode = "lines+markers",
+      name            = "Current NDVI",
+      line            = list(width = 3, color = "#0072B2"),
+      marker          = list(size = 7, color = "#0072B2"),
+      hovertemplate   = "Date: %{x|%b %Y}<br>NDVI: %{y:.3f}<extra></extra>"
+    ) %>%
+    plotly::add_lines(
+      data            = plot_df,
+      x               = ~YearMonth, y = ~climatology,
+      name            = "Historical monthly average",
+      line            = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      hovertemplate   = "Date: %{x|%b %Y}<br>Historical average: %{y:.3f}<extra></extra>"
+    ) %>%
+    plotly::layout(
+      title = list(
+        text    = paste0("NDVI Compared with Historical Average", res_suffix),
+        x       = 0.5,
+        xanchor = "center"
+      ),
+      xaxis = common_xaxis,
+      yaxis = list(title = "NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"),
+      template = "plotly_white",
+      hovermode  = "x unified",
+      legend = list(
+        orientation = "h",
+        x           = 1,
+        y           = 1.18,
+        xanchor     = "right",
+        yanchor     = "top"
+      ),
+      margin = list(t = 110, r = 30, l = 60, b = 60)
+    )
+
+  p2 <- plotly::plot_ly(
+    data    = plot_df,
+    x       = ~YearMonth,
+    y       = ~anomaly,
+    type    = "bar",
+    marker  = list(color = plot_df$bar_color),
+    customdata = ~cbind(NDVI, climatology),
+    hovertemplate = paste0(
+      "Date: %{x|%b %Y}<br>",
+      "Anomaly: %{y:.3f}<br>",
+      "Current NDVI: %{customdata[0]:.3f}<br>",
+      "Historical average: %{customdata[1]:.3f}<extra></extra>"
+    ),
+    showlegend = FALSE
+  ) %>%
+    plotly::layout(
+      title = list(
+        text    = paste0("NDVI Anomaly", res_suffix),
+        x       = 0.5,
+        xanchor = "center"
+      ),
+      xaxis = common_xaxis,
+      yaxis = list(
+        title           = "NDVI Anomaly",
+        zeroline        = TRUE,
+        zerolinewidth   = 2,
+        zerolinecolor   = "gray50",
+        showgrid        = TRUE,
+        gridcolor       = "rgba(0,0,0,0.08)"
+      ),
+      template = "plotly_white",
+      margin   = list(t = 60, r = 30, l = 60, b = 80)
+    )
+
+  plotly::subplot(
+    p1, p2,
+    nrows   = 2,
+    shareX  = TRUE,
+    heights = c(0.58, 0.42),
+    titleY  = TRUE
+  ) %>%
+    plotly::layout(
+      margin = list(t = 120, r = 30, l = 60, b = 80)
+    )
 }
 
 # Function to plot Burned Area distribution
