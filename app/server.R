@@ -156,7 +156,7 @@ server <- function(input, output, session) {
     
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
       div(class = "image-fill top-center",
-          imageOutput("ndvi_ts_plot_output"), 
+          plotlyOutput("ndvi_ts_plot_output", height = "640px"),
           height = "auto")
     } else {
       return(NULL) # Return empty UI
@@ -196,40 +196,28 @@ server <- function(input, output, session) {
       end_year <- input$year
     }
     
-    # Define script and figure paths
-    figure_filename <- paste0("figure_NDVItimeseries_", country_name, "_", 
-                              end_month, "_", end_year, "_", resolution, "m", ".png")
-    figure_path <- file.path(figures_dir, figure_filename)
-    
     # Wrap data generation in tryCatch to handle missing files/errors
     tryCatch({
       
-      # If figure not stored yet, attempt to generate it
-      if (!file.exists(figure_path)) {
-        
-        # Ensure the figures directory exists
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
-        }
-        
-        # Create timeseries plot
-        generate_timeseries(
-          country_name   = country_name,
-          resolution     = resolution,
-          end_year       = end_year,
-          end_month      = end_month,
-          figures_dir    = figures_dir,
-          data_dir       = data_dir,
-          return_plot    = FALSE,
-          figure_filename= figure_filename
-        )
+      # Ensure the figures directory exists (used by other exports; NDVI TS is plotly)
+      if (!dir.exists(figures_dir)) {
+        dir.create(figures_dir, recursive = TRUE)
       }
       
-      # If no error so far, render the image
-      output$ndvi_ts_plot_output <- renderImage({
-        list(src   = figure_path,
-             alt   = "NDVI timeseries")
-      }, deleteFile = FALSE)
+      ndvi_plotly <- generate_timeseries(
+        country_name    = country_name,
+        resolution      = resolution,
+        end_year        = end_year,
+        end_month       = end_month,
+        figures_dir     = figures_dir,
+        data_dir        = data_dir,
+        return_plot     = TRUE,
+        figure_filename = NULL
+      )
+      
+      output$ndvi_ts_plot_output <- plotly::renderPlotly({
+        ndvi_plotly
+      })
       
       ndvi_ts_ready(TRUE) # Mark UI as ready (renderUI will now return the container)
       error_message_rv(NULL) # Clear any previous error messages
