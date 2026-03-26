@@ -256,15 +256,13 @@ textarea::-ms-input-placeholder {
 }
 
 .content .plot-container {
-  margin-left: 10px; 
-  margin-top: 10px; 
-  margin-right: 10px;
+  margin-top: 10px;
+  margin-bottom: 10px;
 }
 
 .busy-spinner {
-  position: fixed; 
+  position: relative;
   top: 45%; 
-  left: 60%; 
   transform: translate(-50%, -50%);
 }
 

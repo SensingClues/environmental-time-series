@@ -46,10 +46,10 @@ mod_body_ui <- function(id) {
                            Higher NDVI values generally indicate denser, healthier vegetation, while lower values may reflect sparse growth, environmental stress, or land cover changes driven by factors such as drought, deforestation, or agricultural activity."), 
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")),
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("ndvi_ts_plot_container"))),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
+                                       div(class="plot-container", uiOutput("ndvi_ts_plot_container"))),
                     ),
                     
                     tabPanel(
@@ -62,10 +62,10 @@ mod_body_ui <- function(id) {
                                This visualisation is ideal for agricultural monitoring, ecosystem assessments, and climate impact studies."), 
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")),
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("lc_plot_container"))),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
+                                       div(class="plot-container", uiOutput("lc_plot_container"))),
                     ),
                     
                     tabPanel(
@@ -78,10 +78,10 @@ mod_body_ui <- function(id) {
                           The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")),
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("dm_plot_container"))),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'", # Show this figure only when on this tab/subtab combination
+                                       div(class="plot-container", uiOutput("dm_plot_container"))),
                     ),
         )
       ),
@@ -104,12 +104,12 @@ mod_body_ui <- function(id) {
                           It highlights key trends and variations, offering insights into ecological patterns and changes."),
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")),
+                      # Busy Spinner always available for this tab
+                      mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'", # Show this figure only when on this tab/subtab combination
                                        div(class="plot-container", uiOutput("ba_plot_container"))),
-                      # Busy Spinner always available for this tab                                       
-                      mod_busy_spinner_ui("busy_spinner"),
                     ),
-                    
+
                     tabPanel(
                       title = "Burned Area Map Explorer",
                       value = "BAmapexplorer",
@@ -119,18 +119,18 @@ mod_body_ui <- function(id) {
                           This allows users to identify spatial patterns, detect anomalies, and compare burned areas within the Area of Interest (AOI)."),
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")),
+                      # Busy Spinner always available for this tab
+                      mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'", # Show this figure only when on this tab/subtab combination
                                        div(class="plot-container", br(),
-                                           shinyjs::disabled(downloadButton("download_ba_geojson", "Download Burned Area GeoJSON", 
+                                           shinyjs::disabled(downloadButton("download_ba_geojson", "Download Burned Area GeoJSON",
                                                                             class = "action_button",
                                                                             style = "width:255px; color: white; background-color: #00897B;")), br(), br(),
                                            uiOutput("ba_map_container")),
-                                       # Busy Spinner always available for this tab
-                                       mod_busy_spinner_ui("busy_spinner"),
                       )
                     )
         )
       )
     )
-  )  
+  )
 }
