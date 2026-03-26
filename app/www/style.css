@@ -474,3 +474,67 @@ input {
   object-fit: contain;
   flex-shrink: 0;
 }
+
+/* ============================
+   NDVI Explorer: anomaly title, insight cards, plot stack
+   ============================ */
+.ndvi-anomaly-title-wrap {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+.ndvi-anomaly-title-h4 {
+  text-align: center;
+  margin: 0 0 0.75em 0;
+}
+.ndvi-help-icon {
+  color: #0073e6;
+  margin-left: 0.35em;
+  cursor: help;
+}
+
+.ndvi-insight-card {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 15px;
+  height: 100%;
+  box-sizing: border-box;
+}
+.ndvi-insight-card__heading {
+  font-size: 16px;
+  margin: 0 0 12px 0;
+  font-weight: 600;
+}
+.ndvi-insight-card__main {
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 1.3;
+}
+.ndvi-insight-card__main--positive {
+  color: #009e73;
+}
+.ndvi-insight-card__main--negative {
+  color: #d55e00;
+}
+.ndvi-insight-card__main--neutral {
+  color: #555555;
+}
+.ndvi-insight-card__footer {
+  font-size: 13px;
+  color: #666;
+  margin-top: 10px;
+}
+
+.ndvi-ts-plot-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+}
+/* Beats .image-fill.top-center (align-items: flex-start) for NDVI title + plot column */
+.image-fill.top-center.ndvi-ts-plot-stack {
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+}

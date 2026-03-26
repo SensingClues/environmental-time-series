@@ -149,19 +149,14 @@ ndvi_anomaly_help_tooltip_text <- function() {
 ndvi_anomaly_titles_ui <- function(resolution = NULL) {
   res_suffix <- ndvi_resolution_title_suffix(resolution)
   tip <- ndvi_anomaly_help_tooltip_text()
-  icon_style <- paste(
-    "color: #0073e6;",
-    "margin-left: 0.35em;",
-    "cursor: help;"
-  )
   shiny::tags$div(
-    style = "display: block; width: 100%; box-sizing: border-box;",
+    class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
-      style = "text-align: center; margin: 0 0 0.75em 0;",
+      class = "ndvi-anomaly-title-h4",
       paste0("NDVI Anomaly", res_suffix),
       shiny::tags$span(
         title = tip,
-        style = icon_style,
+        class = "ndvi-help-icon",
         "ⓘ"
       )
     )
@@ -229,12 +224,14 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
   )
 }
 
-ndvi_insight_card_base_style <- function() {
-  "background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 10px; padding: 15px; height: 100%; box-sizing: border-box;"
-}
-
-ndvi_insight_icon_style <- function() {
-  "color: #0073e6; margin-left: 0.35em; cursor: help;"
+ndvi_insight_main_class <- function(col) {
+  if (identical(col, "#009E73")) {
+    "ndvi-insight-card__main ndvi-insight-card__main--positive"
+  } else if (identical(col, "#D55E00")) {
+    "ndvi-insight-card__main ndvi-insight-card__main--negative"
+  } else {
+    "ndvi-insight-card__main ndvi-insight-card__main--neutral"
+  }
 }
 
 #' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
@@ -242,7 +239,6 @@ ndvi_insight_wilcox_card_ui <- function(stats) {
   if (is.null(stats)) return(NULL)
   p <- stats$wilcox_p
   med <- stats$wilcox_median
-  icon_st <- ndvi_insight_icon_style()
   if (is.na(p)) {
     main <- "Not enough data for this summary"
     col <- "#555555"
@@ -261,22 +257,22 @@ ndvi_insight_wilcox_card_ui <- function(stats) {
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
   }
   shiny::tags$div(
-    style = ndvi_insight_card_base_style(),
+    class = "ndvi-insight-card",
     shiny::tags$h4(
-      style = "font-size: 16px; margin: 0 0 12px 0; font-weight: 600;",
+      class = "ndvi-insight-card__heading",
       "Current Year Condition",
       shiny::tags$span(
         title = ndvi_insight_wilcox_tooltip(),
-        style = icon_st,
+        class = "ndvi-help-icon",
         "ⓘ"
       )
     ),
     shiny::tags$div(
-      style = paste0("font-size: 20px; font-weight: bold; color: ", col, "; line-height: 1.3;"),
+      class = ndvi_insight_main_class(col),
       main
     ),
     shiny::tags$div(
-      style = "font-size: 13px; color: #666; margin-top: 10px;",
+      class = "ndvi-insight-card__footer",
       p_lab
     )
   )
@@ -287,7 +283,6 @@ ndvi_insight_smk_card_ui <- function(stats) {
   if (is.null(stats)) return(NULL)
   p <- stats$smk_p
   slope <- stats$sen_slope
-  icon_st <- ndvi_insight_icon_style()
   if (is.na(p) || is.na(slope)) {
     main <- "Long-term trend cannot be assessed from this series"
     col <- "#555555"
@@ -306,22 +301,22 @@ ndvi_insight_smk_card_ui <- function(stats) {
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
   }
   shiny::tags$div(
-    style = ndvi_insight_card_base_style(),
+    class = "ndvi-insight-card",
     shiny::tags$h4(
-      style = "font-size: 16px; margin: 0 0 12px 0; font-weight: 600;",
+      class = "ndvi-insight-card__heading",
       "Long-Term Trend",
       shiny::tags$span(
         title = ndvi_insight_smk_tooltip(),
-        style = icon_st,
+        class = "ndvi-help-icon",
         "ⓘ"
       )
     ),
     shiny::tags$div(
-      style = paste0("font-size: 20px; font-weight: bold; color: ", col, "; line-height: 1.3;"),
+      class = ndvi_insight_main_class(col),
       main
     ),
     shiny::tags$div(
-      style = "font-size: 13px; color: #666; margin-top: 10px;",
+      class = "ndvi-insight-card__footer",
       p_lab
     )
   )

@@ -165,8 +165,7 @@ server <- function(input, output, session) {
     
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
       div(
-        class = "image-fill top-center",
-        style = "display: flex; flex-direction: column; align-items: stretch; width: 100%;",
+        class = "image-fill top-center ndvi-ts-plot-stack",
         ndvi_anomaly_titles_ui(input$resolution),
         plotlyOutput("ndvi_ts_plot_output", height = "550px"),
         height = "auto"
