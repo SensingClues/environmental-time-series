@@ -226,7 +226,8 @@ textarea::-ms-input-placeholder {
   color: #6b7280;
 }
 
-.tab-panes .title {color:#6b7280;
+.tab-panes .title {
+  color:#6b7280;
 }
 
 
@@ -244,6 +245,27 @@ textarea::-ms-input-placeholder {
   background: #fff;
   border-top-right-radius: 8px;
   overflow: hidden;
+}
+
+.content .tab-explain {
+  margin: 10px;
+}
+
+.content .tab-pane-explain {
+  margin: 10px;
+}
+
+.content .plot-container {
+  margin-left: 10px; 
+  margin-top: 10px; 
+  margin-right: 10px;
+}
+
+.busy-spinner {
+  position: fixed; 
+  top: 45%; 
+  left: 60%; 
+  transform: translate(-50%, -50%);
 }
 
 /* 1) eerste: alle tab-panes weer verbergen zoals bootstrap beoogt */
@@ -334,7 +356,7 @@ textarea::-ms-input-placeholder {
 }
 
 # /////////////////
-
+  
 #sidePanel {
   position: fixed;
   top: 0;
