@@ -4,7 +4,7 @@ source("ui/mod_busy_spinner_ui.R")
 mod_body_ui <- function(id) {
   # ns <- NS(id)
   tagList(
-    #   # JS-override for notification position
+    # JS-override for notification position
     tags$head(
       tags$style(
         HTML(".shiny-notification {
