@@ -45,7 +45,8 @@ mod_body_ui <- function(id) {
                            It highlights key trends and variations, offering insights into ecological patterns and changes. 
                            Higher NDVI values generally indicate denser, healthier vegetation, while lower values may reflect sparse growth, environmental stress, or land cover changes driven by factors such as drought, deforestation, or agricultural activity."), 
                           br(), br(),
-                          span("Use the sidepanel to generate a graph.")),
+                          span("Use the sidepanel to generate a graph.")
+                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
@@ -61,7 +62,8 @@ mod_body_ui <- function(id) {
                                Users can track NDVI fluctuations throughout the year, observing peaks during growing seasons and declines during dry or dormant periods. 
                                This visualisation is ideal for agricultural monitoring, ecosystem assessments, and climate impact studies."), 
                           br(), br(),
-                          span("Use the sidepanel to generate a graph.")),
+                          span("Use the sidepanel to generate a graph.")
+                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
@@ -77,7 +79,8 @@ mod_body_ui <- function(id) {
                           This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month. 
                           The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
                           br(), br(),
-                          span("Use the sidepanel to generate a graph.")),
+                          span("Use the sidepanel to generate a graph.")
+                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'", # Show this figure only when on this tab/subtab combination
@@ -103,7 +106,8 @@ mod_body_ui <- function(id) {
                           It also shows the burned area up to the selected year, as well as the monthly averages up to that year. 
                           It highlights key trends and variations, offering insights into ecological patterns and changes."),
                           br(), br(),
-                          span("Use the sidepanel to generate a graph.")),
+                          span("Use the sidepanel to generate a graph.")
+                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'", # Show this figure only when on this tab/subtab combination
@@ -118,7 +122,8 @@ mod_body_ui <- function(id) {
                           The Burned Area Map Explorer displays the location and extent of burned areas for a given month and compares them with the same period in the previous year. 
                           This allows users to identify spatial patterns, detect anomalies, and compare burned areas within the Area of Interest (AOI)."),
                           br(), br(),
-                          span("Use the sidepanel to generate a graph.")),
+                          span("Use the sidepanel to generate a graph.")
+                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'", # Show this figure only when on this tab/subtab combination
