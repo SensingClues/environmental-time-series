@@ -138,8 +138,8 @@ ndvi_resolution_title_suffix <- function(resolution) {
 ndvi_anomaly_help_tooltip_text <- function() {
   paste(
     "NDVI measures how green vegetation is from satellite data.",
-    "Higher values = more vegetation.",
-    "Lower values = less vegetation.",
+    "Higher values (max 1) = more vegetation.",
+    "Lower values (min -1) = less vegetation.",
     "This chart shows whether current conditions are better or worse than usual.",
     sep = "\n"
   )
@@ -337,7 +337,15 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
   historic_range   <- get_monthly_historic_range(train_monthly)
 
   plot_df <- make_anomaly_data(test_monthly, climatology_df) %>%
-    dplyr::left_join(historic_range, by = "Month")
+    dplyr::left_join(historic_range, by = "Month") %>%
+    dplyr::mutate(
+      hover_bar = paste0(
+        "Date: ", format(YearMonth, "%b %Y"), "<br>",
+        "Anomaly: ", sprintf("%.3f", anomaly), "<br>",
+        "Current NDVI: ", sprintf("%.3f", NDVI), "<br>",
+        "Historical average: ", sprintf("%.3f", climatology)
+      )
+    )
 
   common_xaxis <- list(
     title      = "Month / Year",
@@ -397,13 +405,9 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
     y       = ~anomaly,
     type    = "bar",
     marker  = list(color = plot_df$bar_color),
-    customdata = ~cbind(NDVI, climatology),
-    hovertemplate = paste0(
-      "Date: %{x|%b %Y}<br>",
-      "Anomaly: %{y:.3f}<br>",
-      "Current NDVI: %{customdata[0]:.3f}<br>",
-      "Historical average: %{customdata[1]:.3f}<extra></extra>"
-    ),
+    text    = ~hover_bar,
+    textposition = "none",
+    hovertemplate = "%{text}<extra></extra>",
     showlegend = FALSE
   ) %>%
     plotly::layout(
