@@ -322,11 +322,32 @@ ndvi_insight_smk_card_ui <- function(stats) {
   )
 }
 
+ndvi_monthly_year_span_label <- function(monthly_df) {
+  if (is.null(monthly_df) || nrow(monthly_df) == 0L) return("")
+  ym <- monthly_df$YearMonth
+  ym <- ym[!is.na(ym)]
+  if (length(ym) == 0L) return("")
+  y_lo <- lubridate::year(min(ym))
+  y_hi <- lubridate::year(max(ym))
+  if (is.na(y_lo) || is.na(y_hi)) return("")
+  if (y_lo == y_hi) as.character(y_lo) else paste0(y_lo, "\u2013", y_hi)
+}
+
 #' Interactive NDVI time series vs training climatology and historic range (plotly).
 #' Titles with help icon: use ndvi_anomaly_titles_ui() in Shiny above plotlyOutput.
 plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+
+  train_yr <- ndvi_monthly_year_span_label(train_monthly)
+  test_yr <- ndvi_monthly_year_span_label(test_monthly)
+  name_ribbon <- if (nzchar(train_yr)) paste0("NDVI historic range (", train_yr, ")") else "NDVI historic range"
+  name_current <- if (nzchar(test_yr)) paste0("Current NDVI (", test_yr, ")") else "Current NDVI"
+  name_clim <- if (nzchar(train_yr)) {
+    paste0("Historical monthly average (", train_yr, ")")
+  } else {
+    "Historical monthly average"
+  }
 
   climatology_df <- get_monthly_climatology(train_monthly)
   historic_range   <- get_monthly_historic_range(train_monthly)
@@ -357,7 +378,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
       x         = ~YearMonth,
       ymin      = ~lower,
       ymax      = ~upper,
-      name      = "NDVI historic range",
+      name      = name_ribbon,
       legendgroup = "historic",
       fillcolor = "rgba(39, 129, 207, 0.2)",
       line      = list(color = "transparent"),
@@ -367,7 +388,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
       data            = plot_df,
       x               = ~YearMonth, y = ~NDVI,
       type            = "scatter", mode = "lines+markers",
-      name            = "Current NDVI",
+      name            = name_current,
       line            = list(width = 3, color = "#0072B2"),
       marker          = list(size = 7, color = "#0072B2"),
       hovertemplate   = "Date: %{x|%b %Y}<br>NDVI: %{y:.3f}<extra></extra>"
@@ -375,7 +396,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
     plotly::add_lines(
       data            = plot_df,
       x               = ~YearMonth, y = ~climatology,
-      name            = "Historical monthly average",
+      name            = name_clim,
       line            = list(width = 2.5, dash = "dash", color = "#E69F00"),
       hovertemplate   = "Date: %{x|%b %Y}<br>Historical average: %{y:.3f}<extra></extra>"
     ) %>%
