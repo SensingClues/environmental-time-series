@@ -177,12 +177,14 @@ ndvi_insight_smk_tooltip <- function() {
   paste(
     "This result is based on the Seasonal Mann–Kendall test.",
     "It evaluates whether vegetation greenness shows a consistent long-term increase or decrease over multiple years while accounting for seasonal patterns.",
+    "The test is run only when at least 60 monthly samples (5 years) are available.",
     sep = "\n"
   )
 }
 
 #' Wilcoxon (monthly anomalies vs 0) and Seasonal Mann–Kendall on full monthly series.
-#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope)
+#' SMK/Sen run only when there are at least 60 monthly points (5 years).
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months)
 compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
@@ -203,7 +205,9 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
   ndvi_monthly_full <- dplyr::bind_rows(train_monthly, test_monthly) %>%
     dplyr::distinct(YearMonth, .keep_all = TRUE) %>%
     dplyr::arrange(YearMonth)
-  if (nrow(ndvi_monthly_full) >= 24L) {
+  smk_n_months <- nrow(ndvi_monthly_full)
+  smk_min_months <- 60L
+  if (smk_n_months >= smk_min_months) {
     st <- ndvi_monthly_full$YearMonth[1]
     ndvi_ts <- stats::ts(
       ndvi_monthly_full$NDVI,
@@ -220,7 +224,8 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
     wilcox_p = wilcox_p,
     wilcox_median = wilcox_median,
     smk_p = smk_p,
-    sen_slope = sen_slope
+    sen_slope = sen_slope,
+    smk_n_months = smk_n_months
   )
 }
 
@@ -283,7 +288,22 @@ ndvi_insight_smk_card_ui <- function(stats) {
   if (is.null(stats)) return(NULL)
   p <- stats$smk_p
   slope <- stats$sen_slope
-  if (is.na(p) || is.na(slope)) {
+  n_m <- stats$smk_n_months
+  if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
+  smk_min_months <- 60L
+  if (!is.na(n_m) && n_m < smk_min_months) {
+    main <- "Long-term trend not shown (insufficient series length)"
+    col <- "#555555"
+    p_lab <- paste0(
+      "Seasonal Mann–Kendall applies only with ≥5 years of monthly data (",
+      smk_min_months,
+      " months). Current series: ",
+      n_m,
+      " month",
+      if (n_m == 1L) "" else "s",
+      "."
+    )
+  } else if (is.na(p) || is.na(slope)) {
     main <- "Long-term trend cannot be assessed from this series"
     col <- "#555555"
     p_lab <- "p-value: N/A"
