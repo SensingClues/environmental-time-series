@@ -357,7 +357,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
       x         = ~YearMonth,
       ymin      = ~lower,
       ymax      = ~upper,
-      name      = "NDVI historic range (train)",
+      name      = "NDVI historic range",
       legendgroup = "historic",
       fillcolor = "rgba(39, 129, 207, 0.2)",
       line      = list(color = "transparent"),
