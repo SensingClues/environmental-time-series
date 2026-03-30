@@ -17,6 +17,7 @@ library(shinyWidgets)
 library(sf)
 library(terra)
 library(tidyr)
+library(trend)
 library(plotly)
 library(htmlwidgets)
 
