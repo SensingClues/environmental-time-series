@@ -372,6 +372,58 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
     showgrid   = FALSE
   )
 
+  # Y limits from train + test so the scale stays stable when only the test year changes
+  pad_y_range <- function(lo, hi, pad = 0.05) {
+    if (!is.finite(lo) || !is.finite(hi)) return(NULL)
+    if (lo > hi) return(NULL)
+    if (abs(hi - lo) < 1e-9) {
+      pad_abs <- max(0.02, abs(lo) * 0.05 + 0.01)
+      return(c(lo - pad_abs, hi + pad_abs))
+    }
+    span <- hi - lo
+    c(lo - pad * span, hi + pad * span)
+  }
+  vals_ndvi_y <- c(
+    train_monthly$NDVI,
+    test_monthly$NDVI,
+    historic_range$lower,
+    historic_range$upper,
+    climatology_df$climatology
+  )
+  vals_ndvi_y <- vals_ndvi_y[is.finite(vals_ndvi_y)]
+  rng_ndvi <- if (length(vals_ndvi_y)) {
+    pad_y_range(min(vals_ndvi_y), max(vals_ndvi_y))
+  } else {
+    NULL
+  }
+
+  train_anom_df <- make_anomaly_data(train_monthly, climatology_df)
+  test_anom_df <- make_anomaly_data(test_monthly, climatology_df)
+  vals_anom_y <- c(train_anom_df$anomaly, test_anom_df$anomaly)
+  vals_anom_y <- vals_anom_y[is.finite(vals_anom_y)]
+  rng_anom <- if (length(vals_anom_y)) {
+    pad_y_range(min(vals_anom_y), max(vals_anom_y))
+  } else {
+    NULL
+  }
+
+  ndvi_y_axis <- list(
+    title = "NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"
+  )
+  if (!is.null(rng_ndvi)) {
+    ndvi_y_axis$range <- rng_ndvi
+    ndvi_y_axis$autorange <- FALSE
+  }
+
+  ndvi_anomaly_y_axis <- list(
+    title = "NDVI Anomaly", zeroline = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
+    showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"
+  )
+  if (!is.null(rng_anom)) {
+    ndvi_anomaly_y_axis$range <- rng_anom
+    ndvi_anomaly_y_axis$autorange <- FALSE
+  }
+
   p1 <- plotly::plot_ly() %>%
     plotly::add_ribbons(
       data      = plot_df,
@@ -402,7 +454,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
     ) %>%
     plotly::layout(
       xaxis = common_xaxis,
-      yaxis = list(title = "NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"),
+      yaxis = ndvi_y_axis,
       template = "plotly_white",
       hovermode  = "x unified",
       legend = list(
@@ -428,14 +480,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
   ) %>%
     plotly::layout(
       xaxis = common_xaxis,
-      yaxis = list(
-        title           = "NDVI Anomaly",
-        zeroline        = TRUE,
-        zerolinewidth   = 2,
-        zerolinecolor   = "gray50",
-        showgrid        = TRUE,
-        gridcolor       = "rgba(0,0,0,0.08)"
-      ),
+      yaxis = ndvi_anomaly_y_axis,
       template = "plotly_white",
       margin   = list(t = 30, r = 30, l = 60, b = 80)
     )
