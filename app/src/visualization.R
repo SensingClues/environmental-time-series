@@ -83,6 +83,208 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
   return(ts_plot)
 }
 
+# --- Land cover: shared colors (Leaflet map + Plotly time series) --------------------
+
+#' Named hex colors for canonical LULC class keys (aligned with map palette).
+#' @noRd
+land_cover_class_colors <- function() {
+  c(
+    Bare_ground        = "#EDE9E4",
+    Built_Area         = "#ED022A",
+    Crops              = "#FFDB5C",
+    Flooded_vegetation = "#87D19E",
+    Rangeland          = "#A7D282",
+    Trees              = "#358221",
+    Water              = "#1A5BAB"
+  )
+}
+
+#' Stable iteration order for loops / legend (matches \code{land_cover_class_colors} names).
+#' @noRd
+land_cover_class_keys_ordered <- function() {
+  names(land_cover_class_colors())
+}
+
+#' Map a GeoJSON filename stem (e.g. \code{Zambia_Mponda_Crops_2023}) to a class key.
+#' @noRd
+geojson_stem_to_class_key <- function(stem) {
+  keys <- land_cover_class_keys_ordered()
+  keys_by_len <- keys[order(-nchar(keys), keys)]
+  for (k in keys_by_len) {
+    if (grepl(k, stem, fixed = TRUE)) {
+      return(k)
+    }
+  }
+  NA_character_
+}
+
+#' Human-readable legend labels for class keys.
+#' @noRd
+land_cover_class_legend_labels <- function() {
+  c(
+    Bare_ground        = "Bare ground",
+    Built_Area         = "Built area",
+    Crops              = "Crops",
+    Flooded_vegetation = "Flooded vegetation",
+    Rangeland          = "Rangeland",
+    Trees              = "Trees",
+    Water              = "Water"
+  )
+}
+
+#' Multi-line Plotly NDVI by land cover + AoI historic CI ribbon (NDVI TS–style layout).
+#' @noRd
+plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
+                                          land_cover_summaries = NULL,
+                                          name_ribbon = "Historical range") {
+  # Extra padding + absolute margin so ribbon CIs and sharp dips stay inside the frame.
+  pad_y_range <- function(lo, hi, pad = 0.14, abs_margin = 0.035) {
+    if (!is.finite(lo) || !is.finite(hi)) {
+      return(NULL)
+    }
+    if (lo > hi) {
+      return(NULL)
+    }
+    if (abs(hi - lo) < 1e-9) {
+      pad_abs <- max(0.05, abs(lo) * 0.08 + 0.02)
+      return(c(lo - pad_abs, hi + pad_abs))
+    }
+    span <- hi - lo
+    low  <- lo - pad * span - abs_margin
+    high <- hi + pad * span + abs_margin
+    # Keep axis within plausible NDVI bounds while preserving headroom
+    low  <- max(-1.05, low)
+    high <- min(1.05, high)
+    if (low >= high) {
+      return(NULL)
+    }
+    c(low, high)
+  }
+
+  lc_colors <- land_cover_class_colors()
+  lc_labels <- land_cover_class_legend_labels()
+
+  ribbon_df <- train_ndvi_summary_aoi %>%
+    dplyr::mutate(
+      month_int   = as.integer(Month),
+      month_label = month.name[month_int],
+      month_label = factor(month_label, levels = month.name)
+    ) %>%
+    dplyr::filter(!is.na(month_label))
+
+  test_df <- land_cover_summaries %>%
+    dplyr::filter(period == "test") %>%
+    dplyr::mutate(
+      land_cover  = as.character(land_cover),
+      month_int   = as.integer(Month),
+      month_label = month.name[month_int],
+      month_label = factor(month_label, levels = month.name)
+    ) %>%
+    dplyr::filter(!is.na(month_label))
+
+  vals_y <- c(ribbon_df$lower_ci, ribbon_df$upper_ci, test_df$mean_val)
+  vals_y <- vals_y[is.finite(vals_y)]
+  rng_ndvi <- if (length(vals_y)) {
+    pad_y_range(min(vals_y), max(vals_y))
+  } else {
+    NULL
+  }
+
+  ndvi_y_axis <- list(title = "Mean NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)")
+  if (!is.null(rng_ndvi)) {
+    ndvi_y_axis$range <- rng_ndvi
+    ndvi_y_axis$autorange <- FALSE
+  }
+
+  xaxis <- list(
+    title          = "Month",
+    type           = "category",
+    categoryorder  = "array",
+    categoryarray  = month.name,
+    showgrid       = FALSE
+  )
+
+  p <- plotly::plot_ly() %>%
+    plotly::add_ribbons(
+      data        = ribbon_df,
+      x           = ~month_label,
+      ymin        = ~lower_ci,
+      ymax        = ~upper_ci,
+      name        = name_ribbon,
+      legendgroup = "baseline",
+      fillcolor   = "rgba(39, 129, 207, 0.2)",
+      line        = list(color = "transparent"),
+      hoverinfo   = "skip"
+    )
+
+  for (lc in land_cover_class_keys_ordered()) {
+    sub <- test_df %>% dplyr::filter(land_cover == lc)
+    if (nrow(sub) == 0) {
+      next
+    }
+    col <- unname(lc_colors[lc])
+    if (is.na(col)) {
+      next
+    }
+    lab <- unname(lc_labels[lc])
+    sub <- sub %>% dplyr::mutate(
+      hover_line = paste0(
+        lab, "<br>",
+        "Month: ", as.character(month_label), "<br>",
+        "Mean NDVI: ", sprintf("%.3f", mean_val)
+      )
+    )
+    p <- p %>% plotly::add_lines(
+      data          = sub,
+      x             = ~month_label,
+      y             = ~mean_val,
+      name          = lab,
+      legendgroup   = lc,
+      line          = list(width = 3, color = col),
+      marker        = list(size = 7, color = col),
+      text          = ~hover_line,
+      hovertemplate = "%{text}<extra></extra>"
+    )
+  }
+
+  p %>% plotly::layout(
+    xaxis = xaxis,
+    yaxis = ndvi_y_axis,
+    template = "plotly_white",
+    hovermode = "x unified",
+    legend = list(
+      orientation      = "h",
+      x                = 0.5,
+      xanchor          = "center",
+      y                = 1.02,
+      yanchor          = "bottom",
+      traceorder       = "normal",
+      # ~3 entries per row → 3 wrapped rows for 8 traces (avoids long ribbon vs. class overlap)
+      entrywidth       = 0.32,
+      entrywidthmode   = "fraction",
+      itemsizing       = "constant",
+      tracegroupgap    = 8,
+      bgcolor          = "rgba(255,255,255,0.92)",
+      bordercolor      = "rgba(0,0,0,0.08)",
+      borderwidth      = 1
+    ),
+    margin = list(t = 130, r = 30, l = 60, b = 60)
+  )
+}
+
+#' Shiny UI: title row above Land Cover Plotly chart.
+#' @noRd
+ndvi_landcover_titles_ui <- function(resolution = NULL) {
+  res_suffix <- ndvi_resolution_title_suffix(resolution)
+  shiny::tags$div(
+    class = "ndvi-anomaly-title-wrap",
+    shiny::tags$h4(
+      class = "ndvi-anomaly-title-h4",
+      paste0("NDVI by land cover", res_suffix)
+    )
+  )
+}
+
 # --- NDVI anomaly (Plotly): monthly NDVI vs climatology + historic min/max band ----
 
 aggregate_monthly_ndvi <- function(df) {
@@ -871,11 +1073,22 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     stop("No GeoJSON files found in the specified folder.")
   }
   
-  # Extract filenames 
+  # Extract filenames; stable order for legend / layer control
   landuse_types <- tools::file_path_sans_ext(basename(geojson_files))
+  ord <- order(landuse_types)
+  geojson_files <- geojson_files[ord]
+  landuse_types <- landuse_types[ord]
   
-  # Define a set of colors for the different GeoJSON files
-  colors <- colorFactor(c("#EDE9E4", "#ED022A", "#FFDB5C", "#87D19E", "#A7D282", "#358221", "#1A5BAB"), domain = landuse_types) # LULC colors
+  pal_named <- land_cover_class_colors()
+  hex_by_stem <- vapply(landuse_types, function(stem) {
+    k <- geojson_stem_to_class_key(stem)
+    if (is.na(k) || !k %in% names(pal_named)) {
+      return("#999999")
+    }
+    unname(pal_named[[k]])
+  }, character(1))
+  colors <- leaflet::colorFactor(palette = hex_by_stem, domain = landuse_types)
+  
   # Create a leaflet map with the specified basemap
   map <- leaflet() %>%
     addProviderTiles(providers[[basemap]])
