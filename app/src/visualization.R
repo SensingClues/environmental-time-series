@@ -256,7 +256,7 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
       orientation      = "h",
       x                = 0.5,
       xanchor          = "center",
-      y                = 1.02,
+      y                = 1.08,
       yanchor          = "bottom",
       traceorder       = "normal",
       # ~3 entries per row → 3 wrapped rows for 8 traces (avoids long ribbon vs. class overlap)
@@ -268,7 +268,7 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
       bordercolor      = "rgba(0,0,0,0.08)",
       borderwidth      = 1
     ),
-    margin = list(t = 130, r = 30, l = 60, b = 60)
+    margin = list(t = 118, r = 30, l = 60, b = 60)
   )
 }
 
@@ -279,7 +279,7 @@ ndvi_landcover_titles_ui <- function(resolution = NULL) {
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
-      class = "ndvi-anomaly-title-h4",
+      class = "ndvi-landcover-title-h4",
       paste0("NDVI by land cover", res_suffix)
     )
   )

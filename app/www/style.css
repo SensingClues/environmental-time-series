@@ -487,6 +487,11 @@ input {
   text-align: center;
   margin: 0 0 0.75em 0;
 }
+/* Land Cover chart: title sits just above in-plot legend — keep gap small */
+.ndvi-landcover-title-h4 {
+  text-align: center;
+  margin: 0 0 0.2rem 0;
+}
 .ndvi-help-icon {
   color: #0073e6;
   margin-left: 0.35em;

@@ -478,7 +478,7 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                     aoi_proj = aoi_proj)
   
   # AoI-wide historic ribbon (not masked by land cover class)
-  train_ndvi_df_aoi <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
+  train_ndvi_df_aoi <- get_ndvi_global_means_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
   train_ndvi_summary_aoi <- get_summary_ndvi_df(ndvi_df = train_ndvi_df_aoi)
   
   land_cover_summaries_list <- vector("list", length(land_cover_classes))
@@ -493,8 +493,8 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                   projection = "EPSG:4326")
     test_ndvi_lc <- mask(test_ndvi_msk, land_use_lc)
     train_ndvi_lc <- mask(train_ndvi_msk, land_use_lc)
-    test_ndvi_df_lc <- get_ndvi_df(ndvi_rast = test_ndvi_lc, dates = test_files_df$dates)
-    train_ndvi_df_lc <- get_ndvi_df(ndvi_rast = train_ndvi_lc, dates = train_files_df$dates)
+    test_ndvi_df_lc <- get_ndvi_global_means_df(ndvi_rast = test_ndvi_lc, dates = test_files_df$dates)
+    train_ndvi_df_lc <- get_ndvi_global_means_df(ndvi_rast = train_ndvi_lc, dates = train_files_df$dates)
     test_ndvi_summary_lc <- get_summary_ndvi_df(ndvi_df = test_ndvi_df_lc)
     train_ndvi_summary_lc <- get_summary_ndvi_df(ndvi_df = train_ndvi_df_lc)
     land_cover_summaries_list[[lc]] <- dplyr::bind_rows(
