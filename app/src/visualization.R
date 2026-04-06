@@ -327,6 +327,38 @@ lc_plot_mapbox_init_osm <- function() {
   getFromNamespace("geo2cartesian", "plotly")(p)
 }
 
+#' Expand a WGS84 bbox for \code{mapbox.bounds}: enough margin to fit the full AoI in the panel
+#' (wide subplots + title/modebar otherwise clip top/bottom).
+#' @noRd
+lc_mapbox_bounds_from_bbox <- function(xmin, xmax, ymin, ymax,
+                                        pad_frac = 0.14,
+                                        pad_min_deg = 0.0028,
+                                        north_extra_frac = 0.1,
+                                        south_extra_frac = 0.06) {
+  lon_range <- range(c(xmin, xmax))
+  lat_range <- range(c(ymin, ymax))
+  dx <- diff(lon_range)
+  dy <- diff(lat_range)
+  if (!is.finite(dx) || dx < 1e-6) {
+    dx <- 0.05
+  }
+  if (!is.finite(dy) || dy < 1e-6) {
+    dy <- 0.05
+  }
+  pl <- max(dx * pad_frac, pad_min_deg)
+  pb <- max(dy * pad_frac, pad_min_deg)
+  lon_range <- lon_range + c(-1, 1) * pl
+  lat_range <- lat_range + c(-1, 1) * pb
+  lat_range[1] <- lat_range[1] - dy * south_extra_frac
+  lat_range[2] <- lat_range[2] + dy * north_extra_frac
+  list(
+    west  = lon_range[1],
+    east  = lon_range[2],
+    south = lat_range[1],
+    north = lat_range[2]
+  )
+}
+
 #' Plotly mapbox map (OpenStreetMap) of LULC polygons from a folder; \code{legendgroup} matches NDVI lines.
 #' @param aoi_sf Optional study-area polygon(s); non-legend outline under LULC.
 #' @return List with \code{p} (plotly), \code{bbox_by_stem}.
@@ -346,11 +378,13 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   names(bbox_by_stem) <- landuse_types
   p <- lc_plot_mapbox_init_osm()
   all_xmin <- all_xmax <- all_ymin <- all_ymax <- numeric(0)
+  aoi_bbox_for_frame <- NULL
   aoi_ok <- !is.null(aoi_sf) && inherits(aoi_sf, "sf") && nrow(aoi_sf) > 0L &&
     !all(sf::st_is_empty(sf::st_geometry(aoi_sf)))
   if (isTRUE(aoi_ok)) {
     aoi_wgs <- lc_simplify_wgs84_for_plot(sf::st_transform(aoi_sf, 4326))
     bb_aoi <- sf::st_bbox(aoi_wgs)
+    aoi_bbox_for_frame <- bb_aoi
     all_xmin <- c(all_xmin, bb_aoi[["xmin"]])
     all_xmax <- c(all_xmax, bb_aoi[["xmax"]])
     all_ymin <- c(all_ymin, bb_aoi[["ymin"]])
@@ -409,28 +443,25 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       text = htxt
     )
   }
-  pad <- 0.03
-  lon_range <- range(c(all_xmin, all_xmax))
-  lat_range <- range(c(all_ymin, all_ymax))
-  dx <- diff(lon_range)
-  dy <- diff(lat_range)
-  if (!is.finite(dx) || dx < 1e-6) {
-    dx <- 0.05
+  if (!is.null(aoi_bbox_for_frame)) {
+    bnds <- lc_mapbox_bounds_from_bbox(
+      aoi_bbox_for_frame[["xmin"]],
+      aoi_bbox_for_frame[["xmax"]],
+      aoi_bbox_for_frame[["ymin"]],
+      aoi_bbox_for_frame[["ymax"]]
+    )
+  } else {
+    bnds <- lc_mapbox_bounds_from_bbox(
+      min(all_xmin, na.rm = TRUE),
+      max(all_xmax, na.rm = TRUE),
+      min(all_ymin, na.rm = TRUE),
+      max(all_ymax, na.rm = TRUE)
+    )
   }
-  if (!is.finite(dy) || dy < 1e-6) {
-    dy <- 0.05
-  }
-  lon_range <- lon_range + c(-1, 1) * dx * pad
-  lat_range <- lat_range + c(-1, 1) * dy * pad
   p <- p %>% plotly::layout(
     mapbox = list(
       style = "open-street-map",
-      bounds = list(
-        west  = lon_range[1],
-        east  = lon_range[2],
-        south = lat_range[1],
-        north = lat_range[2]
-      )
+      bounds = bnds
     ),
     margin = list(l = 4, r = 4, t = 24, b = 4),
     title = list(text = "Land cover", font = list(size = 12), y = 0.98, yref = "paper")
@@ -1386,19 +1417,19 @@ lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbo
   if (any(!is.finite(c(xmin, xmax, ymin, ymax)))) {
     return(invisible(NULL))
   }
+  bounds <- lc_mapbox_bounds_from_bbox(xmin, xmax, ymin, ymax)
   pb <- plotly::plotly_build(plot_obj)
   lay <- pb$x$layout
   mb_keys <- grep("^mapbox[0-9]*$", names(lay), value = TRUE)
   geo_keys <- grep("^geo[0-9]*$", names(lay), value = TRUE)
-  bounds <- list(west = xmin, east = xmax, south = ymin, north = ymax)
   rl <- list()
   if (length(mb_keys)) {
     gk <- mb_keys[length(mb_keys)]
     rl[[paste0(gk, ".bounds")]] <- bounds
   } else if (length(geo_keys)) {
     gk <- geo_keys[length(geo_keys)]
-    rl[[paste0(gk, ".lonaxis.range")]] <- c(xmin, xmax)
-    rl[[paste0(gk, ".lataxis.range")]] <- c(ymin, ymax)
+    rl[[paste0(gk, ".lonaxis.range")]] <- c(bounds$west, bounds$east)
+    rl[[paste0(gk, ".lataxis.range")]] <- c(bounds$south, bounds$north)
   } else {
     rl[["mapbox2.bounds"]] <- bounds
   }
