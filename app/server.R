@@ -291,13 +291,15 @@ server <- function(input, output, session) {
   # Reactive flag to control whether the NDVI Land Cover UI should be shown
   ndvi_lc_ready <- reactiveVal(FALSE)
   lc_ts_plot_obj <- reactiveVal(NULL)
-  lc_map_obj <- reactiveVal(NULL)
   lc_lc_highlight <- reactiveVal(NULL)
   lc_plot_year <- reactiveVal(NULL)
+  lc_map_bbox_by_stem <- reactiveVal(NULL)
   
   output$lc_ndvi_plot_output <- plotly::renderPlotly({
     p <- lc_ts_plot_obj()
     shiny::req(p)
+    p <- plotly::event_register(p, "plotly_restyle")
+    p <- plotly::event_register(p, "plotly_legendclick")
     p
   })
   
@@ -307,62 +309,89 @@ server <- function(input, output, session) {
     
     if (is.null(error_msg) && isTRUE(ndvi_lc_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
       fluidRow(
-        column(7,
+        column(12,
                div(
                  class = "image-fill top-center ndvi-ts-plot-stack",
                  ndvi_landcover_titles_ui(input$resolution, year = lc_plot_year()),
-                 plotlyOutput("lc_ndvi_plot_output", height = "550px"),
+                 plotlyOutput("lc_ndvi_plot_output", height = "1050px"),
                  height = "auto"
-               )),
-        column(5, leafletOutput("lc_landcover_map", height = "500px"))
+               ))
       )
     } else {
       return(NULL) # Return empty UI
     }
   })
   
-  output$lc_landcover_map <- leaflet::renderLeaflet({
-    m <- lc_map_obj()
-    shiny::req(m)
-    m
-  })
-  
-  # Land Cover map polygon click: emphasize matching Plotly line (toggle same class to clear)
-  observeEvent(input$lc_landcover_map_shape_click, {
+  # Shared logic for plotly_click and plotly_legendclick: highlight, optional geo fitBounds
+  lc_handle_ndvi_plotly_selection <- function(ed) {
     shiny::req(ndvi_lc_ready())
     p <- lc_ts_plot_obj()
     shiny::req(p)
-    stem <- input$lc_landcover_map_shape_click$group
-    if (is.null(stem) || !nzchar(stem)) {
+    if (!is.data.frame(ed) || nrow(ed) < 1L) {
       return(invisible(NULL))
     }
-    key <- geojson_stem_to_class_key(stem)
-    if (is.na(key)) {
+    cn <- ed$curveNumber[1]
+    if (length(cn) == 0L || is.na(cn)) {
       return(invisible(NULL))
     }
-    labs <- land_cover_class_legend_labels()
-    if (!key %in% names(labs)) {
+    pb <- plotly::plotly_build(p)
+    idx <- as.integer(cn) + 1L
+    if (idx < 1L || idx > length(pb$x$data)) {
       return(invisible(NULL))
     }
-    lab <- unname(labs[[key]])
+    nm <- pb$x$data[[idx]]$name
+    if (is.null(nm)) {
+      nm <- ""
+    } else {
+      nm <- as.character(nm)[1]
+    }
+    if (grepl("^Historical range", nm)) {
+      lc_lc_highlight(NULL)
+      lc_landcover_emphasize_plotly_traces(session, "lc_ndvi_plot_output", p, NULL)
+      return(invisible(NULL))
+    }
+    lab <- nm
+    labs_vals <- unname(land_cover_class_legend_labels())
+    if (!lab %in% labs_vals) {
+      return(invisible(NULL))
+    }
     cur <- lc_lc_highlight()
+    bbs <- lc_map_bbox_by_stem()
     if (!is.null(cur) && identical(cur, lab)) {
       lc_lc_highlight(NULL)
       lc_landcover_emphasize_plotly_traces(session, "lc_ndvi_plot_output", p, NULL)
     } else {
       lc_lc_highlight(lab)
       lc_landcover_emphasize_plotly_traces(session, "lc_ndvi_plot_output", p, lab)
+      stem <- landcover_label_to_stem(lab, bbs)
+      if (!is.na(stem) && !is.null(bbs[[stem]])) {
+        lc_plotly_relayout_geo_bbox(session, "lc_ndvi_plot_output", p, bbs[[stem]])
+      }
     }
-  })
+  }
+  
+  # Plotly chart click: highlight toggle + pan geo map to selected class
+  observeEvent(plotly::event_data("plotly_click", source = "lc_ndvi_plot_output"), {
+    ed <- plotly::event_data("plotly_click", source = "lc_ndvi_plot_output")
+    shiny::req(ed)
+    lc_handle_ndvi_plotly_selection(ed)
+  }, ignoreInit = TRUE, ignoreNULL = TRUE)
+  
+  # Plotly legend (line names): same behavior when legend fires events
+  observeEvent(plotly::event_data("plotly_legendclick", source = "lc_ndvi_plot_output"), {
+    ed <- plotly::event_data("plotly_legendclick", source = "lc_ndvi_plot_output")
+    shiny::req(ed)
+    lc_handle_ndvi_plotly_selection(ed)
+  }, ignoreInit = TRUE, ignoreNULL = TRUE)
   
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_lc_ready(FALSE)
     error_message_rv(NULL)
     lc_ts_plot_obj(NULL)
-    lc_map_obj(NULL)
     lc_lc_highlight(NULL)
     lc_plot_year(NULL)
+    lc_map_bbox_by_stem(NULL)
   }, ignoreInit = TRUE)
   
   # Observe the Generate Figure button
@@ -373,9 +402,9 @@ server <- function(input, output, session) {
     ndvi_lc_ready(FALSE)
     error_message_rv(NULL)
     lc_ts_plot_obj(NULL)
-    lc_map_obj(NULL)
     lc_lc_highlight(NULL)
     lc_plot_year(NULL)
+    lc_map_bbox_by_stem(NULL)
     
     # Get user inputs
     country_name <- input$country
@@ -394,13 +423,13 @@ server <- function(input, output, session) {
       end_year <- input$year
     }
     
-    # Land Cover map paths (defined before tryCatch so error handlers can reference them)
     map_year <- "2023"
     vector_src <- "S2_10m_LULC"
     lc_figure_filename <- paste0("figure_LULCmap_", country_name, "_", vector_src, "_", map_year, ".html")
     lc_figure_path <- file.path(figures_dir, lc_figure_filename)
+    data_path <- file.path(data_dir, "LandUse", country_name, paste0(vector_src, "_", map_year))
     
-    # Interactive Plotly time series (all land-cover classes + AoI ribbon)
+    # NDVI time series + Plotly geo map (shared legend via legendgroup); falls back to chart-only if no map folder
     tryCatch({
       if (!dir.exists(figures_dir)) {
         dir.create(figures_dir, recursive = TRUE)
@@ -414,90 +443,37 @@ server <- function(input, output, session) {
         figures_dir  = figures_dir,
         data_dir     = data_dir,
         land_use_src = "S2_10m_LULC_2023",
-        return_plot  = TRUE
+        return_plot  = TRUE,
+        lulc_map_folder_path = data_path
       )
       lc_ts_plot_obj(lc_result$plot)
-      
-    }, error = function(e) {
-      # Clear server outputs so nothing can re-appear
-      ndvi_lc_ready(FALSE)
-      error_message_rv(e$message)
-      lc_ts_plot_obj(NULL)
-      lc_map_obj(NULL)
-      lc_lc_highlight(NULL)
-      lc_plot_year(NULL)
-      
-      # Show error notification to user
-      showNotification(HTML("The figure cannot be generated due to missing data. 
-       Please contact us at 
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
-                       type = "error", 
-                       duration = 6)
-      
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating NDVI Land Cover (old message)---", "\n",
-              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("End Year:", end_year), "\n",
-              paste("End Month:", end_month), "\n",
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir), "\n",
-              paste("Land Cover Figure Directory:", lc_figure_path))
-      
-      # Optionally, also log the error to the console for debugging
-      message("Error generating Land Cover NDVI Timeseries: ", e$message)
-    })
-    
-    #### Land Cover map
-    # Input geojsons stored in country folder.
-    data_path <- paste0(data_dir, "/", "LandUse", "/", 
-                        country_name, "/", 
-                        vector_src, "_", map_year, "/")
-    
-    # Use tryCatch to handle missing data or any errors
-    tryCatch({
-      
-      if (!dir.exists(figures_dir)) {
-        dir.create(figures_dir, recursive = TRUE)
-      }
-      
-      # Build Leaflet for Shiny (always) and save HTML for export/bookmarks
-      lc_map <- plot_geojsons_from_a_folder(
-        folder_path = data_path,
-        save_path   = figures_dir,
-        filename    = lc_figure_filename
-      )
-      lc_map_obj(lc_map)
+      lc_map_bbox_by_stem(lc_result$bbox_by_stem)
       lc_plot_year(end_year)
       
-      ndvi_lc_ready(TRUE) # Mark UI as ready as both figures are generated (renderUI will now return the container)
-      error_message_rv(NULL) # Clear any previous error messages
-
+      htmlwidgets::saveWidget(
+        lc_result$plot,
+        file.path(figures_dir, lc_figure_filename),
+        selfcontained = TRUE
+      )
+      
+      ndvi_lc_ready(TRUE)
+      error_message_rv(NULL)
+      
     }, error = function(e) {
-      # Clear server outputs so nothing can re-appear
       ndvi_lc_ready(FALSE)
       error_message_rv(e$message)
       lc_ts_plot_obj(NULL)
-      lc_map_obj(NULL)
       lc_lc_highlight(NULL)
       lc_plot_year(NULL)
+      lc_map_bbox_by_stem(NULL)
       
-      # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
        Please contact us at 
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
                        type = "error", 
                        duration = 6)
       
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating NDVI Land Cover (old message)---", "\n",
-              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
+      message("---Error generating NDVI Land Cover---", "\n",
               paste("Details:", e$message), "\n",
               paste("Country Name:", country_name), "\n",
               paste("Resolution:", resolution), "\n",
@@ -507,8 +483,7 @@ server <- function(input, output, session) {
               paste("Data Directory:", data_dir), "\n",
               paste("Land Cover Figure Directory:", lc_figure_path))
       
-      # You could also log the error or print it to console
-      message("Error generating land use map: ", e$message)
+      message("Error generating Land Cover NDVI / map: ", e$message)
     })
     message("=========== End of NDVI Land Cover Generation =============")
   })

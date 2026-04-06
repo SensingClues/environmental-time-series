@@ -430,6 +430,7 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                           end_year = NULL, end_month = NULL,
                                           figures_dir = NULL, data_dir = NULL,
                                           return_plot = FALSE, figure_filename = NULL,
+                                          lulc_map_folder_path = NULL,
                                           land_cover_classes = c(
                                             "Crops", "Rangeland", "Water", "Trees",
                                             "Flooded_vegetation", "Built_Area", "Bare_ground"
@@ -505,14 +506,29 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
   land_cover_summaries <- dplyr::bind_rows(land_cover_summaries_list)
   
   name_ribbon <- paste0("Historical range (until ", format(start_date, "%b %Y"), ")")
-  ndvi_ts_plot <- plot_ndvi_landcover_multiline(
-    train_ndvi_summary_aoi = train_ndvi_summary_aoi,
-    land_cover_summaries   = land_cover_summaries,
-    name_ribbon            = name_ribbon
-  )
+  use_map <- !is.null(lulc_map_folder_path) && nzchar(lulc_map_folder_path) &&
+    dir.exists(lulc_map_folder_path)
+  if (isTRUE(use_map)) {
+    combo <- plot_ndvi_landcover_with_map(
+      train_ndvi_summary_aoi = train_ndvi_summary_aoi,
+      land_cover_summaries   = land_cover_summaries,
+      name_ribbon            = name_ribbon,
+      lulc_map_folder        = lulc_map_folder_path,
+      aoi_sf                 = aoi_proj
+    )
+    ndvi_ts_plot <- combo$plot
+    bbox_stem <- combo$bbox_by_stem
+  } else {
+    ndvi_ts_plot <- plot_ndvi_landcover_multiline(
+      train_ndvi_summary_aoi = train_ndvi_summary_aoi,
+      land_cover_summaries   = land_cover_summaries,
+      name_ribbon            = name_ribbon
+    )
+    bbox_stem <- NULL
+  }
   
   if (isTRUE(return_plot)) {
-    return(list(plot = ndvi_ts_plot))
+    return(list(plot = ndvi_ts_plot, bbox_by_stem = bbox_stem))
   }
   
   invisible(NULL)

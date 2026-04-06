@@ -133,10 +133,12 @@ land_cover_class_legend_labels <- function() {
 }
 
 #' Multi-line Plotly NDVI by land cover + AoI historic CI ribbon (NDVI TS–style layout).
+#' @param for_subplot If TRUE, tighter margins for stacking under a map panel.
 #' @noRd
 plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
                                           land_cover_summaries = NULL,
-                                          name_ribbon = "Historical range") {
+                                          name_ribbon = "Historical range",
+                                          for_subplot = FALSE) {
   # Extra padding + absolute margin so ribbon CIs and sharp dips stay inside the frame.
   pad_y_range <- function(lo, hi, pad = 0.14, abs_margin = 0.035) {
     if (!is.finite(lo) || !is.finite(hi)) {
@@ -247,6 +249,9 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
     )
   }
 
+  leg_y <- if (isTRUE(for_subplot)) 1.05 else 1.08
+  margin_t <- if (isTRUE(for_subplot)) 80 else 118
+  margin_b <- if (isTRUE(for_subplot)) 50 else 60
   p %>% plotly::layout(
     xaxis = xaxis,
     yaxis = ndvi_y_axis,
@@ -256,7 +261,7 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
       orientation      = "h",
       x                = 0.5,
       xanchor          = "center",
-      y                = 1.08,
+      y                = leg_y,
       yanchor          = "bottom",
       traceorder       = "normal",
       # ~3 entries per row → 3 wrapped rows for 8 traces (avoids long ribbon vs. class overlap)
@@ -268,8 +273,150 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
       bordercolor      = "rgba(0,0,0,0.08)",
       borderwidth      = 1
     ),
-    margin = list(t = 118, r = 30, l = 60, b = 60)
+    margin = list(t = margin_t, r = 30, l = 60, b = margin_b)
   )
+}
+
+#' Plotly geo map of LULC polygons from the same GeoJSON folder as Leaflet; \code{legendgroup} matches NDVI lines.
+#' @param aoi_sf Optional study-area polygon(s) in any CRS; drawn as a non-legend outline under LULC so the map
+#'   is not empty when all classes are toggled off.
+#' @return List with \code{p} (plotly), \code{bbox_by_stem} (named list of bboxes).
+#' @noRd
+plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
+  message(paste("Plotting LULC GeoJSON for Plotly map:", folder_path))
+  geojson_files <- list.files(folder_path, pattern = "\\.geojson$", full.names = TRUE)
+  if (length(geojson_files) == 0) {
+    stop("No GeoJSON files found in the specified folder.")
+  }
+  landuse_types <- tools::file_path_sans_ext(basename(geojson_files))
+  ord <- order(landuse_types)
+  geojson_files <- geojson_files[ord]
+  landuse_types <- landuse_types[ord]
+  pal_named <- land_cover_class_colors()
+  bbox_by_stem <- vector("list", length(landuse_types))
+  names(bbox_by_stem) <- landuse_types
+  p <- plotly::plot_ly()
+  all_xmin <- all_xmax <- all_ymin <- all_ymax <- numeric(0)
+  aoi_ok <- !is.null(aoi_sf) && inherits(aoi_sf, "sf") && nrow(aoi_sf) > 0L &&
+    !all(sf::st_is_empty(sf::st_geometry(aoi_sf)))
+  if (isTRUE(aoi_ok)) {
+    aoi_wgs <- sf::st_transform(aoi_sf, 4326)
+    bb_aoi <- sf::st_bbox(aoi_wgs)
+    all_xmin <- c(all_xmin, bb_aoi[["xmin"]])
+    all_xmax <- c(all_xmax, bb_aoi[["xmax"]])
+    all_ymin <- c(all_ymin, bb_aoi[["ymin"]])
+    all_ymax <- c(all_ymax, bb_aoi[["ymax"]])
+    p <- p %>% plotly::add_sf(
+      data = aoi_wgs,
+      inherit = FALSE,
+      name = "Study area",
+      showlegend = FALSE,
+      fillcolor = "rgba(0,0,0,0)",
+      line = list(color = "#222222", width = 2),
+      hoverinfo = "text",
+      text = "Study area"
+    )
+  }
+  for (i in seq_along(geojson_files)) {
+    stem <- landuse_types[i]
+    geojson_data <- sf::st_read(geojson_files[i], quiet = TRUE)
+    geojson_data <- sf::st_transform(geojson_data, crs = 4326)
+    bbox_by_stem[[stem]] <- sf::st_bbox(geojson_data)
+    lab_short <- geojson_stem_to_class_key(stem)
+    pop_lab <- if (!is.na(lab_short) && lab_short %in% names(land_cover_class_legend_labels())) {
+      unname(land_cover_class_legend_labels()[[lab_short]])
+    } else {
+      stem
+    }
+    col <- if (!is.na(lab_short) && lab_short %in% names(pal_named)) {
+      unname(pal_named[[lab_short]])
+    } else {
+      "#999999"
+    }
+    area_ha <- sum(as.numeric(sf::st_area(geojson_data))) / 10000
+    htxt <- paste0(
+      "<b>", htmltools::htmlEscape(pop_lab), "</b><br>",
+      "Area (hectares): ", round(area_ha, 3)
+    )
+    bb <- bbox_by_stem[[stem]]
+    all_xmin <- c(all_xmin, bb[["xmin"]])
+    all_xmax <- c(all_xmax, bb[["xmax"]])
+    all_ymin <- c(all_ymin, bb[["ymin"]])
+    all_ymax <- c(all_ymax, bb[["ymax"]])
+    lg <- if (!is.na(lab_short)) lab_short else stem
+    p <- p %>% plotly::add_sf(
+      data = geojson_data,
+      inherit = FALSE,
+      name = pop_lab,
+      legendgroup = lg,
+      showlegend = FALSE,
+      fillcolor = paste0(col, "99"),
+      line = list(color = col, width = 2),
+      hoverinfo = "text",
+      text = htxt
+    )
+  }
+  pad <- 0.03
+  lon_range <- range(c(all_xmin, all_xmax))
+  lat_range <- range(c(all_ymin, all_ymax))
+  dx <- diff(lon_range)
+  dy <- diff(lat_range)
+  if (!is.finite(dx) || dx < 1e-6) {
+    dx <- 0.05
+  }
+  if (!is.finite(dy) || dy < 1e-6) {
+    dy <- 0.05
+  }
+  lon_range <- lon_range + c(-1, 1) * dx * pad
+  lat_range <- lat_range + c(-1, 1) * dy * pad
+  p <- p %>% plotly::layout(
+    geo = list(
+      scope = "world",
+      projection = list(type = "mercator"),
+      lonaxis = list(range = lon_range),
+      lataxis = list(range = lat_range),
+      showland = TRUE,
+      landcolor = "rgb(245,245,245)",
+      showocean = TRUE,
+      oceancolor = "rgb(220,235,245)",
+      bgcolor = "rgba(255,255,255,0)"
+    ),
+    margin = list(l = 8, r = 8, t = 28, b = 8),
+    title = list(text = "Land cover", font = list(size = 12), y = 0.98, yref = "paper")
+  )
+  list(p = p, bbox_by_stem = bbox_by_stem)
+}
+
+#' NDVI chart stacked above Plotly geo map; shared \code{legendgroup} links legend to lines + polygons.
+#' @param aoi_sf Optional study-area polygon(s); passed to the map layer as a persistent outline.
+#' @noRd
+plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
+                                         land_cover_summaries = NULL,
+                                         name_ribbon = "Historical range",
+                                         lulc_map_folder = NULL,
+                                         aoi_sf = NULL) {
+  if (is.null(lulc_map_folder) || !nzchar(lulc_map_folder) || !dir.exists(lulc_map_folder)) {
+    stop("lulc_map_folder must be an existing directory with GeoJSON files.")
+  }
+  p_ts <- plot_ndvi_landcover_multiline(
+    train_ndvi_summary_aoi = train_ndvi_summary_aoi,
+    land_cover_summaries   = land_cover_summaries,
+    name_ribbon            = name_ribbon,
+    for_subplot            = TRUE
+  )
+  mp <- plot_lulc_map_plotly_from_folder(lulc_map_folder, aoi_sf = aoi_sf)
+  out <- plotly::subplot(
+    p_ts,
+    mp$p,
+    nrows = 2,
+    heights = c(0.48, 0.52),
+    margin = 0.05,
+    titleY = TRUE
+  )
+  out <- out %>%
+    plotly::layout(dragmode = "zoom") %>%
+    plotly::config(scrollZoom = TRUE, displayModeBar = TRUE)
+  list(plot = out, bbox_by_stem = mp$bbox_by_stem)
 }
 
 #' Shiny UI: title row above Land Cover Plotly chart.
@@ -1079,7 +1226,7 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     stop("No GeoJSON files found in the specified folder.")
   }
   
-  # Extract filenames; stable order for legend / layer control
+  # Extract filenames; stable order for overlay group names
   landuse_types <- tools::file_path_sans_ext(basename(geojson_files))
   ord <- order(landuse_types)
   geojson_files <- geojson_files[ord]
@@ -1099,6 +1246,9 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   map <- leaflet() %>%
     addProviderTiles(providers[[basemap]])
   
+  bbox_by_stem <- vector("list", length(landuse_types))
+  names(bbox_by_stem) <- landuse_types
+  
   # Loop through each GeoJSON file and add it to the map
   for (i in seq_along(geojson_files)) {
     file <- geojson_files[i]
@@ -1109,6 +1259,7 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     
     # Transform the GeoJSON data to WGS 84 (EPSG:4326)
     geojson_data <- sf::st_transform(geojson_data, crs = 4326)
+    bbox_by_stem[[landuse_type]] <- sf::st_bbox(geojson_data)
     
     # layerId + group: Shiny Leaflet shape_click identifies the land-cover layer
     lab_short <- geojson_stem_to_class_key(landuse_type)
@@ -1133,22 +1284,6 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
       )
   }
   
-  # Add the layers control to the map
-  map <- map %>%
-    addLayersControl(
-      overlayGroups = landuse_types,
-      options = layersControlOptions(collapsed = FALSE)
-    )
-  
-  # Add legend to the map
-  map <- map %>%
-    addLegend("bottomright", 
-              pal = colors, 
-              values = landuse_types, 
-              title = "Land Use Type",
-              labFormat = labelFormat(transform = function(x) x),
-              opacity = 1)
-  
   # Save the plot if save_path is provided
   if (!is.null(save_path)) {
     # Ensure the save directory exists
@@ -1160,11 +1295,59 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     saveWidget(map, file.path(save_path, filename), selfcontained = TRUE)
   }
   
-  # Return the map
-  return(map)
+  # Return map plus per-layer bboxes for leafletProxy fitBounds (Plotly -> map)
+  return(list(map = map, bbox_by_stem = bbox_by_stem))
 }
 
-#' Sync Land Cover Leaflet clicks with Plotly line emphasis (lc_ndvi_plot_output).
+#' Map human legend label to GeoJSON stem using class keys (see bbox_by_stem names).
+#' @noRd
+landcover_label_to_stem <- function(label, bbox_by_stem) {
+  if (is.null(label) || !nzchar(label)) {
+    return(NA_character_)
+  }
+  if (is.null(bbox_by_stem) || !length(bbox_by_stem)) {
+    return(NA_character_)
+  }
+  labs <- land_cover_class_legend_labels()
+  for (k in names(labs)) {
+    if (identical(unname(labs[[k]]), label)) {
+      for (st in names(bbox_by_stem)) {
+        if (identical(geojson_stem_to_class_key(st), k)) {
+          return(st)
+        }
+      }
+      return(NA_character_)
+    }
+  }
+  NA_character_
+}
+
+#' Pan combined NDVI+map Plotly figure to a WGS84 bbox (uses layout \code{geo*} from \code{plotly_build}).
+#' @noRd
+lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbox) {
+  if (is.null(bbox)) {
+    return(invisible(NULL))
+  }
+  xmin <- bbox[["xmin"]]
+  xmax <- bbox[["xmax"]]
+  ymin <- bbox[["ymin"]]
+  ymax <- bbox[["ymax"]]
+  if (any(!is.finite(c(xmin, xmax, ymin, ymax)))) {
+    return(invisible(NULL))
+  }
+  pb <- plotly::plotly_build(plot_obj)
+  lay <- pb$x$layout
+  geo_keys <- grep("^geo[0-9]*$", names(lay), value = TRUE)
+  gk <- if (length(geo_keys)) geo_keys[length(geo_keys)] else "geo"
+  rl <- list()
+  rl[[paste0(gk, ".lonaxis.range")]] <- c(xmin, xmax)
+  rl[[paste0(gk, ".lataxis.range")]] <- c(ymin, ymax)
+  prx <- plotly::plotlyProxy(plotly_output_id, session)
+  plotly::plotlyProxyInvoke(prx, "relayout", rl)
+  invisible(NULL)
+}
+
+#' Sync Land Cover plot/map clicks with Plotly line emphasis (lc_ndvi_plot_output).
 #' @noRd
 lc_landcover_emphasize_plotly_traces <- function(session, plotly_output_id, plot_obj, highlight_label = NULL) {
   if (is.null(plot_obj)) {
