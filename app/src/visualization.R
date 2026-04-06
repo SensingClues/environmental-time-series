@@ -273,14 +273,20 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
 }
 
 #' Shiny UI: title row above Land Cover Plotly chart.
+#' @param year Calendar year of the test NDVI series (same as server \code{end_year}); optional.
 #' @noRd
-ndvi_landcover_titles_ui <- function(resolution = NULL) {
+ndvi_landcover_titles_ui <- function(resolution = NULL, year = NULL) {
   res_suffix <- ndvi_resolution_title_suffix(resolution)
+  yr_part <- if (!is.null(year)) {
+    paste0(", ", as.integer(year))
+  } else {
+    ""
+  }
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
       class = "ndvi-landcover-title-h4",
-      paste0("NDVI by land cover", res_suffix)
+      paste0("NDVI by land cover", res_suffix, yr_part)
     )
   )
 }

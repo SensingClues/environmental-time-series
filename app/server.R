@@ -293,6 +293,7 @@ server <- function(input, output, session) {
   lc_ts_plot_obj <- reactiveVal(NULL)
   lc_map_obj <- reactiveVal(NULL)
   lc_lc_highlight <- reactiveVal(NULL)
+  lc_plot_year <- reactiveVal(NULL)
   
   output$lc_ndvi_plot_output <- plotly::renderPlotly({
     p <- lc_ts_plot_obj()
@@ -309,7 +310,7 @@ server <- function(input, output, session) {
         column(7,
                div(
                  class = "image-fill top-center ndvi-ts-plot-stack",
-                 ndvi_landcover_titles_ui(input$resolution),
+                 ndvi_landcover_titles_ui(input$resolution, year = lc_plot_year()),
                  plotlyOutput("lc_ndvi_plot_output", height = "550px"),
                  height = "auto"
                )),
@@ -361,6 +362,7 @@ server <- function(input, output, session) {
     lc_ts_plot_obj(NULL)
     lc_map_obj(NULL)
     lc_lc_highlight(NULL)
+    lc_plot_year(NULL)
   }, ignoreInit = TRUE)
   
   # Observe the Generate Figure button
@@ -373,6 +375,7 @@ server <- function(input, output, session) {
     lc_ts_plot_obj(NULL)
     lc_map_obj(NULL)
     lc_lc_highlight(NULL)
+    lc_plot_year(NULL)
     
     # Get user inputs
     country_name <- input$country
@@ -422,6 +425,7 @@ server <- function(input, output, session) {
       lc_ts_plot_obj(NULL)
       lc_map_obj(NULL)
       lc_lc_highlight(NULL)
+      lc_plot_year(NULL)
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
@@ -468,6 +472,7 @@ server <- function(input, output, session) {
         filename    = lc_figure_filename
       )
       lc_map_obj(lc_map)
+      lc_plot_year(end_year)
       
       ndvi_lc_ready(TRUE) # Mark UI as ready as both figures are generated (renderUI will now return the container)
       error_message_rv(NULL) # Clear any previous error messages
@@ -479,6 +484,7 @@ server <- function(input, output, session) {
       lc_ts_plot_obj(NULL)
       lc_map_obj(NULL)
       lc_lc_highlight(NULL)
+      lc_plot_year(NULL)
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
