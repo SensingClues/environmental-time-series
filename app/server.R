@@ -298,6 +298,7 @@ server <- function(input, output, session) {
   output$lc_ndvi_plot_output <- plotly::renderPlotly({
     p <- lc_ts_plot_obj()
     shiny::req(p)
+    p <- plotly::event_register(p, "plotly_click")
     p <- plotly::event_register(p, "plotly_restyle")
     p <- plotly::event_register(p, "plotly_legendclick")
     p
@@ -345,6 +346,9 @@ server <- function(input, output, session) {
     } else {
       nm <- as.character(nm)[1]
     }
+    if (identical(nm, "Study area")) {
+      return(invisible(NULL))
+    }
     if (grepl("^Historical range", nm)) {
       lc_lc_highlight(NULL)
       lc_landcover_emphasize_plotly_traces(session, "lc_ndvi_plot_output", p, NULL)
@@ -370,7 +374,7 @@ server <- function(input, output, session) {
     }
   }
   
-  # Plotly chart click: highlight toggle + pan geo map to selected class
+  # Plotly chart or map click: highlight toggle + pan map to selected class
   observeEvent(plotly::event_data("plotly_click", source = "lc_ndvi_plot_output"), {
     ed <- plotly::event_data("plotly_click", source = "lc_ndvi_plot_output")
     shiny::req(ed)

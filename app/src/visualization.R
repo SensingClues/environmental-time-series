@@ -105,6 +105,25 @@ land_cover_class_keys_ordered <- function() {
   names(land_cover_class_colors())
 }
 
+#' Convert \code{#RRGGBB} to \code{rgba(...)} for Plotly map polygons.
+#' Eight-digit hex (\code{#RRGGBBAA}) is unreliable for \code{scattermapbox} \code{fillcolor}
+#' in the browser; outlines still use \code{line.color}.
+#' @noRd
+lc_hex_to_rgba <- function(hex, alpha = 0.55) {
+  hex <- trimws(hex)
+  if (!grepl("^#", hex)) {
+    return(sprintf("rgba(128,128,128,%g)", alpha))
+  }
+  h <- substr(hex, 2, 7)
+  if (nchar(h) != 6L) {
+    return(sprintf("rgba(128,128,128,%g)", alpha))
+  }
+  r <- strtoi(substr(h, 1, 2), 16L)
+  g <- strtoi(substr(h, 3, 4), 16L)
+  b <- strtoi(substr(h, 5, 6), 16L)
+  sprintf("rgba(%d,%d,%d,%g)", r, g, b, alpha)
+}
+
 #' Map a GeoJSON filename stem (e.g. \code{Zambia_Mponda_Crops_2023}) to a class key.
 #' @noRd
 geojson_stem_to_class_key <- function(stem) {
@@ -277,10 +296,40 @@ plot_ndvi_landcover_multiline <- function(train_ndvi_summary_aoi = NULL,
   )
 }
 
-#' Plotly geo map of LULC polygons from the same GeoJSON folder as Leaflet; \code{legendgroup} matches NDVI lines.
-#' @param aoi_sf Optional study-area polygon(s) in any CRS; drawn as a non-legend outline under LULC so the map
-#'   is not empty when all classes are toggled off.
-#' @return List with \code{p} (plotly), \code{bbox_by_stem} (named list of bboxes).
+#' Lightly simplify geometries for Plotly (fewer vertices, faster client rendering).
+#' Uses metre tolerance on geographic CRS when sf S2 is enabled; otherwise degree tolerance.
+#' @noRd
+lc_simplify_wgs84_for_plot <- function(x, dTolerance_m = 75, dTolerance_deg = 0.00025) {
+  if (!inherits(x, "sf") || nrow(x) == 0L) {
+    return(x)
+  }
+  g <- sf::st_geometry(x)
+  if (all(sf::st_is_empty(g))) {
+    return(x)
+  }
+  dtol <- if (isTRUE(sf::sf_use_s2()) && sf::st_is_longlat(x)) dTolerance_m else dTolerance_deg
+  sg <- tryCatch(
+    sf::st_simplify(g, dTolerance = dtol, preserveTopology = TRUE),
+    error = function(e) g
+  )
+  sf::st_set_geometry(x, sg)
+}
+
+#' Empty mapbox figure for \code{add_sf} without \code{plot_mapbox()} (avoids MAPBOX_TOKEN error for OSM).
+#' \code{plot_mapbox()} calls \code{mapbox_token()}; open-street-map tiles work in the browser without a token.
+#' @noRd
+lc_plot_mapbox_init_osm <- function() {
+  p <- plotly::plot_ly()
+  if (is.null(p$x$layout)) {
+    p$x$layout <- list()
+  }
+  p$x$layout$mapType <- "mapbox"
+  getFromNamespace("geo2cartesian", "plotly")(p)
+}
+
+#' Plotly mapbox map (OpenStreetMap) of LULC polygons from a folder; \code{legendgroup} matches NDVI lines.
+#' @param aoi_sf Optional study-area polygon(s); non-legend outline under LULC.
+#' @return List with \code{p} (plotly), \code{bbox_by_stem}.
 #' @noRd
 plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   message(paste("Plotting LULC GeoJSON for Plotly map:", folder_path))
@@ -295,12 +344,12 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   pal_named <- land_cover_class_colors()
   bbox_by_stem <- vector("list", length(landuse_types))
   names(bbox_by_stem) <- landuse_types
-  p <- plotly::plot_ly()
+  p <- lc_plot_mapbox_init_osm()
   all_xmin <- all_xmax <- all_ymin <- all_ymax <- numeric(0)
   aoi_ok <- !is.null(aoi_sf) && inherits(aoi_sf, "sf") && nrow(aoi_sf) > 0L &&
     !all(sf::st_is_empty(sf::st_geometry(aoi_sf)))
   if (isTRUE(aoi_ok)) {
-    aoi_wgs <- sf::st_transform(aoi_sf, 4326)
+    aoi_wgs <- lc_simplify_wgs84_for_plot(sf::st_transform(aoi_sf, 4326))
     bb_aoi <- sf::st_bbox(aoi_wgs)
     all_xmin <- c(all_xmin, bb_aoi[["xmin"]])
     all_xmax <- c(all_xmax, bb_aoi[["xmax"]])
@@ -311,6 +360,8 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       inherit = FALSE,
       name = "Study area",
       showlegend = FALSE,
+      fill = "toself",
+      mode = "lines",
       fillcolor = "rgba(0,0,0,0)",
       line = list(color = "#222222", width = 2),
       hoverinfo = "text",
@@ -320,7 +371,7 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   for (i in seq_along(geojson_files)) {
     stem <- landuse_types[i]
     geojson_data <- sf::st_read(geojson_files[i], quiet = TRUE)
-    geojson_data <- sf::st_transform(geojson_data, crs = 4326)
+    geojson_data <- lc_simplify_wgs84_for_plot(sf::st_transform(geojson_data, crs = 4326))
     bbox_by_stem[[stem]] <- sf::st_bbox(geojson_data)
     lab_short <- geojson_stem_to_class_key(stem)
     pop_lab <- if (!is.na(lab_short) && lab_short %in% names(land_cover_class_legend_labels())) {
@@ -350,7 +401,9 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       name = pop_lab,
       legendgroup = lg,
       showlegend = FALSE,
-      fillcolor = paste0(col, "99"),
+      fill = "toself",
+      mode = "lines",
+      fillcolor = lc_hex_to_rgba(col, alpha = 0.55),
       line = list(color = col, width = 2),
       hoverinfo = "text",
       text = htxt
@@ -370,18 +423,16 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   lon_range <- lon_range + c(-1, 1) * dx * pad
   lat_range <- lat_range + c(-1, 1) * dy * pad
   p <- p %>% plotly::layout(
-    geo = list(
-      scope = "world",
-      projection = list(type = "mercator"),
-      lonaxis = list(range = lon_range),
-      lataxis = list(range = lat_range),
-      showland = TRUE,
-      landcolor = "rgb(245,245,245)",
-      showocean = TRUE,
-      oceancolor = "rgb(220,235,245)",
-      bgcolor = "rgba(255,255,255,0)"
+    mapbox = list(
+      style = "open-street-map",
+      bounds = list(
+        west  = lon_range[1],
+        east  = lon_range[2],
+        south = lat_range[1],
+        north = lat_range[2]
+      )
     ),
-    margin = list(l = 8, r = 8, t = 28, b = 8),
+    margin = list(l = 4, r = 4, t = 24, b = 4),
     title = list(text = "Land cover", font = list(size = 12), y = 0.98, yref = "paper")
   )
   list(p = p, bbox_by_stem = bbox_by_stem)
@@ -1322,7 +1373,7 @@ landcover_label_to_stem <- function(label, bbox_by_stem) {
   NA_character_
 }
 
-#' Pan combined NDVI+map Plotly figure to a WGS84 bbox (uses layout \code{geo*} from \code{plotly_build}).
+#' Pan combined NDVI+map Plotly figure to a WGS84 bbox (\code{mapbox*.bounds} or legacy \code{geo*}).
 #' @noRd
 lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbox) {
   if (is.null(bbox)) {
@@ -1337,11 +1388,20 @@ lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbo
   }
   pb <- plotly::plotly_build(plot_obj)
   lay <- pb$x$layout
+  mb_keys <- grep("^mapbox[0-9]*$", names(lay), value = TRUE)
   geo_keys <- grep("^geo[0-9]*$", names(lay), value = TRUE)
-  gk <- if (length(geo_keys)) geo_keys[length(geo_keys)] else "geo"
+  bounds <- list(west = xmin, east = xmax, south = ymin, north = ymax)
   rl <- list()
-  rl[[paste0(gk, ".lonaxis.range")]] <- c(xmin, xmax)
-  rl[[paste0(gk, ".lataxis.range")]] <- c(ymin, ymax)
+  if (length(mb_keys)) {
+    gk <- mb_keys[length(mb_keys)]
+    rl[[paste0(gk, ".bounds")]] <- bounds
+  } else if (length(geo_keys)) {
+    gk <- geo_keys[length(geo_keys)]
+    rl[[paste0(gk, ".lonaxis.range")]] <- c(xmin, xmax)
+    rl[[paste0(gk, ".lataxis.range")]] <- c(ymin, ymax)
+  } else {
+    rl[["mapbox2.bounds"]] <- bounds
+  }
   prx <- plotly::plotlyProxy(plotly_output_id, session)
   plotly::plotlyProxyInvoke(prx, "relayout", rl)
   invisible(NULL)
@@ -1363,6 +1423,15 @@ lc_landcover_emphasize_plotly_traces <- function(session, plotly_output_id, plot
   for (ii in seq_len(n)) {
     idx0 <- ii - 1L
     tr <- d[[ii]]
+    ttype <- tr[["type"]]
+    if (is.null(ttype)) {
+      ttype <- ""
+    } else {
+      ttype <- as.character(ttype)[1]
+    }
+    if (ttype %in% c("scattermapbox", "scattergeo")) {
+      next
+    }
     nm <- tr$name
     if (is.null(nm) || length(nm) == 0L) {
       nm <- ""
