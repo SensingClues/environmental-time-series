@@ -7,7 +7,7 @@ ui <- fluidPage(
   shiny.i18n::usei18n(i18n),
   extendShinyjs(text=js_lang, functions=c()),
   includeCSS("www/style.css"),
-  
+
   mod_header_ui("header"),
   
   div(class = "mainContainer",

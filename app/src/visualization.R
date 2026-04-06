@@ -518,6 +518,32 @@ plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
   list(plot = out, bbox_by_stem = mp$bbox_by_stem)
 }
 
+#' Land cover seasonal-pattern table (real DOM; works in Chrome without JS tooltip HTML quirks).
+#' @noRd
+lc_land_cover_explorer_tooltip_table_tags <- function() {
+  row <- function(a, b) {
+    shiny::tags$tr(shiny::tags$td(a), shiny::tags$td(b))
+  }
+  shiny::tags$table(
+    class = "lc-landcover-tooltip-table",
+    shiny::tags$thead(
+      shiny::tags$tr(
+        shiny::tags$th("Land cover"),
+        shiny::tags$th("Seasonal pattern")
+      )
+    ),
+    shiny::tags$tbody(
+      row("Trees", "Highest NDVI. Stable year-round, peaks in rainy season (Feb–Mar)."),
+      row("Rangeland", "Seasonal — rises with rainfall, drops in dry season."),
+      row("Crops", "Sharp rise at planting (Nov–Dec), drops at harvest (May–Jun)."),
+      row("Flooded vegetation", "Low when flooded early in year, rises as water recedes."),
+      row("Bare ground", "Lowest NDVI. Slight rise after rain due to sparse vegetation."),
+      row("Built area", "Low and stable — built surfaces don't respond to rainfall."),
+      row("Water", "Near-zero NDVI. Higher values indicate riverside mixed pixels.")
+    )
+  )
+}
+
 #' Shiny UI: title row above Land Cover Plotly chart.
 #' @param year Calendar year of the test NDVI series (same as server \code{end_year}); optional.
 #' @noRd
@@ -531,8 +557,18 @@ ndvi_landcover_titles_ui <- function(resolution = NULL, year = NULL) {
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
-      class = "ndvi-landcover-title-h4",
-      paste0("NDVI by land cover", res_suffix, yr_part)
+      class = "ndvi-anomaly-title-h4 ndvi-landcover-title-h4",
+      paste0("NDVI by land cover", res_suffix, yr_part),
+      shiny::tags$span(
+        class = "lc-landcover-tooltip-wrap",
+        tabindex = "0",
+        shiny::tags$span(class = "ndvi-help-icon", `aria-label` = "Land cover seasonal patterns", "ⓘ"),
+        shiny::tags$div(
+          class = "lc-landcover-tooltip-panel",
+          role = "tooltip",
+          lc_land_cover_explorer_tooltip_table_tags()
+        )
+      )
     )
   )
 }
