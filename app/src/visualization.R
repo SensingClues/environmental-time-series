@@ -327,8 +327,8 @@ lc_plot_mapbox_init_osm <- function() {
   getFromNamespace("geo2cartesian", "plotly")(p)
 }
 
-#' Expand a WGS84 bbox for \code{mapbox.bounds}: enough margin to fit the full AoI in the panel
-#' (wide subplots + title/modebar otherwise clip top/bottom).
+#' Expand a WGS84 bbox for framing the map: enough margin to fit the full AoI in the panel
+#' (used with \code{lc_mapbox_center_zoom_from_bounds}, not as Plotly \code{bounds}, which limits zoom).
 #' @noRd
 lc_mapbox_bounds_from_bbox <- function(xmin, xmax, ymin, ymax,
                                         pad_frac = 0.14,
@@ -357,6 +357,21 @@ lc_mapbox_bounds_from_bbox <- function(xmin, xmax, ymin, ymax,
     south = lat_range[1],
     north = lat_range[2]
   )
+}
+
+#' Initial \code{center} + \code{zoom} for \code{layout.mapbox} (do not set \code{bounds}: in Plotly.js that
+#' restricts pan/zoom like Mapbox \code{maxBounds}, so the wheel cannot zoom out past the study area).
+#' @noRd
+lc_mapbox_center_zoom_from_bounds <- function(west, east, south, north, zoom_pad = 0.45) {
+  lon_c <- (west + east) / 2
+  lat_c <- (south + north) / 2
+  lon_span <- max(east - west, 1e-8)
+  lat_span <- max(north - south, 1e-8)
+  lat_rad <- lat_c * pi / 180
+  span <- max(lat_span, lon_span * abs(cos(lat_rad)))
+  z <- log2(360 / span) - zoom_pad
+  z <- max(1, min(20, z))
+  list(center = list(lon = lon_c, lat = lat_c), zoom = z)
 }
 
 #' Plotly mapbox map (OpenStreetMap) of LULC polygons from a folder; \code{legendgroup} matches NDVI lines.
@@ -458,10 +473,12 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       max(all_ymax, na.rm = TRUE)
     )
   }
+  cz <- lc_mapbox_center_zoom_from_bounds(bnds$west, bnds$east, bnds$south, bnds$north)
   p <- p %>% plotly::layout(
     mapbox = list(
       style = "open-street-map",
-      bounds = bnds
+      center = cz$center,
+      zoom = cz$zoom
     ),
     margin = list(l = 4, r = 4, t = 24, b = 4),
     title = list(text = "Land cover", font = list(size = 12), y = 0.98, yref = "paper")
@@ -469,7 +486,7 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   list(p = p, bbox_by_stem = bbox_by_stem)
 }
 
-#' NDVI chart beside Plotly mapbox map (two columns); shared \code{legendgroup} links legend to lines + polygons.
+#' NDVI chart above Plotly mapbox map (two rows); shared \code{legendgroup} links legend to lines + polygons.
 #' @param aoi_sf Optional study-area polygon(s); passed to the map layer as a persistent outline.
 #' @noRd
 plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
@@ -490,10 +507,10 @@ plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
   out <- plotly::subplot(
     p_ts,
     mp$p,
-    nrows = 1,
-    widths = c(0.5, 0.5),
-    margin = 0.06,
-    titleY = TRUE
+    nrows = 2,
+    heights = c(0.48, 0.52),
+    margin = 0.08,
+    titleY = FALSE
   )
   out <- out %>%
     plotly::layout(dragmode = "zoom") %>%
@@ -1404,7 +1421,7 @@ landcover_label_to_stem <- function(label, bbox_by_stem) {
   NA_character_
 }
 
-#' Pan combined NDVI+map Plotly figure to a WGS84 bbox (\code{mapbox*.bounds} or legacy \code{geo*}).
+#' Pan combined NDVI+map Plotly figure to a WGS84 bbox (\code{mapbox*.center}/\code{zoom}; legacy \code{geo*}).
 #' @noRd
 lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbox) {
   if (is.null(bbox)) {
@@ -1417,7 +1434,8 @@ lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbo
   if (any(!is.finite(c(xmin, xmax, ymin, ymax)))) {
     return(invisible(NULL))
   }
-  bounds <- lc_mapbox_bounds_from_bbox(xmin, xmax, ymin, ymax)
+  bnds <- lc_mapbox_bounds_from_bbox(xmin, xmax, ymin, ymax)
+  cz <- lc_mapbox_center_zoom_from_bounds(bnds$west, bnds$east, bnds$south, bnds$north, zoom_pad = 0.35)
   pb <- plotly::plotly_build(plot_obj)
   lay <- pb$x$layout
   mb_keys <- grep("^mapbox[0-9]*$", names(lay), value = TRUE)
@@ -1425,13 +1443,15 @@ lc_plotly_relayout_geo_bbox <- function(session, plotly_output_id, plot_obj, bbo
   rl <- list()
   if (length(mb_keys)) {
     gk <- mb_keys[length(mb_keys)]
-    rl[[paste0(gk, ".bounds")]] <- bounds
+    rl[[paste0(gk, ".center")]] <- cz$center
+    rl[[paste0(gk, ".zoom")]] <- cz$zoom
   } else if (length(geo_keys)) {
     gk <- geo_keys[length(geo_keys)]
-    rl[[paste0(gk, ".lonaxis.range")]] <- c(bounds$west, bounds$east)
-    rl[[paste0(gk, ".lataxis.range")]] <- c(bounds$south, bounds$north)
+    rl[[paste0(gk, ".lonaxis.range")]] <- c(bnds$west, bnds$east)
+    rl[[paste0(gk, ".lataxis.range")]] <- c(bnds$south, bnds$north)
   } else {
-    rl[["mapbox2.bounds"]] <- bounds
+    rl[["mapbox2.center"]] <- cz$center
+    rl[["mapbox2.zoom"]] <- cz$zoom
   }
   prx <- plotly::plotlyProxy(plotly_output_id, session)
   plotly::plotlyProxyInvoke(prx, "relayout", rl)

@@ -314,7 +314,7 @@ server <- function(input, output, session) {
                div(
                  class = "image-fill top-center ndvi-ts-plot-stack",
                  ndvi_landcover_titles_ui(input$resolution, year = lc_plot_year()),
-                 plotlyOutput("lc_ndvi_plot_output", height = "1050px"),
+                 plotlyOutput("lc_ndvi_plot_output", height = "1200px"),
                  height = "auto"
                ))
       )
