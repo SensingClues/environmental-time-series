@@ -1104,11 +1104,27 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     # Transform the GeoJSON data to WGS 84 (EPSG:4326)
     geojson_data <- sf::st_transform(geojson_data, crs = 4326)
     
-    # Add the GeoJSON data to the map with a different color
+    # layerId + group: Shiny Leaflet shape_click identifies the land-cover layer
+    lab_short <- geojson_stem_to_class_key(landuse_type)
+    pop_lab <- if (!is.na(lab_short) && lab_short %in% names(land_cover_class_legend_labels())) {
+      unname(land_cover_class_legend_labels()[[lab_short]])
+    } else {
+      landuse_type
+    }
     map <- map %>%
-      addPolygons(data = geojson_data, color = colors(landuse_type), weight = 2, 
-                  opacity = 0.6, fillOpacity = 0.3, group = landuse_type,
-                  popup = paste("Area (hectares):", round(as.numeric(sf::st_area(geojson_data)) / 10000, 3)))
+      addPolygons(
+        data         = geojson_data,
+        color        = colors(landuse_type),
+        weight       = 2,
+        opacity      = 0.6,
+        fillOpacity  = 0.3,
+        group        = landuse_type,
+        layerId      = rep(landuse_type, nrow(geojson_data)),
+        popup        = paste0(
+          "<strong>", htmltools::htmlEscape(pop_lab), "</strong><br>",
+          "Area (hectares): ", round(as.numeric(sf::st_area(geojson_data)) / 10000, 3)
+        )
+      )
   }
   
   # Add the layers control to the map
@@ -1140,6 +1156,45 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   
   # Return the map
   return(map)
+}
+
+#' Sync Land Cover Leaflet clicks with Plotly line emphasis (lc_ndvi_plot_output).
+#' @noRd
+lc_landcover_emphasize_plotly_traces <- function(session, plotly_output_id, plot_obj, highlight_label = NULL) {
+  if (is.null(plot_obj)) {
+    return(invisible(NULL))
+  }
+  proxy <- plotly::plotlyProxy(plotly_output_id, session)
+  pb <- plotly::plotly_build(plot_obj)
+  d <- pb$x$data
+  n <- length(d)
+  if (n == 0L) {
+    return(invisible(NULL))
+  }
+  for (ii in seq_len(n)) {
+    idx0 <- ii - 1L
+    tr <- d[[ii]]
+    nm <- tr$name
+    if (is.null(nm) || length(nm) == 0L) {
+      nm <- ""
+    } else {
+      nm <- as.character(nm)[1]
+    }
+    is_ribbon <- grepl("^Historical range", nm)
+    if (is_ribbon) {
+      op <- if (is.null(highlight_label)) 1 else 0.42
+    } else {
+      op <- if (is.null(highlight_label)) {
+        1
+      } else if (identical(nm, highlight_label)) {
+        1
+      } else {
+        0.18
+      }
+    }
+    plotly::plotlyProxyInvoke(proxy, "restyle", list(opacity = op), idx0)
+  }
+  invisible(NULL)
 }
 
 plot_ba_geojson_from_a_folder <- function(input_file_path, data_dir = data_dir, country = country_name, 

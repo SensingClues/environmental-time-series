@@ -291,6 +291,8 @@ server <- function(input, output, session) {
   # Reactive flag to control whether the NDVI Land Cover UI should be shown
   ndvi_lc_ready <- reactiveVal(FALSE)
   lc_ts_plot_obj <- reactiveVal(NULL)
+  lc_map_obj <- reactiveVal(NULL)
+  lc_lc_highlight <- reactiveVal(NULL)
   
   output$lc_ndvi_plot_output <- plotly::renderPlotly({
     p <- lc_ts_plot_obj()
@@ -311,10 +313,44 @@ server <- function(input, output, session) {
                  plotlyOutput("lc_ndvi_plot_output", height = "550px"),
                  height = "auto"
                )),
-        column(5, uiOutput("landcover_map_output"))
+        column(5, leafletOutput("lc_landcover_map", height = "500px"))
       )
     } else {
       return(NULL) # Return empty UI
+    }
+  })
+  
+  output$lc_landcover_map <- leaflet::renderLeaflet({
+    m <- lc_map_obj()
+    shiny::req(m)
+    m
+  })
+  
+  # Land Cover map polygon click: emphasize matching Plotly line (toggle same class to clear)
+  observeEvent(input$lc_landcover_map_shape_click, {
+    shiny::req(ndvi_lc_ready())
+    p <- lc_ts_plot_obj()
+    shiny::req(p)
+    stem <- input$lc_landcover_map_shape_click$group
+    if (is.null(stem) || !nzchar(stem)) {
+      return(invisible(NULL))
+    }
+    key <- geojson_stem_to_class_key(stem)
+    if (is.na(key)) {
+      return(invisible(NULL))
+    }
+    labs <- land_cover_class_legend_labels()
+    if (!key %in% names(labs)) {
+      return(invisible(NULL))
+    }
+    lab <- unname(labs[[key]])
+    cur <- lc_lc_highlight()
+    if (!is.null(cur) && identical(cur, lab)) {
+      lc_lc_highlight(NULL)
+      lc_landcover_emphasize_plotly_traces(session, "lc_ndvi_plot_output", p, NULL)
+    } else {
+      lc_lc_highlight(lab)
+      lc_landcover_emphasize_plotly_traces(session, "lc_ndvi_plot_output", p, lab)
     }
   })
   
@@ -323,9 +359,8 @@ server <- function(input, output, session) {
     ndvi_lc_ready(FALSE)
     error_message_rv(NULL)
     lc_ts_plot_obj(NULL)
-    
-    # Clear server outputs so nothing can re-appear
-    output$landcover_map_output <- renderUI(NULL)
+    lc_map_obj(NULL)
+    lc_lc_highlight(NULL)
   }, ignoreInit = TRUE)
   
   # Observe the Generate Figure button
@@ -336,6 +371,8 @@ server <- function(input, output, session) {
     ndvi_lc_ready(FALSE)
     error_message_rv(NULL)
     lc_ts_plot_obj(NULL)
+    lc_map_obj(NULL)
+    lc_lc_highlight(NULL)
     
     # Get user inputs
     country_name <- input$country
@@ -383,7 +420,8 @@ server <- function(input, output, session) {
       ndvi_lc_ready(FALSE)
       error_message_rv(e$message)
       lc_ts_plot_obj(NULL)
-      output$landcover_map_output <- renderUI(NULL)
+      lc_map_obj(NULL)
+      lc_lc_highlight(NULL)
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
@@ -419,31 +457,17 @@ server <- function(input, output, session) {
     # Use tryCatch to handle missing data or any errors
     tryCatch({
       
-      # If figure not stored yet, try to generate it
-      if (!file.exists(lc_figure_path)) {
-        
-        # Ensure the figures directory exists
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
-        }
-        
-        # Create explorer plot
-        plot_geojsons_from_a_folder(
-          folder_path = data_path,
-          save_path = figures_dir,
-          filename = lc_figure_filename
-        )
+      if (!dir.exists(figures_dir)) {
+        dir.create(figures_dir, recursive = TRUE)
       }
       
-      # Render the generated (or existing) HTML
-      output$landcover_map_output <- renderUI({
-        tags$iframe(
-          src = paste0("figures/", lc_figure_filename),
-          width = "100%",
-          height = "500px",
-          frameborder = 0
-        )
-      })
+      # Build Leaflet for Shiny (always) and save HTML for export/bookmarks
+      lc_map <- plot_geojsons_from_a_folder(
+        folder_path = data_path,
+        save_path   = figures_dir,
+        filename    = lc_figure_filename
+      )
+      lc_map_obj(lc_map)
       
       ndvi_lc_ready(TRUE) # Mark UI as ready as both figures are generated (renderUI will now return the container)
       error_message_rv(NULL) # Clear any previous error messages
@@ -453,7 +477,8 @@ server <- function(input, output, session) {
       ndvi_lc_ready(FALSE)
       error_message_rv(e$message)
       lc_ts_plot_obj(NULL)
-      output$landcover_map_output <- renderUI(NULL)
+      lc_map_obj(NULL)
+      lc_lc_highlight(NULL)
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
