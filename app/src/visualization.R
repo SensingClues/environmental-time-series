@@ -554,21 +554,34 @@ ndvi_landcover_titles_ui <- function(resolution = NULL, year = NULL) {
   } else {
     ""
   }
-  shiny::tags$div(
-    class = "ndvi-anomaly-title-wrap",
-    shiny::tags$h4(
-      class = "ndvi-anomaly-title-h4 ndvi-landcover-title-h4",
-      paste0("NDVI by land cover", res_suffix, yr_part),
-      shiny::tags$span(
-        class = "lc-landcover-tooltip-wrap",
-        tabindex = "0",
-        shiny::tags$span(class = "ndvi-help-icon", `aria-label` = "Land cover seasonal patterns", "ⓘ"),
-        shiny::tags$div(
-          class = "lc-landcover-tooltip-panel",
-          role = "tooltip",
-          lc_land_cover_explorer_tooltip_table_tags()
+  shiny::tagList(
+    shiny::tags$div(
+      class = "ndvi-anomaly-title-wrap",
+      shiny::tags$h4(
+        class = "ndvi-anomaly-title-h4 ndvi-landcover-title-h4",
+        paste0("NDVI by land cover", res_suffix, yr_part),
+        shiny::tags$span(
+          class = "lc-landcover-tooltip-wrap",
+          tabindex = "0",
+          shiny::tags$span(class = "ndvi-help-icon", `aria-label` = "Land cover seasonal patterns", "ⓘ"),
+          shiny::tags$div(
+            class = "lc-landcover-tooltip-panel",
+            role = "tooltip",
+            lc_land_cover_explorer_tooltip_table_tags()
+          )
         )
       )
+    ),
+    lc_landcover_tooltip_flip_script()
+  )
+}
+
+#' One-time JS: flip land-cover tooltip panel to the left when it would overflow the viewport.
+#' @noRd
+lc_landcover_tooltip_flip_script <- function() {
+  shiny::tags$script(
+    shiny::HTML(
+      "(function(){if(window.__lcLandcoverTooltipFlip)return;window.__lcLandcoverTooltipFlip=true;\nfunction setFlip(wrap){\nvar panel=wrap.querySelector('.lc-landcover-tooltip-panel');\nif(!panel)return;\nrequestAnimationFrame(function(){\nrequestAnimationFrame(function(){\nvar pw=panel.getBoundingClientRect().width;\nif(!pw||pw<10)pw=Math.min(560,window.innerWidth-48);\nvar rect=wrap.getBoundingClientRect();\nvar margin=10;\nvar pad=4;\nvar overflowRight=rect.right+margin+pw>window.innerWidth-pad;\nvar spaceLeft=rect.left-margin;\nif(overflowRight&&spaceLeft>=pw){\nwrap.classList.add('lc-flip-left');\n}else{\nwrap.classList.remove('lc-flip-left');\n}\n});});\n}\nif(typeof jQuery!=='undefined'){\njQuery(document).on('mouseenter.lcflip focusin.lcflip','.lc-landcover-tooltip-wrap',function(){setFlip(this);});\njQuery(document).on('mouseleave.lcflip','.lc-landcover-tooltip-wrap',function(){jQuery(this).removeClass('lc-flip-left');});\njQuery(document).on('focusout.lcflip','.lc-landcover-tooltip-wrap',function(){\nvar w=this;setTimeout(function(){if(!w.contains(document.activeElement))jQuery(w).removeClass('lc-flip-left');},0);\n});\njQuery(window).on('resize.lcflip',function(){jQuery('.lc-landcover-tooltip-wrap').each(function(){var w=this;if(jQuery(w).is(':hover')||jQuery(w).find(':focus').length)setFlip(w);});});\n}\n})();"
     )
   )
 }

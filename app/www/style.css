@@ -551,6 +551,13 @@ input {
 .lc-landcover-tooltip-wrap:focus-within .lc-landcover-tooltip-panel {
   display: block;
 }
+/* JS adds .lc-flip-left when panel would overflow the right edge of the viewport */
+.lc-landcover-tooltip-wrap.lc-flip-left .lc-landcover-tooltip-panel {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 10px;
+}
 table.lc-landcover-tooltip-table {
   border-collapse: collapse;
   width: 100%;
