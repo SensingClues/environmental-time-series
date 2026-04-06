@@ -486,7 +486,7 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   list(p = p, bbox_by_stem = bbox_by_stem)
 }
 
-#' NDVI chart above Plotly mapbox map (two rows); shared \code{legendgroup} links legend to lines + polygons.
+#' NDVI chart left, Plotly mapbox map right (two columns); shared \code{legendgroup} links legend to lines + polygons.
 #' @param aoi_sf Optional study-area polygon(s); passed to the map layer as a persistent outline.
 #' @noRd
 plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
@@ -507,10 +507,10 @@ plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
   out <- plotly::subplot(
     p_ts,
     mp$p,
-    nrows = 2,
-    heights = c(0.48, 0.52),
-    margin = 0.08,
-    titleY = FALSE
+    nrows = 1,
+    widths = c(0.5, 0.5),
+    margin = 0.06,
+    titleY = TRUE
   )
   out <- out %>%
     plotly::layout(dragmode = "zoom") %>%
