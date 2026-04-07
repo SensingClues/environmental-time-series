@@ -6,12 +6,17 @@
   margin: 0;
   padding: 0;
 }
-body, html {
-  height: 100%;
+html {
+  min-height: 100%;
+  height: auto;
+}
+body {
+  min-height: 100%;
   font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   color: #333;
   background: #fff;
-  overflow-x: visible;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ============================
@@ -226,8 +231,7 @@ textarea::-ms-input-placeholder {
   color: #6b7280;
 }
 
-.tab-panes .title {
-  color:#6b7280;
+.tab-panes .title {color:#6b7280;
 }
 
 
@@ -244,7 +248,22 @@ textarea::-ms-input-placeholder {
   flex-direction: column;
   background: #fff;
   border-top-right-radius: 8px;
-  overflow: hidden;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Let tab panels grow with tall Plotly/HTML; scroll happens on .content */
+.content .tabbable {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.content .tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .content .tab-explain {
