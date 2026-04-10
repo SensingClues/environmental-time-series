@@ -990,15 +990,14 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
       margin = list(t = 50, r = 30, l = 60, b = 60)
     )
 
+  # Inline hover content (avoid %{text}: plotly.R bar + single point omits `text` → literal "%{text}")
   p2 <- plotly::plot_ly(
     data    = plot_df,
     x       = ~YearMonth,
     y       = ~anomaly,
     type    = "bar",
     marker  = list(color = plot_df$bar_color),
-    text    = ~hover_bar,
-    textposition = "none",
-    hovertemplate = "%{text}<extra></extra>",
+    hovertemplate = ~paste0(hover_bar, "<extra></extra>"),
     showlegend = FALSE
   ) %>%
     plotly::layout(
