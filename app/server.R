@@ -149,26 +149,54 @@ server <- function(input, output, session) {
   
   # Reactive flag to control whether the NDVI timeseries UI should be shown
   ndvi_ts_ready <- reactiveVal(FALSE)
+  # Plotly figure: set after successful generate (works with conditional UI + renderPlotly).
+  ndvi_ts_plot_obj <- reactiveVal(NULL)
+  ndvi_ts_stats <- reactiveVal(NULL)
+  
+  output$ndvi_ts_plot_output <- plotly::renderPlotly({
+    p <- ndvi_ts_plot_obj()
+    shiny::req(p)
+    p
+  })
   
   # Render a container for the plot or error message
   output$ndvi_ts_plot_container <- renderUI({
     error_msg <- error_message_rv()
     
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
-      div(class = "image-fill top-center",
-          imageOutput("ndvi_ts_plot_output"), 
-          height = "auto")
+      div(
+        class = "image-fill top-center ndvi-ts-plot-stack",
+        ndvi_anomaly_titles_ui(input$resolution),
+        plotlyOutput("ndvi_ts_plot_output", height = "550px"),
+        height = "auto"
+      )
     } else {
       return(NULL) # Return empty UI
     }
   })
   
+  output$wilcoxon_card <- renderUI({
+    s <- ndvi_ts_stats()
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
+      return(NULL)
+    }
+    ndvi_insight_wilcox_card_ui(s)
+  })
+  
+  output$smk_card <- renderUI({
+    s <- ndvi_ts_stats()
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
+      return(NULL)
+    }
+    ndvi_insight_smk_card_ui(s)
+  })
+  
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_ts_ready(FALSE)
-    error_message_rv(NULL) 
-    
-    output$ndvi_ts_plot_output <- NULL
+    error_message_rv(NULL)
+    ndvi_ts_plot_obj(NULL)
+    ndvi_ts_stats(NULL)
   })
   
   # Observe the Generate Figure button
@@ -177,6 +205,8 @@ server <- function(input, output, session) {
     
     # To be extra sure that no figure is shown, clear previous error messages
     ndvi_ts_ready(FALSE)
+    ndvi_ts_plot_obj(NULL)
+    ndvi_ts_stats(NULL)
     error_message_rv(NULL)
     
     # Get user inputs
@@ -196,49 +226,36 @@ server <- function(input, output, session) {
       end_year <- input$year
     }
     
-    # Define script and figure paths
-    figure_filename <- paste0("figure_NDVItimeseries_", country_name, "_", 
-                              end_month, "_", end_year, "_", resolution, "m", ".png")
-    figure_path <- file.path(figures_dir, figure_filename)
-    
     # Wrap data generation in tryCatch to handle missing files/errors
     tryCatch({
       
-      # If figure not stored yet, attempt to generate it
-      if (!file.exists(figure_path)) {
-        
-        # Ensure the figures directory exists
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
-        }
-        
-        # Create timeseries plot
-        generate_timeseries(
-          country_name   = country_name,
-          resolution     = resolution,
-          end_year       = end_year,
-          end_month      = end_month,
-          figures_dir    = figures_dir,
-          data_dir       = data_dir,
-          return_plot    = FALSE,
-          figure_filename= figure_filename
-        )
+      # Ensure the figures directory exists (used by other exports; NDVI TS is plotly)
+      if (!dir.exists(figures_dir)) {
+        dir.create(figures_dir, recursive = TRUE)
       }
       
-      # If no error so far, render the image
-      output$ndvi_ts_plot_output <- renderImage({
-        list(src   = figure_path,
-             alt   = "NDVI timeseries")
-      }, deleteFile = FALSE)
+      ndvi_result <- generate_timeseries(
+        country_name    = country_name,
+        resolution      = resolution,
+        end_year        = end_year,
+        end_month       = end_month,
+        figures_dir     = figures_dir,
+        data_dir        = data_dir,
+        return_plot     = TRUE,
+        figure_filename = NULL
+      )
       
-      ndvi_ts_ready(TRUE) # Mark UI as ready (renderUI will now return the container)
+      ndvi_ts_ready(TRUE)
+      ndvi_ts_plot_obj(ndvi_result$plot)
+      ndvi_ts_stats(ndvi_result$stats)
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_ts_ready(FALSE)
+      ndvi_ts_plot_obj(NULL)
+      ndvi_ts_stats(NULL)
       error_message_rv(e$message)
-      output$ndvi_ts_plot_output <- NULL
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 

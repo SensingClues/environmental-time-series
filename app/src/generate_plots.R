@@ -12,9 +12,6 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
   
   ### Set paths and define parameters
   
-  # figure path
-  figure_path <- file.path(figures_dir, figure_filename)
-  
   data_type <- "NDVI"
   
   # Input NVDI basemaps stored in country folder. 
@@ -71,39 +68,18 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
   test_ndvi_df <- get_ndvi_df(ndvi_rast = test_ndvi_msk, dates = test_files_df$dates) 
   train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates) 
   
-  ## Compute mean, SD, and confidence intervals
-  # test data
-  test_ndvi_summary <- get_summary_ndvi_df(ndvi_df = test_ndvi_df)
-  # train data
-  train_ndvi_summary <- get_summary_ndvi_df(ndvi_df = train_ndvi_df)
-  
-  # Retrieve latest month available in test data for label
-  test_end_month <- test_files_df[max(test_files_df$month),]$dates
-  
-  ## Make plot - distribution of NDVI values throughout the year.
-  ndvi_ts_plot <- plot_ndvi_timeseries(train_data = train_ndvi_summary, 
-                                       test_data = test_ndvi_summary,
-                                       country_name = country_name, 
-                                       resolution = resolution,
-                                       plot_width = 15, 
-                                       plot_height = 8,
-                                       ylim_range = NULL,
-                                       test_start_date = start_date,
-                                       test_end_date = end_date,
-                                       label_test = paste0("NDVI ", paste(format(c(start_date, test_end_month), "%b %Y"),collapse=" - ") ),
-                                       label_train = paste0("NDVI historic range until ", format(start_date, "%b %Y") ),
-                                       label_mean = paste0("NDVI monthly average until ", format(start_date, "%b %Y") ),
-                                       save_path = figures_dir,
-                                       filename = figure_filename
+  ## Interactive plotly: NDVI vs climatology + historic range + monthly anomalies
+  ndvi_ts_plot <- plot_ndvi_anomaly(
+    train_ndvi_df = train_ndvi_df,
+    test_ndvi_df  = test_ndvi_df
   )
   
-  # if we want to return the ggplot object
-  if (return_plot == TRUE) {
-    
-    return(ndvi_ts_plot)
-    
+  if (isTRUE(return_plot)) {
+    stats <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
+    return(list(plot = ndvi_ts_plot, stats = stats))
   }
   
+  invisible(NULL)
 }
 
 # Function to create Burned Area timeseries plot

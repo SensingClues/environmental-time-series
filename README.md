@@ -76,7 +76,7 @@ install.packages(c(
   "leaflet", "leaflet.extras", "lubridate", "promises",
   "raster", "shiny", "shinybusy", "shiny.i18n", "shinyjs",
   "shinyTree", "shinyWidgets", "sf", "terra", "tidyr",
-  "plotly", "htmlwidgets", "devtools"
+  "trend", "plotly", "htmlwidgets", "devtools"
 ))
 ```
 

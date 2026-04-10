@@ -17,7 +17,7 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
   
   # Set y value range for plot
   if (is.null(ylim_range)) {
-    ylim_range <- c(min(train_data$upper_ci)-0.25, max(train_data$upper_ci)+0.15)
+    ylim_range <- c(min(train_data$upper_ci) - 0.25, max(train_data$upper_ci) + 0.15)
   }
   
   # Add Month Name to dataframes
@@ -81,6 +81,440 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
   
   # Return the plot
   return(ts_plot)
+}
+
+# --- NDVI anomaly (Plotly): monthly NDVI vs climatology + historic min/max band ----
+
+aggregate_monthly_ndvi <- function(df) {
+  df %>%
+    dplyr::mutate(YearMonth = as.Date(YearMonth)) %>%
+    dplyr::filter(!is.na(YearMonth), !is.na(NDVI)) %>%
+    dplyr::group_by(YearMonth) %>%
+    dplyr::summarise(NDVI = mean(NDVI, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::arrange(YearMonth) %>%
+    dplyr::mutate(
+      Year  = lubridate::year(YearMonth),
+      Month = lubridate::month(YearMonth)
+    )
+}
+
+get_monthly_climatology <- function(train_df) {
+  train_df %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(climatology = mean(NDVI, na.rm = TRUE), .groups = "drop")
+}
+
+get_monthly_historic_range <- function(train_monthly) {
+  train_monthly %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(
+      lower = min(NDVI, na.rm = TRUE),
+      upper = max(NDVI, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+make_anomaly_data <- function(test_df, climatology_df) {
+  test_df %>%
+    dplyr::left_join(climatology_df, by = "Month") %>%
+    dplyr::mutate(
+      anomaly   = NDVI - climatology,
+      bar_color = ifelse(anomaly >= 0, "#009E73", "#D55E00")
+    )
+}
+
+ndvi_resolution_title_suffix <- function(resolution) {
+  if (is.null(resolution) || !nzchar(as.character(resolution))) {
+    return("")
+  }
+  paste0(
+    " (",
+    ifelse(grepl("_", resolution), sub(".*_", "", resolution), resolution),
+    "m res)"
+  )
+}
+
+# Tooltip for NDVI help icon (HTML title attribute; \\n for line breaks in native tooltip).
+ndvi_anomaly_help_tooltip_text <- function() {
+  paste(
+    "NDVI measures how green vegetation is from satellite data.",
+    "Higher values (max 1) = more vegetation.",
+    "Lower values (min -1) = less vegetation.",
+    "This chart shows whether current conditions are better or worse than usual.",
+    sep = "\n"
+  )
+}
+
+# Shiny UI: tags$h4 title + tags$span circled-i with native multiline tooltip above plotlyOutput.
+ndvi_anomaly_titles_ui <- function(resolution = NULL) {
+  res_suffix <- ndvi_resolution_title_suffix(resolution)
+  tip <- ndvi_anomaly_help_tooltip_text()
+  shiny::tags$div(
+    class = "ndvi-anomaly-title-wrap",
+    shiny::tags$h4(
+      class = "ndvi-anomaly-title-h4",
+      paste0("NDVI Anomaly", res_suffix),
+      shiny::tags$span(
+        title = tip,
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    )
+  )
+}
+
+# --- NDVI Explorer insight cards (Wilcoxon + Seasonal Mann–Kendall) -----------------
+
+ndvi_insight_wilcox_tooltip <- function() {
+  paste(
+    "This result is based on a Wilcoxon signed-rank test applied to monthly NDVI anomalies for the selected year.",
+    "It checks whether vegetation conditions in the selected year are significantly different from the historical monthly average.",
+    sep = "\n"
+  )
+}
+
+ndvi_insight_smk_tooltip <- function() {
+  paste(
+    "This result is based on the Seasonal Mann–Kendall test.",
+    "It evaluates whether vegetation greenness shows a consistent long-term increase or decrease over multiple years while accounting for seasonal patterns.",
+    "The test is run only when at least 60 monthly samples (5 years) are available.",
+    sep = "\n"
+  )
+}
+
+#' Wilcoxon (monthly anomalies vs 0) and Seasonal Mann–Kendall on full monthly series.
+#' SMK/Sen run only when there are at least 60 monthly points (5 years).
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months)
+compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
+  train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+  test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+  climatology_df <- get_monthly_climatology(train_monthly)
+  plot_df <- make_anomaly_data(test_monthly, climatology_df)
+
+  anom <- stats::na.omit(plot_df$anomaly)
+  wilcox_p <- NA_real_
+  wilcox_median <- NA_real_
+  if (length(anom) >= 3L) {
+    wt <- stats::wilcox.test(anom, mu = 0)
+    wilcox_p <- unname(wt$p.value)
+    wilcox_median <- stats::median(anom)
+  }
+
+  smk_p <- NA_real_
+  sen_slope <- NA_real_
+  ndvi_monthly_full <- dplyr::bind_rows(train_monthly, test_monthly) %>%
+    dplyr::distinct(YearMonth, .keep_all = TRUE) %>%
+    dplyr::arrange(YearMonth)
+  smk_n_months <- nrow(ndvi_monthly_full)
+  smk_min_months <- 60L
+  if (smk_n_months >= smk_min_months) {
+    st <- ndvi_monthly_full$YearMonth[1]
+    ndvi_ts <- stats::ts(
+      ndvi_monthly_full$NDVI,
+      start = c(lubridate::year(st), lubridate::month(st)),
+      frequency = 12
+    )
+    smk <- tryCatch(trend::smk.test(ndvi_ts), error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(ndvi_ts), error = function(e) NULL)
+    if (!is.null(smk)) smk_p <- unname(smk$p.value)
+    if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
+  }
+
+  list(
+    wilcox_p = wilcox_p,
+    wilcox_median = wilcox_median,
+    smk_p = smk_p,
+    sen_slope = sen_slope,
+    smk_n_months = smk_n_months
+  )
+}
+
+ndvi_insight_main_class <- function(col) {
+  if (identical(col, "#009E73")) {
+    "ndvi-insight-card__main ndvi-insight-card__main--positive"
+  } else if (identical(col, "#D55E00")) {
+    "ndvi-insight-card__main ndvi-insight-card__main--negative"
+  } else {
+    "ndvi-insight-card__main ndvi-insight-card__main--neutral"
+  }
+}
+
+#' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
+ndvi_insight_wilcox_card_ui <- function(stats) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$wilcox_p
+  med <- stats$wilcox_median
+  if (is.na(p)) {
+    main <- "Not enough data for this summary"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
+    main <- "Above normal vegetation"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
+    main <- "Below normal vegetation"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else {
+    main <- "No significant difference from normal"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  shiny::tags$div(
+    class = "ndvi-insight-card",
+    shiny::tags$h4(
+      class = "ndvi-insight-card__heading",
+      "Current Year Condition",
+      shiny::tags$span(
+        title = ndvi_insight_wilcox_tooltip(),
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      class = ndvi_insight_main_class(col),
+      main
+    ),
+    shiny::tags$div(
+      class = "ndvi-insight-card__footer",
+      p_lab
+    )
+  )
+}
+
+#' Shiny UI: Long-Term Trend card (Seasonal Mann–Kendall + Sen slope sign).
+ndvi_insight_smk_card_ui <- function(stats) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$smk_p
+  slope <- stats$sen_slope
+  n_m <- stats$smk_n_months
+  if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
+  smk_min_months <- 60L
+  if (!is.na(n_m) && n_m < smk_min_months) {
+    main <- "Long-term trend not shown (insufficient series length)"
+    col <- "#555555"
+    p_lab <- paste0(
+      "Seasonal Mann–Kendall applies only with ≥5 years of monthly data (",
+      smk_min_months,
+      " months). Current series: ",
+      n_m,
+      " month",
+      if (n_m == 1L) "" else "s",
+      "."
+    )
+  } else if (is.na(p) || is.na(slope)) {
+    main <- "Long-term trend cannot be assessed from this series"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+  } else if (p < 0.05 && slope > 0) {
+    main <- "Significant increasing trend"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else if (p < 0.05 && slope < 0) {
+    main <- "Significant decreasing trend"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  } else {
+    main <- "No significant long-term trend"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  shiny::tags$div(
+    class = "ndvi-insight-card",
+    shiny::tags$h4(
+      class = "ndvi-insight-card__heading",
+      "Long-Term Trend",
+      shiny::tags$span(
+        title = ndvi_insight_smk_tooltip(),
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      class = ndvi_insight_main_class(col),
+      main
+    ),
+    shiny::tags$div(
+      class = "ndvi-insight-card__footer",
+      p_lab
+    )
+  )
+}
+
+ndvi_monthly_year_span_label <- function(monthly_df) {
+  if (is.null(monthly_df) || nrow(monthly_df) == 0L) return("")
+  ym <- monthly_df$YearMonth
+  ym <- ym[!is.na(ym)]
+  if (length(ym) == 0L) return("")
+  y_lo <- lubridate::year(min(ym))
+  y_hi <- lubridate::year(max(ym))
+  if (is.na(y_lo) || is.na(y_hi)) return("")
+  if (y_lo == y_hi) as.character(y_lo) else paste0(y_lo, "\u2013", y_hi)
+}
+
+#' Interactive NDVI time series vs training climatology and historic range (plotly).
+#' Titles with help icon: use ndvi_anomaly_titles_ui() in Shiny above plotlyOutput.
+plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
+  train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+  test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
+
+  train_yr <- ndvi_monthly_year_span_label(train_monthly)
+  test_yr <- ndvi_monthly_year_span_label(test_monthly)
+  name_ribbon <- if (nzchar(train_yr)) paste0("NDVI historic range (", train_yr, ")") else "NDVI historic range"
+  name_current <- if (nzchar(test_yr)) paste0("Current NDVI (", test_yr, ")") else "Current NDVI"
+  name_clim <- if (nzchar(train_yr)) {
+    paste0("Historical monthly average (", train_yr, ")")
+  } else {
+    "Historical monthly average"
+  }
+
+  climatology_df <- get_monthly_climatology(train_monthly)
+  historic_range   <- get_monthly_historic_range(train_monthly)
+
+  plot_df <- make_anomaly_data(test_monthly, climatology_df) %>%
+    dplyr::left_join(historic_range, by = "Month") %>%
+    dplyr::mutate(
+      hover_bar = paste0(
+        "Date: ", format(YearMonth, "%b %Y"), "<br>",
+        "Anomaly: ", sprintf("%.3f", anomaly), "<br>",
+        "Current NDVI: ", sprintf("%.3f", NDVI), "<br>",
+        "Historical average: ", sprintf("%.3f", climatology)
+      )
+    )
+
+  common_xaxis <- list(
+    title      = "Month / Year",
+    tickmode   = "linear",
+    dtick      = "M1",
+    tickformat = "%b %Y",
+    tickangle  = -45,
+    showgrid   = FALSE
+  )
+
+  # Y limits from train + test so the scale stays stable when only the test year changes
+  pad_y_range <- function(lo, hi, pad = 0.05) {
+    if (!is.finite(lo) || !is.finite(hi)) return(NULL)
+    if (lo > hi) return(NULL)
+    if (abs(hi - lo) < 1e-9) {
+      pad_abs <- max(0.02, abs(lo) * 0.05 + 0.01)
+      return(c(lo - pad_abs, hi + pad_abs))
+    }
+    span <- hi - lo
+    c(lo - pad * span, hi + pad * span)
+  }
+  vals_ndvi_y <- c(
+    train_monthly$NDVI,
+    test_monthly$NDVI,
+    historic_range$lower,
+    historic_range$upper,
+    climatology_df$climatology
+  )
+  vals_ndvi_y <- vals_ndvi_y[is.finite(vals_ndvi_y)]
+  rng_ndvi <- if (length(vals_ndvi_y)) {
+    pad_y_range(min(vals_ndvi_y), max(vals_ndvi_y))
+  } else {
+    NULL
+  }
+
+  train_anom_df <- make_anomaly_data(train_monthly, climatology_df)
+  test_anom_df <- make_anomaly_data(test_monthly, climatology_df)
+  vals_anom_y <- c(train_anom_df$anomaly, test_anom_df$anomaly)
+  vals_anom_y <- vals_anom_y[is.finite(vals_anom_y)]
+  rng_anom <- if (length(vals_anom_y)) {
+    pad_y_range(min(vals_anom_y), max(vals_anom_y))
+  } else {
+    NULL
+  }
+
+  ndvi_y_axis <- list(
+    title = "NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"
+  )
+  if (!is.null(rng_ndvi)) {
+    ndvi_y_axis$range <- rng_ndvi
+    ndvi_y_axis$autorange <- FALSE
+  }
+
+  ndvi_anomaly_y_axis <- list(
+    title = "NDVI Anomaly", zeroline = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
+    showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"
+  )
+  if (!is.null(rng_anom)) {
+    ndvi_anomaly_y_axis$range <- rng_anom
+    ndvi_anomaly_y_axis$autorange <- FALSE
+  }
+
+  p1 <- plotly::plot_ly() %>%
+    plotly::add_ribbons(
+      data      = plot_df,
+      x         = ~YearMonth,
+      ymin      = ~lower,
+      ymax      = ~upper,
+      name      = name_ribbon,
+      legendgroup = "historic",
+      fillcolor = "rgba(39, 129, 207, 0.2)",
+      line      = list(color = "transparent"),
+      hoverinfo = "skip"
+    ) %>%
+    plotly::add_lines(
+      data            = plot_df,
+      x               = ~YearMonth, y = ~NDVI,
+      type            = "scatter", mode = "lines+markers",
+      name            = name_current,
+      line            = list(width = 3, color = "#0072B2"),
+      marker          = list(size = 7, color = "#0072B2"),
+      hovertemplate   = "Date: %{x|%b %Y}<br>NDVI: %{y:.3f}<extra></extra>"
+    ) %>%
+    plotly::add_lines(
+      data            = plot_df,
+      x               = ~YearMonth, y = ~climatology,
+      name            = name_clim,
+      line            = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      hovertemplate   = "Date: %{x|%b %Y}<br>Historical average: %{y:.3f}<extra></extra>"
+    ) %>%
+    plotly::layout(
+      xaxis = common_xaxis,
+      yaxis = ndvi_y_axis,
+      template = "plotly_white",
+      hovermode  = "x unified",
+      legend = list(
+        orientation = "h",
+        x           = 1,
+        y           = 1.05,
+        xanchor     = "right",
+        yanchor     = "top"
+      ),
+      margin = list(t = 50, r = 30, l = 60, b = 60)
+    )
+
+  p2 <- plotly::plot_ly(
+    data    = plot_df,
+    x       = ~YearMonth,
+    y       = ~anomaly,
+    type    = "bar",
+    marker  = list(color = plot_df$bar_color),
+    text    = ~hover_bar,
+    textposition = "none",
+    hovertemplate = "%{text}<extra></extra>",
+    showlegend = FALSE
+  ) %>%
+    plotly::layout(
+      xaxis = common_xaxis,
+      yaxis = ndvi_anomaly_y_axis,
+      template = "plotly_white",
+      margin   = list(t = 30, r = 30, l = 60, b = 80)
+    )
+
+  plotly::subplot(
+    p1, p2,
+    nrows   = 2,
+    shareX  = TRUE,
+    heights = c(0.58, 0.42),
+    titleY  = TRUE
+  ) %>%
+    plotly::layout(
+      margin = list(t = 20, r = 30, l = 60, b = 80)
+    )
 }
 
 # Function to plot Burned Area distribution

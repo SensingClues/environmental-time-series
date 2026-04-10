@@ -47,7 +47,14 @@ mod_body_ui <- function(id) {
                       value = "NDVItsTab",
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
                                        div(style = "margin-left: 10px; margin-top: 10px; margin-right: 10px;",
-                                           uiOutput("ndvi_ts_plot_container"))),
+                                           uiOutput("ndvi_ts_plot_container"),
+                                           div(
+                                             style = "margin-top: 12px;",
+                                             fluidRow(
+                                               column(6, uiOutput("wilcoxon_card")),
+                                               column(6, uiOutput("smk_card"))
+                                             )
+                                           ))),
                       # Busy Spinner always available for this tab
                       div(style = "position: fixed; top: 45%; left: 60%; transform: translate(-50%, -50%);", 
                           add_busy_spinner(spin = "fading-circle", width = "100px", height = "100px"))
