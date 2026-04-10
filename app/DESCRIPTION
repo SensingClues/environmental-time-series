@@ -20,6 +20,7 @@ depends:
   sp,
   terra,
   tidyr,
+  trend,
   plotly,
   ipc,
   future,
