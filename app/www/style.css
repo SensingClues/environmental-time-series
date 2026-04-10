@@ -266,6 +266,25 @@ textarea::-ms-input-placeholder {
   min-height: 0;
 }
 
+.content .tab-explain {
+  margin: 10px;
+}
+
+.content .tab-pane-explain {
+  margin: 10px;
+}
+
+.content .plot-container {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.busy-spinner {
+  position: relative;
+  top: 45%; 
+  transform: translate(-50%, -50%);
+}
+
 /* 1) eerste: alle tab-panes weer verbergen zoals bootstrap beoogt */
 #bodyTabs .tabContent .tabPane {
   display: none;
@@ -354,7 +373,6 @@ textarea::-ms-input-placeholder {
 }
 
 # /////////////////
-
 #sidePanel {
   position: fixed;
   top: 0;
