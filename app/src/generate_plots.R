@@ -425,72 +425,49 @@ generate_ba_export <- function(country_name = NULL, resolution = NULL,
   return(geojson_export_path)
 }
 
-# Function to create NDVI timeseries plot
-generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL, land_cover_type = NULL, land_use_src = NULL,
+# Function to create NDVI timeseries by land cover (all classes, Plotly when return_plot = TRUE)
+generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL, land_use_src = NULL,
                                           end_year = NULL, end_month = NULL,
                                           figures_dir = NULL, data_dir = NULL,
-                                          return_plot = FALSE, figure_filename = NULL
+                                          return_plot = FALSE, figure_filename = NULL,
+                                          lulc_map_folder_path = NULL,
+                                          land_cover_classes = c(
+                                            "Crops", "Rangeland", "Water", "Trees",
+                                            "Flooded_vegetation", "Built_Area", "Bare_ground"
+                                          )
 ) {
-  
-  ### Set paths and define parameters
-  
-  # figure path
-  figure_path <- file.path(figures_dir, figure_filename)
   
   data_type <- "NDVI"
   Sys.setlocale("LC_TIME", "C") # Otherwise creates language inconsistencies, at least locally
   
-  
-  # Input NVDI basemaps stored in country folder. 
-  data_path <- file.path(data_dir, paste0(data_type, "/", 
-                                          country_name, "/", 
+  data_path <- file.path(data_dir, paste0(data_type, "/",
+                                          country_name, "/",
                                           resolution, "m_resolution/"))
-  # Area of Interest (AoI) files in AoI folder
   aoi_path <- file.path(data_dir, "AoI/")
-  
-  # Land use files path
   lulc_path <- file.path(data_dir, paste0("LandUse/", country_name, "/", land_use_src, "/"))
   
-  ## define end and start date for test data
-  end_date <- as.Date(paste(end_year, end_month, 1, sep="-"))
-  start_date <- as.Date(paste(end_year, 1, 1, sep="-"))
+  end_date <- as.Date(paste(end_year, end_month, 1, sep = "-"))
+  start_date <- as.Date(paste(end_year, 1, 1, sep = "-"))
   
-  ### Create lists with relevant filenames.
-  # NDVI filenames
-  ndvi_files <- get_filenames(filepath = data_path, data_type = data_type, 
+  ndvi_files <- get_filenames(filepath = data_path, data_type = data_type,
                               file_extension = ".tif", country_name = country_name)
   
-  # AoI filenames
-  aoi_files <- get_filenames(filepath = aoi_path, data_type = "AoI", 
+  aoi_files <- get_filenames(filepath = aoi_path, data_type = "AoI",
                              file_extension = ".geojson", country_name = country_name)
   
-  # LULC filenames
-  lulc_files <- get_filenames(filepath = lulc_path, data_type = "LandUseVector", 
+  lulc_files <- get_filenames(filepath = lulc_path, data_type = "LandUseVector",
                               file_extension = ".geojson", country_name = country_name)
   
-  # Get the desired land cover file
-  land_cover_file <- lulc_files[grepl(land_cover_type, lulc_files)][1]
-  
-  ### Subselect filenames according to date
-  # get NDVI filenames dataframe (includes date info)
   files_df <- get_filename_df(ndvi_files = ndvi_files)
   
-  # Given date selected, split file into test data and train data
-  # test filenames
   test_files_df <- filter(files_df, between(dates, start_date, end_date))
   
-  # get train filenames (train interval: prior to test interval start)
   months_in_test <- c(test_files_df$month)
   year_in_test   <- test_files_df$year
-  train_files_df <- files_df %>% 
+  train_files_df <- files_df %>%
     dplyr::filter(month %in% months_in_test & year < year_in_test)
-
-  ### Load raster and vector objects - Aoi, train data and test data
-  # load input Area of Interest (AoI) to later mask data
+  
   aoi_proj <- get_aoi_vector(aoi_files = aoi_files, aoi_path = aoi_path,
-                             projection = "EPSG:4326")
- 
-  land_use <- get_aoi_vector(aoi_files = land_cover_file, aoi_path = lulc_path,
                              projection = "EPSG:4326")
   
   test_ndvi_msk <- get_ndvi_raster(ndvi_files = test_files_df$filenames, data_path = data_path,
@@ -501,48 +478,58 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                     projection = "EPSG:4326", dates = train_files_df$dates,
                                     aoi_proj = aoi_proj)
   
-  test_ndvi_land_use <- mask(test_ndvi_msk, land_use)
+  # AoI-wide historic ribbon (not masked by land cover class)
+  train_ndvi_df_aoi <- get_ndvi_global_means_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
+  train_ndvi_summary_aoi <- get_summary_ndvi_df(ndvi_df = train_ndvi_df_aoi)
   
-  train_ndvi_land_use <- mask(train_ndvi_msk, land_use)
+  land_cover_summaries_list <- vector("list", length(land_cover_classes))
+  names(land_cover_summaries_list) <- land_cover_classes
+  for (lc in land_cover_classes) {
+    land_cover_file <- lulc_files[grepl(lc, lulc_files)][1]
+    if (is.na(land_cover_file) || !nzchar(land_cover_file)) {
+      message("Skipping land cover class ", lc, ": no matching GeoJSON in ", lulc_path)
+      next
+    }
+    land_use_lc <- get_aoi_vector(aoi_files = land_cover_file, aoi_path = lulc_path,
+                                  projection = "EPSG:4326")
+    test_ndvi_lc <- mask(test_ndvi_msk, land_use_lc)
+    train_ndvi_lc <- mask(train_ndvi_msk, land_use_lc)
+    test_ndvi_df_lc <- get_ndvi_global_means_df(ndvi_rast = test_ndvi_lc, dates = test_files_df$dates)
+    train_ndvi_df_lc <- get_ndvi_global_means_df(ndvi_rast = train_ndvi_lc, dates = train_files_df$dates)
+    test_ndvi_summary_lc <- get_summary_ndvi_df(ndvi_df = test_ndvi_df_lc)
+    train_ndvi_summary_lc <- get_summary_ndvi_df(ndvi_df = train_ndvi_df_lc)
+    land_cover_summaries_list[[lc]] <- dplyr::bind_rows(
+      dplyr::mutate(train_ndvi_summary_lc, land_cover = lc, period = "train"),
+      dplyr::mutate(test_ndvi_summary_lc, land_cover = lc, period = "test")
+    )
+  }
+  land_cover_summaries <- dplyr::bind_rows(land_cover_summaries_list)
   
-  
-  ### Calculate mean NDVI for each month
-  # Extract raster layers for each date
-  # and store in dataframe
-  test_ndvi_df <- get_ndvi_df(ndvi_rast = test_ndvi_land_use, dates = test_files_df$dates) 
-  train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_land_use, dates = train_files_df$dates) 
-  
-  ## Compute mean, SD, and confidence intervals
-  # test data
-  test_ndvi_summary <- get_summary_ndvi_df(ndvi_df = test_ndvi_df)
-  # train data
-  train_ndvi_summary <- get_summary_ndvi_df(ndvi_df = train_ndvi_df)
-  
-  # Retrieve latest month available in test data for label
-  test_end_month <- test_files_df[max(test_files_df$month),]$dates
-  
-  ## Make plot - distribution of NDVI values throughout the year.
-  ndvi_ts_plot <- plot_ndvi_timeseries(train_data = train_ndvi_summary, 
-                                       test_data = test_ndvi_summary,
-                                       country_name = country_name, 
-                                       resolution = resolution,
-                                       plot_width = 15, 
-                                       plot_height = 8,
-                                       ylim_range = NULL,
-                                       test_start_date = start_date,
-                                       test_end_date = end_date,
-                                       label_test = paste0(land_cover_type, " NDVI ", paste(format(c(start_date, test_end_month), "%b %Y"),collapse=" - ") ),
-                                       label_train = paste0(land_cover_type, " NDVI historic range until ", format(start_date, "%b %Y") ),
-                                       label_mean = paste0(land_cover_type, " NDVI monthly average until ", format(start_date, "%b %Y") ),
-                                       save_path = figures_dir,
-                                       filename = figure_filename
-  )
-  
-  # if we want to return the ggplot object
-  if (return_plot == TRUE) {
-    
-    return(ndvi_ts_plot)
-    
+  name_ribbon <- paste0("Historical range (until ", format(start_date, "%b %Y"), ")")
+  use_map <- !is.null(lulc_map_folder_path) && nzchar(lulc_map_folder_path) &&
+    dir.exists(lulc_map_folder_path)
+  if (isTRUE(use_map)) {
+    combo <- plot_ndvi_landcover_with_map(
+      train_ndvi_summary_aoi = train_ndvi_summary_aoi,
+      land_cover_summaries   = land_cover_summaries,
+      name_ribbon            = name_ribbon,
+      lulc_map_folder        = lulc_map_folder_path,
+      aoi_sf                 = aoi_proj
+    )
+    ndvi_ts_plot <- combo$plot
+    bbox_stem <- combo$bbox_by_stem
+  } else {
+    ndvi_ts_plot <- plot_ndvi_landcover_multiline(
+      train_ndvi_summary_aoi = train_ndvi_summary_aoi,
+      land_cover_summaries   = land_cover_summaries,
+      name_ribbon            = name_ribbon
+    )
+    bbox_stem <- NULL
   }
   
+  if (isTRUE(return_plot)) {
+    return(list(plot = ndvi_ts_plot, bbox_by_stem = bbox_stem))
+  }
+  
+  invisible(NULL)
 }

@@ -253,6 +253,44 @@ get_ndvi_df <- function(ndvi_rast = NULL, dates = NULL) {
   return(ndvi_df)
 }
 
+#' Spatial mean NDVI per layer via \code{terra::global} (fast path).
+#'
+#' Returns a small data frame with \code{Year}, \code{Month}, \code{NDVI} per
+#' layer, compatible with \code{get_summary_ndvi_df()} — same inter-annual CI
+#' logic as the pixel-based \code{get_ndvi_df()} path when means match
+#' \code{mean(NDVI, na.rm = TRUE)} over cells.
+#'
+#' @noRd
+get_ndvi_global_means_df <- function(ndvi_rast = NULL, dates = NULL) {
+  if (is.null(ndvi_rast) || is.null(dates)) {
+    stop("ndvi_rast and dates are required.")
+  }
+  nlyr <- terra::nlyr(ndvi_rast)
+  if (nlyr == 0L) {
+    stop("ndvi_rast has no layers.")
+  }
+  if (nlyr != length(dates)) {
+    stop(
+      "Number of raster layers (", nlyr, ") does not match length(dates) (",
+      length(dates), ")."
+    )
+  }
+  dates_key <- if (inherits(dates, "Date")) {
+    dates
+  } else {
+    as.Date(paste0(dates, "-01"))
+  }
+  gm <- terra::global(ndvi_rast, fun = "mean", na.rm = TRUE)
+  vals <- as.numeric(gm[[1L]])
+  data.frame(
+    YearMonth = dates_key,
+    NDVI      = vals,
+    Year      = format(dates_key, "%Y"),
+    Month     = format(dates_key, "%m"),
+    stringsAsFactors = FALSE
+  )
+}
+
 get_ba_df <- function(ba_rast = NULL, dates = NULL) {
   
   # Extract raster layers for each date and store in dataframe
