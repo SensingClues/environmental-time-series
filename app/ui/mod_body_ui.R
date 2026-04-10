@@ -48,19 +48,21 @@ mod_body_ui <- function(id) {
                           span("Use the sidepanel to generate a graph.")
                       ),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
-                                       div(style = "margin-left: 10px; margin-top: 10px; margin-right: 10px;",
-                                           uiOutput("ndvi_ts_plot_container"),
-                                           div(
-                                             style = "margin-top: 12px;",
-                                             fluidRow(
-                                               column(6, uiOutput("wilcoxon_card")),
-                                               column(6, uiOutput("smk_card"))
-                                             )
-                                           ))),
+                                       div(
+                                         class = "plot-container",
+                                         style = "margin-left: 10px; margin-right: 10px;",
+                                         uiOutput("ndvi_ts_plot_container"),
+                                         div(
+                                           class = "ndvi-ts-insight-cards",
+                                           style = "margin-top: 16px;",
+                                           fluidRow(
+                                             column(6, uiOutput("wilcoxon_card")),
+                                             column(6, uiOutput("smk_card"))
+                                           )
+                                         )
+                                       )),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("ndvi_ts_plot_container"))),
                     ),
                     
                     tabPanel(

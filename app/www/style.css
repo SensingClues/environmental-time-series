@@ -266,12 +266,20 @@ textarea::-ms-input-placeholder {
   min-height: 0;
 }
 
-.content .tab-explain {
-  margin: 10px;
-}
-
+/* Annotation copy above plots — same gray as inactive tab labels (#6b7280, see .nav-tabs below) */
+.content .tab-explain,
 .content .tab-pane-explain {
   margin: 10px;
+  color: #6b7280;
+}
+
+/* Shiny tabsetPanel: inactive tab text (e.g. "NDVI Land Cover Explorer") — keep in sync with copy above */
+.content .nav-tabs > li:not(.active) > a,
+.content .nav-tabs > li:not(.active) > a:focus {
+  color: #6b7280;
+}
+.content .nav-tabs > li:not(.active) > a:hover {
+  color: #5c6370;
 }
 
 .content .plot-container {
