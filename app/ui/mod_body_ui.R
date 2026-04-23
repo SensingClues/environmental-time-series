@@ -148,6 +148,117 @@ mod_body_ui <- function(id) {
                     )
         )
       )
+      ,
+      
+      # Scenario Explorer
+      tabPanel(
+        title = "Scenario Explorer",
+        value = "ScenarioExplorerTab",
+        
+        tabsetPanel(
+          id   = "scenariosubtabs",
+          type = "tabs",
+          
+          tabPanel(
+            title = "Drought Impact",
+            value = "ScenarioDroughtImpact",
+            div(class="tab-pane-explain",
+                span("Compare a selected year against a historical baseline to see where and when NDVI deviates by land cover class."),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioDroughtImpact'",
+              div(class="plot-container", uiOutput("scenario_drought_container"))
+            )
+          ),
+          tabPanel(
+            title = "Seasonal Vegetation Cycle",
+            value = "ScenarioSeasonalVegetationCycle",
+            div(class="tab-pane-explain",
+                span("The climatological baseline — expected seasonal NDVI curve for each land cover class averaged across available years."),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioSeasonalVegetationCycle'",
+              div(class="plot-container", uiOutput("scenario_seasonal_cycle_container"))
+            ),
+            mod_busy_spinner_ui("busy_spinner")
+          ),
+          tabPanel(
+            title = "Land Cover Productivity",
+            value = "ScenarioLandCoverProductivity",
+            div(class="tab-pane-explain",
+                span("Ranks land cover classes by annual mean NDVI and seasonal variability for the selected year."),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
+              div(class="plot-container", uiOutput("scenario_productivity_container"))
+            )
+          ),
+          tabPanel(
+            title = "Agricultural Monitoring",
+            value = "ScenarioAgriculturalMonitoring",
+            div(class="tab-pane-explain",
+                span("Tracks crop season phenology — green-up, peak, and senescence — for the Crops class across all available years."),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring'",
+              div(class="plot-container", uiOutput("scenario_agri_container"))
+            )
+          ),
+          tabPanel(
+            title = "Vegetation Trend",
+            value = "ScenarioVegetationTrend",
+            div(class="tab-pane-explain",
+                span("Long-term annual NDVI trend per land cover class across 2019\u20132025, with statistical significance (Seasonal Mann-Kendall test)."),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioVegetationTrend'",
+              div(class="plot-container", uiOutput("scenario_veg_trend_container"))
+            )
+          ),
+          tabPanel(
+            title = "Rainy Season Onset",
+            value = "ScenarioRainySeasonOnset",
+            div(class="tab-pane-explain",
+                span("Detects the month when the rainy season begins each year based on vegetation response, and tracks whether onset is shifting over time."),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioRainySeasonOnset'",
+              div(class="plot-container", uiOutput("scenario_onset_container"))
+            )
+          ),
+          tabPanel(
+            title = "Anomaly Resilience",
+            value = "ScenarioAnomalyResilience",
+            div(class="tab-pane-explain",
+                span("When NDVI drops below normal, which land cover classes are most affected and which recover fastest?"),
+                br(), br(),
+                span("Use the sidepanel to generate a graph.")
+            ),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
+              div(class="plot-container", uiOutput("scenario_anomaly_container"))
+            )
+          )
+        )
+      )
     )
   )
 }

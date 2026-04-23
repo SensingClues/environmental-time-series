@@ -1,4 +1,6 @@
 
+source("src/scenario_analysis.R")
+
 server <- function(input, output, session) {
   # error logging
   message("=========== Starting Environmental Time Series Analysis App =============")
@@ -37,17 +39,23 @@ server <- function(input, output, session) {
   countrychoices_rv <- reactiveValues(
     choice_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
                                             "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
-                        BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL")),
+                        BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL"),
+                        ScenarioExplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
+                                                "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")),
     selected_set = list(NDVIexplorerTab = "Zambia_Mponda", 
-                        BAexplorerTab = "Zambia_WL")
+                        BAexplorerTab = "Zambia_WL",
+                        ScenarioExplorerTab = "Zambia_Mponda")
   )
   
   resolutionchoices_rv <- reactiveValues(
     choice_set =   list(NDVIexplorerTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
                                             "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"),
-                        BAexplorerTab = c("500 (Terra MODIS)" = "500")),
+                        BAexplorerTab = c("500 (Terra MODIS)" = "500"),
+                        ScenarioExplorerTab = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
+                                                "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100")),
     selected_set = list(NDVIexplorerTab = "Sentinel_1000", 
-                        BAexplorerTab = "500")
+                        BAexplorerTab = "500",
+                        ScenarioExplorerTab = "Sentinel_1000")
   )
   
   # Observe selected tab and update choices according to the one selected
@@ -71,6 +79,433 @@ server <- function(input, output, session) {
     }
   })
   
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: shared data reactive
+  # Loads all NDVI-per-class data once per (country, resolution) combination.
+  # Invalidated automatically when input$country or input$resolution changes.
+  # Each generate handler reads this reactive instead of re-running raster I/O.
+  # ---------------------------------------------------------------------------------------------------
+  scenario_ndvi_data <- reactive({
+    req(input$country, input$resolution)
+    country_name <- input$country
+    resolution   <- input$resolution
+    land_use_src <- "S2_10m_LULC_2023"
+    lulc_dir     <- file.path(data_dir, "LandUse", country_name, land_use_src)
+    message("=== scenario_ndvi_data: loading country=", country_name, " resolution=", resolution)
+    message("    lulc_dir exists: ", dir.exists(lulc_dir), " | path: ", lulc_dir)
+    avail_years  <- .scenario_avail_years(data_dir, country_name, resolution)
+    message("    avail_years: ", paste(avail_years, collapse = ", "))
+    df <- .load_all_years(avail_years, country_name, resolution, data_dir, lulc_dir)
+    message("    loaded rows: ", if (is.null(df)) "NULL" else nrow(df))
+    df
+  })
+
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: DROUGHT IMPACT
+  # ---------------------------------------------------------------------------------------------------
+  scenario_drought_ready    <- reactiveVal(FALSE)
+  scenario_drought_plot_obj <- reactiveVal(NULL)
+
+  output$scenario_drought_plot_output <- plotly::renderPlotly({
+    p <- scenario_drought_plot_obj()
+    shiny::req(p)
+    p
+  })
+
+  output$scenario_drought_container <- renderUI({
+    if (is.null(error_message_rv()) && isTRUE(scenario_drought_ready())) {
+      div(class = "image-fill top-center",
+          plotlyOutput("scenario_drought_plot_output", height = "700px"),
+          height = "auto")
+    } else NULL
+  })
+
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_drought_ready(FALSE)
+    scenario_drought_plot_obj(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$generate_drought_impact, {
+    scenario_drought_ready(FALSE)
+    scenario_drought_plot_obj(NULL)
+    error_message_rv(NULL)
+
+    comp_year <- as.integer(input$scenario_drought_year)
+    ref_years <- as.integer(input$scenario_drought_ref_years)
+
+    tryCatch({
+      p <- plot_drought_impact(
+        df              = scenario_ndvi_data(),
+        comparison_year = comp_year,
+        reference_years = ref_years
+      )
+      scenario_drought_plot_obj(p)
+      scenario_drought_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_drought_ready(FALSE)
+      scenario_drought_plot_obj(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Drought Impact: ", e$message)
+    })
+  })
+
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: SEASONAL VEGETATION CYCLE
+  # ---------------------------------------------------------------------------------------------------
+  scenario_seasonal_ready <- reactiveVal(FALSE)
+  scenario_seasonal_plot_obj <- reactiveVal(NULL)
+  
+  output$scenario_seasonal_cycle_plot_output <- plotly::renderPlotly({
+    p <- scenario_seasonal_plot_obj()
+    shiny::req(p)
+    p
+  })
+  
+  output$scenario_seasonal_cycle_container <- renderUI({
+    error_msg <- error_message_rv()
+    
+    if (is.null(error_msg) && isTRUE(scenario_seasonal_ready())) {
+      div(
+        class = "image-fill top-center",
+        plotlyOutput("scenario_seasonal_cycle_plot_output", height = "650px"),
+        height = "auto"
+      )
+    } else {
+      NULL
+    }
+  })
+  
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_seasonal_ready(FALSE)
+    scenario_seasonal_plot_obj(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+  
+  observeEvent(input$generate_seasonal_cycle, {
+    scenario_seasonal_ready(FALSE)
+    scenario_seasonal_plot_obj(NULL)
+    error_message_rv(NULL)
+
+    classes <- input$scenario_classes
+
+    tryCatch({
+      p <- plot_seasonal_cycle(
+        df      = scenario_ndvi_data(),
+        classes = classes
+      )
+
+      scenario_seasonal_plot_obj(p)
+      scenario_seasonal_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_seasonal_ready(FALSE)
+      scenario_seasonal_plot_obj(NULL)
+      error_message_rv(e$message)
+
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error",
+                       duration = 6)
+
+      message("Error generating Seasonal Vegetation Cycle: ", e$message)
+    })
+  })
+  
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: LAND COVER PRODUCTIVITY
+  # ---------------------------------------------------------------------------------------------------
+  scenario_productivity_ready  <- reactiveVal(FALSE)
+  scenario_productivity_result <- reactiveVal(NULL)
+
+  output$scenario_productivity_bar_output <- plotly::renderPlotly({
+    res <- scenario_productivity_result(); shiny::req(res); res$bar
+  })
+  output$scenario_productivity_scatter_output <- plotly::renderPlotly({
+    res <- scenario_productivity_result(); shiny::req(res); res$scatter
+  })
+  output$scenario_productivity_table_output <- renderTable({
+    res <- scenario_productivity_result(); shiny::req(res); res$table
+  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
+  output$scenario_productivity_container <- renderUI({
+    if (is.null(error_message_rv()) && isTRUE(scenario_productivity_ready())) {
+      tagList(
+        fluidRow(
+          column(6, plotlyOutput("scenario_productivity_bar_output",     height = "400px")),
+          column(6, plotlyOutput("scenario_productivity_scatter_output", height = "400px"))
+        ),
+        br(),
+        tableOutput("scenario_productivity_table_output")
+      )
+    } else NULL
+  })
+
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_productivity_ready(FALSE)
+    scenario_productivity_result(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$generate_productivity, {
+    scenario_productivity_ready(FALSE)
+    scenario_productivity_result(NULL)
+    error_message_rv(NULL)
+
+    sel_year <- as.integer(input$scenario_productivity_year)
+
+    tryCatch({
+      res <- plot_productivity_comparison(
+        df            = scenario_ndvi_data(),
+        selected_year = sel_year
+      )
+      scenario_productivity_result(res)
+      scenario_productivity_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_productivity_ready(FALSE)
+      scenario_productivity_result(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Land Cover Productivity: ", e$message)
+    })
+  })
+
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: AGRICULTURAL MONITORING
+  # ---------------------------------------------------------------------------------------------------
+  scenario_agri_ready  <- reactiveVal(FALSE)
+  scenario_agri_result <- reactiveVal(NULL)
+
+  output$scenario_agri_plot_output <- plotly::renderPlotly({
+    res <- scenario_agri_result(); shiny::req(res); res$plot
+  })
+  output$scenario_agri_table_output <- renderTable({
+    res <- scenario_agri_result(); shiny::req(res); res$phenology_table
+  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
+  output$scenario_agri_container <- renderUI({
+    if (is.null(error_message_rv()) && isTRUE(scenario_agri_ready())) {
+      tagList(
+        plotlyOutput("scenario_agri_plot_output", height = "500px"),
+        br(),
+        tableOutput("scenario_agri_table_output")
+      )
+    } else NULL
+  })
+
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_agri_ready(FALSE)
+    scenario_agri_result(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$generate_agri_monitoring, {
+    scenario_agri_ready(FALSE)
+    scenario_agri_result(NULL)
+    error_message_rv(NULL)
+
+    tryCatch({
+      res <- plot_agricultural_monitoring(df = scenario_ndvi_data())
+      scenario_agri_result(res)
+      scenario_agri_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_agri_ready(FALSE)
+      scenario_agri_result(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Agricultural Monitoring: ", e$message)
+    })
+  })
+
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: VEGETATION TREND
+  # ---------------------------------------------------------------------------------------------------
+  scenario_veg_trend_ready  <- reactiveVal(FALSE)
+  scenario_veg_trend_result <- reactiveVal(NULL)
+
+  output$scenario_veg_trend_plot_output <- plotly::renderPlotly({
+    res <- scenario_veg_trend_result(); shiny::req(res); res$plot
+  })
+  output$scenario_veg_trend_table_output <- renderTable({
+    res <- scenario_veg_trend_result(); shiny::req(res); res$trend_table
+  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
+  output$scenario_veg_trend_container <- renderUI({
+    if (is.null(error_message_rv()) && isTRUE(scenario_veg_trend_ready())) {
+      tagList(
+        plotlyOutput("scenario_veg_trend_plot_output", height = "500px"),
+        br(),
+        tableOutput("scenario_veg_trend_table_output")
+      )
+    } else NULL
+  })
+
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_veg_trend_ready(FALSE)
+    scenario_veg_trend_result(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$generate_veg_trend, {
+    scenario_veg_trend_ready(FALSE)
+    scenario_veg_trend_result(NULL)
+    error_message_rv(NULL)
+
+    tryCatch({
+      res <- plot_vegetation_trend(df = scenario_ndvi_data())
+      scenario_veg_trend_result(res)
+      scenario_veg_trend_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_veg_trend_ready(FALSE)
+      scenario_veg_trend_result(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Vegetation Trend: ", e$message)
+    })
+  })
+
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: RAINY SEASON ONSET
+  # ---------------------------------------------------------------------------------------------------
+  scenario_onset_ready  <- reactiveVal(FALSE)
+  scenario_onset_result <- reactiveVal(NULL)
+
+  output$scenario_onset_lines_output <- plotly::renderPlotly({
+    res <- scenario_onset_result(); shiny::req(res); res$lines
+  })
+  output$scenario_onset_bar_output <- plotly::renderPlotly({
+    res <- scenario_onset_result(); shiny::req(res); res$bar
+  })
+  output$scenario_onset_table_output <- renderTable({
+    res <- scenario_onset_result(); shiny::req(res); res$onset_table
+  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
+  output$scenario_onset_container <- renderUI({
+    if (is.null(error_message_rv()) && isTRUE(scenario_onset_ready())) {
+      tagList(
+        fluidRow(
+          column(8, plotlyOutput("scenario_onset_lines_output", height = "450px")),
+          column(4, plotlyOutput("scenario_onset_bar_output",   height = "450px"))
+        ),
+        br(),
+        tableOutput("scenario_onset_table_output")
+      )
+    } else NULL
+  })
+
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_onset_ready(FALSE)
+    scenario_onset_result(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$generate_rainy_onset, {
+    scenario_onset_ready(FALSE)
+    scenario_onset_result(NULL)
+    error_message_rv(NULL)
+
+    onset_class <- input$scenario_onset_class
+
+    tryCatch({
+      res <- plot_rainy_season_onset(
+        df             = scenario_ndvi_data(),
+        selected_class = onset_class
+      )
+      scenario_onset_result(res)
+      scenario_onset_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_onset_ready(FALSE)
+      scenario_onset_result(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Rainy Season Onset: ", e$message)
+    })
+  })
+
+  # ---------------------------------------------------------------------------------------------------
+  # SCENARIO EXPLORER: ANOMALY RESILIENCE
+  # ---------------------------------------------------------------------------------------------------
+  scenario_anomaly_ready  <- reactiveVal(FALSE)
+  scenario_anomaly_result <- reactiveVal(NULL)
+
+  output$scenario_anomaly_heatmap_output <- plotly::renderPlotly({
+    res <- scenario_anomaly_result(); shiny::req(res); res$heatmap
+  })
+  output$scenario_anomaly_recovery_output <- plotly::renderPlotly({
+    res <- scenario_anomaly_result(); shiny::req(res); res$recovery
+  })
+  output$scenario_anomaly_table_output <- renderTable({
+    res <- scenario_anomaly_result(); shiny::req(res); res$summary_table
+  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
+  output$scenario_anomaly_container <- renderUI({
+    if (is.null(error_message_rv()) && isTRUE(scenario_anomaly_ready())) {
+      tagList(
+        fluidRow(
+          column(8, plotlyOutput("scenario_anomaly_heatmap_output",  height = "400px")),
+          column(4, plotlyOutput("scenario_anomaly_recovery_output", height = "400px"))
+        ),
+        br(),
+        tableOutput("scenario_anomaly_table_output")
+      )
+    } else NULL
+  })
+
+  observeEvent(list(input$tabs, input$scenariosubtabs), {
+    scenario_anomaly_ready(FALSE)
+    scenario_anomaly_result(NULL)
+    error_message_rv(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$generate_anomaly_resilience, {
+    scenario_anomaly_ready(FALSE)
+    scenario_anomaly_result(NULL)
+    error_message_rv(NULL)
+
+    anom_year <- as.integer(input$scenario_anomaly_year)
+
+    tryCatch({
+      res <- plot_anomaly_resilience(
+        df           = scenario_ndvi_data(),
+        anomaly_year = anom_year
+      )
+      scenario_anomaly_result(res)
+      scenario_anomaly_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      scenario_anomaly_ready(FALSE)
+      scenario_anomaly_result(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Anomaly Resilience: ", e$message)
+    })
+  })
+
   # Set Reactive values for AoI shape and error message
   aoi_shape_rv <- reactiveVal(NULL)
   error_message_rv <- reactiveVal(NULL)
@@ -103,9 +538,11 @@ server <- function(input, output, session) {
   observeEvent(input$country, {
     req(input$country)
     error_message_rv(NULL) # Clear any previous errors
-    
+
     tryCatch({
-      aoi_files <- list.files(file.path(data_dir, "AoI"), pattern = paste0("AoI_.*", input$country, ".*\\.geojson$"))
+      # Use only the base country name for file lookup (e.g. "Zambia_Mponda" -> "Zambia")
+      aoi_country_key <- sub("_.*", "", input$country)
+      aoi_files <- list.files(file.path(data_dir, "AoI"), pattern = paste0("AoI_.*", aoi_country_key, ".*\\.geojson$"))
       if (length(aoi_files) == 0) {
         stop("No Area of Interest file found for the selected country.")
       }

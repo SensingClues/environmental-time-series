@@ -87,5 +87,81 @@ mod_sidebar_ui <- function(id) {
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
                      div(actionButton("generate_ba_map_figures", "Generate Figure", class = "action_button"))
                      )
+    ,
+    
+    # Scenario Explorer: Drought Impact
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioDroughtImpact'",
+      div(
+        selectInput("scenario_drought_year", "Comparison year",
+                    choices = 2019:2025, selected = 2022),
+        checkboxGroupInput(
+          "scenario_drought_ref_years", "Reference period",
+          choices  = 2019:2025,
+          selected = 2019:2025
+        ),
+        actionButton("generate_drought_impact", "Generate Figure", class = "action_button")
+      )
+    ),
+
+    # Scenario Explorer: Seasonal Vegetation Cycle
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioSeasonalVegetationCycle'",
+      div(
+        checkboxGroupInput(
+          "scenario_classes",
+          "Show land cover classes",
+          choices = c("Crops", "Rangeland", "Water", "Trees", "Flooded_vegetation", "Built_Area", "Bare_ground"),
+          selected = c("Crops", "Rangeland", "Water", "Trees", "Flooded_vegetation", "Built_Area", "Bare_ground")
+        ),
+        actionButton("generate_seasonal_cycle", "Generate Figure", class = "action_button")
+      )
+    ),
+
+    # Scenario Explorer: Land Cover Productivity
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
+      div(
+        selectInput("scenario_productivity_year", "Select year",
+                    choices = 2019:2025, selected = 2023),
+        actionButton("generate_productivity", "Generate Figure", class = "action_button")
+      )
+    ),
+
+    # Scenario Explorer: Agricultural Monitoring
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring'",
+      div(
+        actionButton("generate_agri_monitoring", "Generate Figure", class = "action_button")
+      )
+    ),
+
+    # Scenario Explorer: Vegetation Trend
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioVegetationTrend'",
+      div(
+        actionButton("generate_veg_trend", "Generate Figure", class = "action_button")
+      )
+    ),
+
+    # Scenario Explorer: Rainy Season Onset
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioRainySeasonOnset'",
+      div(
+        selectInput("scenario_onset_class", "Select class",
+                    choices = c("Crops", "Rangeland"), selected = "Crops"),
+        actionButton("generate_rainy_onset", "Generate Figure", class = "action_button")
+      )
+    ),
+
+    # Scenario Explorer: Anomaly Resilience
+    conditionalPanel(
+      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
+      div(
+        selectInput("scenario_anomaly_year", "Anomaly year",
+                    choices = 2019:2025, selected = 2022),
+        actionButton("generate_anomaly_resilience", "Generate Figure", class = "action_button")
+      )
+    )
   )
 }
