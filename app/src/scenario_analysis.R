@@ -301,35 +301,57 @@ plot_seasonal_cycle <- function(df, classes = NULL) {
   )
   summary_df <- dplyr::arrange(summary_df, land_cover, month)
 
+  # Compute avg CI width per class for insight card
+  ci_width_df <- dplyr::summarise(
+    dplyr::group_by(summary_df, land_cover),
+    avg_ci_width = mean(ci_high - ci_low, na.rm = TRUE),
+    .groups = "drop"
+  )
+  most_variable <- ci_width_df$land_cover[which.max(ci_width_df$avg_ci_width)]
+  most_stable   <- ci_width_df$land_cover[which.min(ci_width_df$avg_ci_width)]
+
   p <- plotly::plot_ly()
   for (lc in unique(summary_df$land_cover)) {
-    df_lc <- summary_df[summary_df$land_cover == lc, ]
+    df_lc     <- summary_df[summary_df$land_cover == lc, ]
+    lc_color  <- if (lc %in% names(.lc_colors)) .lc_colors[[lc]] else "#888888"
+    disp_name <- .format_lc(lc)
 
     p <- plotly::add_ribbons(
       p,
       x = df_lc$month, ymin = df_lc$ci_low, ymax = df_lc$ci_high,
-      name = paste0(lc, " 95% CI"), legendgroup = lc,
-      showlegend = FALSE, hoverinfo = "none", opacity = 0.15
+      name = paste0(disp_name, " 95% CI"), legendgroup = lc,
+      showlegend = FALSE, hoverinfo = "none", opacity = 0.15,
+      fillcolor = lc_color, line = list(color = lc_color, width = 0)
     )
 
     p <- plotly::add_lines(
       p,
       x = df_lc$month, y = df_lc$mean_ndvi,
-      name = lc, legendgroup = lc,
+      name = disp_name, legendgroup = lc,
+      line = list(color = lc_color),
       hovertemplate = paste0(
-        "<b>", lc, "</b><br>Month: %{x}<br>Mean NDVI: %{y:.3f}<br>",
+        "<b>", disp_name, "</b><br>Month: %{x}<br>Mean NDVI: %{y:.3f}<br>",
         "95% CI: [%{customdata[0]:.3f}, %{customdata[1]:.3f}]<extra></extra>"
       ),
       customdata = cbind(df_lc$ci_low, df_lc$ci_high)
     )
   }
 
-  plotly::layout(
+  p <- plotly::layout(
     p,
     xaxis  = list(title = "Month", tickmode = "array", tickvals = 1:12, ticktext = month.name),
     yaxis  = list(title = "NDVI"),
     legend = list(orientation = "h")
   )
+
+  flood_note <- if (most_variable == "Flooded_vegetation")
+    " — driven by varying flood levels rather than vegetation health" else ""
+  insight_text <- sprintf(
+    "%s shows the most year-to-year variability (widest confidence interval)%s. %s shows the most consistent seasonal pattern (narrowest confidence interval).",
+    .format_lc(most_variable), flood_note, .format_lc(most_stable)
+  )
+
+  list(plot = p, insight_text = insight_text)
 }
 
 # --- Sub-tab 3: Land Cover Productivity ---
@@ -691,18 +713,42 @@ plot_vegetation_trend <- function(df) {
   })
 
   trend_df <- do.call(rbind, trend_results)
-  trend_df_display <- trend_df
-  colnames(trend_df_display) <- c("Land Cover", "Trend", "Slope (NDVI/yr)", "p-value")
+
+  # Insight: strongest positive/negative tendency (even if not significant)
+  trend_with_slope <- trend_df[!is.na(trend_df$slope), ]
+  insight_text <- if (nrow(trend_with_slope) >= 2) {
+    best_pos <- trend_with_slope[which.max(trend_with_slope$slope), ]
+    best_neg <- trend_with_slope[which.min(trend_with_slope$slope), ]
+    sprintf(
+      "With %d years of data, no statistically significant trends are detected. %s shows the strongest upward tendency (+%.5f NDVI/yr) and %s the strongest downward tendency (%.5f NDVI/yr). Continue monitoring as data accumulates.",
+      length(avail_years),
+      .format_lc(best_pos$land_cover), best_pos$slope,
+      .format_lc(best_neg$land_cover), best_neg$slope
+    )
+  } else "Insufficient data to compute trend statistics."
+
+  # Display table: formatted names, NA shown as "—", note for NA rows
+  trend_df_display <- data.frame(
+    `Land Cover`      = .format_lc(trend_df$land_cover),
+    `Trend`           = trend_df$trend_direction,
+    `Slope (NDVI/yr)` = ifelse(is.na(trend_df$slope),   "—", as.character(round(trend_df$slope, 5))),
+    `p-value`         = ifelse(is.na(trend_df$p_value), "—", as.character(round(trend_df$p_value, 4))),
+    `Note`            = ifelse(is.na(trend_df$slope) | is.na(trend_df$p_value),
+                               "Insufficient variation", ""),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
 
   p <- plotly::plot_ly()
   for (lc in lc_classes) {
-    df_lc <- dplyr::arrange(annual_df[annual_df$land_cover == lc, ], year)
+    df_lc    <- dplyr::arrange(annual_df[annual_df$land_cover == lc, ], year)
+    lc_color <- if (lc %in% names(.lc_colors)) .lc_colors[[lc]] else "#888888"
 
     p <- plotly::add_lines(
       p, x = df_lc$year, y = df_lc$annual_mean,
-      name = lc, legendgroup = lc,
+      name = .format_lc(lc), legendgroup = lc,
+      line = list(color = lc_color),
       hovertemplate = paste0(
-        "<b>", lc, "</b><br>Year: %{x}<br>Annual Mean NDVI: %{y:.3f}<extra></extra>"
+        "<b>", .format_lc(lc), "</b><br>Year: %{x}<br>Annual Mean NDVI: %{y:.3f}<extra></extra>"
       )
     )
 
@@ -711,8 +757,10 @@ plot_vegetation_trend <- function(df) {
       trend_y <- predict(lm_fit, newdata = df_lc)
       p <- plotly::add_lines(
         p, x = df_lc$year, y = trend_y,
-        name = paste0(lc, " trend"), legendgroup = lc,
-        showlegend = FALSE, line = list(dash = "dot"), hoverinfo = "none"
+        name = paste0(.format_lc(lc), " trend"), legendgroup = lc,
+        showlegend = FALSE,
+        line = list(dash = "dash", color = lc_color, width = 2),
+        hoverinfo = "none"
       )
     }
   }
@@ -724,7 +772,7 @@ plot_vegetation_trend <- function(df) {
     legend = list(orientation = "h")
   )
 
-  list(plot = p, trend_table = trend_df_display)
+  list(plot = p, trend_table = trend_df_display, insight_text = insight_text)
 }
 
 # --- Sub-tab 6: Rainy Season Onset ---
@@ -890,12 +938,37 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
 
   recovery_df <- do.call(rbind, recovery_results)
 
+  # Resilience score = abs(max deficit) × recovery time; lower = more resilient
+  max_rec <- if (any(!is.na(recovery_df$recovery_months)))
+    max(recovery_df$recovery_months, na.rm = TRUE) * 2L else 12L
+  recovery_df$resilience_score <- abs(recovery_df$max_deficit) *
+    ifelse(is.na(recovery_df$recovery_months), max_rec, recovery_df$recovery_months)
+  recovery_df$resilience_rank  <- rank(recovery_df$resilience_score,
+                                       ties.method = "min", na.last = TRUE)
+
+  # Insight text
+  insight_text <- tryCatch({
+    most_affected  <- recovery_df[which.min(recovery_df$max_deficit), ]
+    most_resilient <- recovery_df[which.min(recovery_df$resilience_score), ]
+    slowest_valid  <- recovery_df[!is.na(recovery_df$recovery_months), ]
+    slowest        <- if (nrow(slowest_valid) > 0)
+      slowest_valid[which.max(slowest_valid$recovery_months), ] else NULL
+    slow_text <- if (!is.null(slowest))
+      sprintf(" %s took the longest to recover (%d months).",
+              .format_lc(slowest$land_cover), slowest$recovery_months) else ""
+    sprintf(
+      "In %s, %s showed the largest deficit (%.3f NDVI) in %s.%s %s was the most resilient class (lowest combined deficit × recovery score).",
+      anomaly_year, .format_lc(most_affected$land_cover), most_affected$max_deficit,
+      most_affected$deficit_month, slow_text, .format_lc(most_resilient$land_cover)
+    )
+  }, error = function(e) "Resilience summary not available.")
+
   # Heatmap of anomaly per class × month
   hm_data <- tidyr::pivot_wider(
     merged[, c("land_cover", "month", "anomaly")],
     names_from = "month", values_from = "anomaly"
   )
-  lc_names <- hm_data$land_cover
+  lc_names  <- hm_data$land_cover
   hm_matrix <- as.matrix(hm_data[, -1])
   rownames(hm_matrix) <- lc_names
   col_months <- as.integer(colnames(hm_matrix))
@@ -905,6 +978,7 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
     type = "heatmap",
     colorscale = list(c(0, "#E53935"), c(0.5, "#FFFFFF"), c(1, "#43A047")),
     zmid = 0,
+    colorbar = list(title = "NDVI deficit\n(negative = below avg)"),
     hovertemplate = "<b>%{y}</b><br>Month: %{x}<br>Anomaly: %{z:.3f}<extra></extra>"
   )
   p_heatmap <- plotly::layout(
@@ -914,13 +988,16 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
     yaxis = list(title = "")
   )
 
-  recovery_valid <- recovery_df[!is.na(recovery_df$recovery_months), ]
+  # Recovery bar chart coloured by class
+  recovery_valid    <- recovery_df[!is.na(recovery_df$recovery_months), ]
+  rec_bar_colors    <- sapply(recovery_valid$land_cover, function(lc)
+    if (lc %in% names(.lc_colors)) .lc_colors[[lc]] else "#888888")
   p_recovery <- plotly::plot_ly(
     data = recovery_valid,
-    x    = ~land_cover,
+    x    = ~.format_lc(land_cover),
     y    = ~recovery_months,
     type = "bar",
-    marker = list(color = "#7B1FA2"),
+    marker = list(color = rec_bar_colors),
     hovertemplate = "<b>%{x}</b><br>Recovery: %{y} months<extra></extra>"
   )
   p_recovery <- plotly::layout(
@@ -929,10 +1006,19 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
     yaxis = list(title = "Months to Recovery")
   )
 
-  table_out <- recovery_df
+  # Summary table: formatted names, resilience rank, ⚠️ note for Flooded_vegetation
+  table_out <- recovery_df[, c("land_cover", "max_deficit", "deficit_month",
+                                "recovery_months", "resilience_rank")]
+  table_out$land_cover      <- .format_lc(table_out$land_cover)
   table_out$recovery_months <- ifelse(is.na(table_out$recovery_months), "—",
                                       as.character(table_out$recovery_months))
-  colnames(table_out) <- c("Land Cover", "Max Deficit", "Deficit Month", "Recovery (months)")
+  table_out$Note <- ifelse(
+    table_out$land_cover == "Flooded vegetation",
+    "⚠ Anomalies reflect flood dynamics — interpret alongside Rangeland and Crops", ""
+  )
+  colnames(table_out) <- c("Land Cover", "Max Deficit", "Deficit Month",
+                            "Recovery (months)", "Resilience Rank", "Note")
 
-  list(heatmap = p_heatmap, recovery = p_recovery, summary_table = table_out)
+  list(heatmap = p_heatmap, recovery = p_recovery, summary_table = table_out,
+       insight_text = insight_text)
 }

@@ -111,8 +111,17 @@ mod_sidebar_ui <- function(id) {
         checkboxGroupInput(
           "scenario_classes",
           "Show land cover classes",
-          choices = c("Crops", "Rangeland", "Water", "Trees", "Flooded_vegetation", "Built_Area", "Bare_ground"),
-          selected = c("Crops", "Rangeland", "Water", "Trees", "Flooded_vegetation", "Built_Area", "Bare_ground")
+          choices = c(
+            "Crops"              = "Crops",
+            "Rangeland"          = "Rangeland",
+            "Water"              = "Water",
+            "Trees"              = "Trees",
+            "Flooded vegetation" = "Flooded_vegetation",
+            "Built area"         = "Built_Area",
+            "Bare ground"        = "Bare_ground"
+          ),
+          selected = c("Crops", "Rangeland", "Water", "Trees",
+                       "Flooded_vegetation", "Built_Area", "Bare_ground")
         ),
         actionButton("generate_seasonal_cycle", "Generate Figure", class = "action_button")
       )

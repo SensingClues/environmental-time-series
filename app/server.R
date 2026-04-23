@@ -204,62 +204,52 @@ server <- function(input, output, session) {
   # ---------------------------------------------------------------------------------------------------
   # SCENARIO EXPLORER: SEASONAL VEGETATION CYCLE
   # ---------------------------------------------------------------------------------------------------
-  scenario_seasonal_ready <- reactiveVal(FALSE)
-  scenario_seasonal_plot_obj <- reactiveVal(NULL)
-  
+  scenario_seasonal_ready  <- reactiveVal(FALSE)
+  scenario_seasonal_result <- reactiveVal(NULL)
+
   output$scenario_seasonal_cycle_plot_output <- plotly::renderPlotly({
-    p <- scenario_seasonal_plot_obj()
-    shiny::req(p)
-    p
+    res <- scenario_seasonal_result(); shiny::req(res); res$plot
   })
-  
+
   output$scenario_seasonal_cycle_container <- renderUI({
-    error_msg <- error_message_rv()
-    
-    if (is.null(error_msg) && isTRUE(scenario_seasonal_ready())) {
-      div(
-        class = "image-fill top-center",
-        plotlyOutput("scenario_seasonal_cycle_plot_output", height = "650px"),
-        height = "auto"
+    if (is.null(error_message_rv()) && isTRUE(scenario_seasonal_ready())) {
+      res <- scenario_seasonal_result()
+      tagList(
+        div(style = "background: #E8F5E922; border-left: 4px solid #1D9E75; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
+          tags$strong("Seasonal Pattern Insight"), tags$br(),
+          tags$span(res$insight_text)
+        ),
+        plotlyOutput("scenario_seasonal_cycle_plot_output", height = "600px")
       )
-    } else {
-      NULL
-    }
+    } else NULL
   })
-  
+
   observeEvent(list(input$tabs, input$scenariosubtabs), {
     scenario_seasonal_ready(FALSE)
-    scenario_seasonal_plot_obj(NULL)
+    scenario_seasonal_result(NULL)
     error_message_rv(NULL)
   }, ignoreInit = TRUE)
-  
+
   observeEvent(input$generate_seasonal_cycle, {
     scenario_seasonal_ready(FALSE)
-    scenario_seasonal_plot_obj(NULL)
+    scenario_seasonal_result(NULL)
     error_message_rv(NULL)
 
     classes <- input$scenario_classes
 
     tryCatch({
-      p <- plot_seasonal_cycle(
-        df      = scenario_ndvi_data(),
-        classes = classes
-      )
-
-      scenario_seasonal_plot_obj(p)
+      res <- plot_seasonal_cycle(df = scenario_ndvi_data(), classes = classes)
+      scenario_seasonal_result(res)
       scenario_seasonal_ready(TRUE)
       error_message_rv(NULL)
     }, error = function(e) {
       scenario_seasonal_ready(FALSE)
-      scenario_seasonal_plot_obj(NULL)
+      scenario_seasonal_result(NULL)
       error_message_rv(e$message)
-
       showNotification(HTML("The figure cannot be generated due to missing data.
        Please contact us at
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
-                       type = "error",
-                       duration = 6)
-
+                       type = "error", duration = 6)
       message("Error generating Seasonal Vegetation Cycle: ", e$message)
     })
   })
@@ -410,7 +400,16 @@ server <- function(input, output, session) {
 
   output$scenario_veg_trend_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_veg_trend_ready())) {
+      res <- scenario_veg_trend_result()
       tagList(
+        div(style = "background: #FFF8E122; border-left: 4px solid #F57F17; padding: 12px; margin-bottom: 6px; border-radius: 4px;",
+          tags$strong("📊 Data Sufficiency Note"), tags$br(),
+          tags$span("Trend analysis is most reliable with 10+ years of data. Current dataset covers 2019–2025 (6 years). Results should be interpreted cautiously.")
+        ),
+        div(style = "background: #E3F2FD22; border-left: 4px solid #1565C0; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
+          tags$strong("Trend Insight"), tags$br(),
+          tags$span(res$insight_text)
+        ),
         plotlyOutput("scenario_veg_trend_plot_output", height = "500px"),
         br(),
         tableOutput("scenario_veg_trend_table_output")
@@ -526,7 +525,12 @@ server <- function(input, output, session) {
 
   output$scenario_anomaly_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_anomaly_ready())) {
+      res <- scenario_anomaly_result()
       tagList(
+        div(style = "background: #FCE4EC22; border-left: 4px solid #C62828; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
+          tags$strong("Resilience Insight"), tags$br(),
+          tags$span(res$insight_text)
+        ),
         fluidRow(
           column(8, plotlyOutput("scenario_anomaly_heatmap_output",  height = "400px")),
           column(4, plotlyOutput("scenario_anomaly_recovery_output", height = "400px"))
