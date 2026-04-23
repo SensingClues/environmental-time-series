@@ -743,18 +743,21 @@ plot_rainy_season_onset <- function(df, selected_class = "Crops") {
     ndvi     <- df_year$mean_ndvi
     months   <- df_year$month
 
-    dry_idx <- which(months %in% 6:8)
-    dry_min <- if (length(dry_idx) > 0) min(ndvi[dry_idx], na.rm = TRUE) else min(ndvi, na.rm = TRUE)
-    threshold <- dry_min + 0.05
+    dry_idx <- which(months %in% 6L:8L)
+    dry_min <- if (length(dry_idx) > 0L) min(ndvi[dry_idx], na.rm = TRUE) else min(ndvi, na.rm = TRUE)
+    threshold <- dry_min + 0.08  # raised; 0.05 was detecting already-rising Jan NDVI
 
+    # Search from September onward only; require 2 consecutive months above threshold
     onset_month <- NA_integer_
-    for (i in seq_len(length(ndvi) - 1)) {
-      if (ndvi[i] > threshold && ndvi[i + 1] > threshold) {
-        onset_month <- months[i]
-        break
+    search_idx  <- which(months >= 9L)
+    for (k in seq_len(length(search_idx) - 1L)) {
+      i <- search_idx[k]
+      j <- search_idx[k + 1L]
+      if (ndvi[i] > threshold && ndvi[j] > threshold) {
+        onset_month <- months[i]; break
       }
     }
-    data.frame(year = df_year$year[1], onset_month = onset_month, stringsAsFactors = FALSE)
+    data.frame(year = df_year$year[1L], onset_month = onset_month, stringsAsFactors = FALSE)
   }
 
   onset_df <- do.call(rbind, lapply(split(all_df, all_df$year), detect_onset))
