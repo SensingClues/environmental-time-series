@@ -354,7 +354,12 @@ server <- function(input, output, session) {
 
   output$scenario_agri_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_agri_ready())) {
+      res <- scenario_agri_result()
       tagList(
+        div(style = "background: #F9FBE722; border-left: 4px solid #558B2F; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
+          tags$strong("Season Performance"), tags$br(),
+          tags$span(res$insight_text)
+        ),
         plotlyOutput("scenario_agri_plot_output", height = "500px"),
         br(),
         tableOutput("scenario_agri_table_output")
@@ -374,7 +379,7 @@ server <- function(input, output, session) {
     error_message_rv(NULL)
 
     tryCatch({
-      res <- plot_agricultural_monitoring(df = scenario_ndvi_data())
+      res <- plot_agricultural_monitoring(df = scenario_ndvi_data(), selected_class = input$agri_class)
       scenario_agri_result(res)
       scenario_agri_ready(TRUE)
       error_message_rv(NULL)

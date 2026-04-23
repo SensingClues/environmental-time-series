@@ -132,6 +132,8 @@ mod_sidebar_ui <- function(id) {
     conditionalPanel(
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring'",
       div(
+        selectInput("agri_class", "Select class",
+                    choices = c("Crops", "Rangeland"), selected = "Crops"),
         actionButton("generate_agri_monitoring", "Generate Figure", class = "action_button")
       )
     ),
