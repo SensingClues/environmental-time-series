@@ -159,7 +159,10 @@ plot_drought_impact <- function(df, comparison_year, reference_years = NULL) {
   merged <- dplyr::mutate(merged, deficit = mean_ndvi - hist_mean)
   merged <- dplyr::arrange(merged, land_cover, month)
 
-  worst <- merged[which.min(merged$deficit), ]
+  # Summary annotation: exclude Flooded_vegetation from worst-class ranking
+  merged_no_flood <- merged[merged$land_cover != "Flooded_vegetation", ]
+  worst_source    <- if (nrow(merged_no_flood) > 0) merged_no_flood else merged
+  worst           <- worst_source[which.min(worst_source$deficit), ]
   pct_below <- if (!is.na(worst$hist_mean) && worst$hist_mean != 0) {
     round(abs(worst$deficit / worst$hist_mean * 100), 1)
   } else NA
@@ -168,18 +171,46 @@ plot_drought_impact <- function(df, comparison_year, reference_years = NULL) {
     comparison_year, worst$land_cover, pct_below, month.name[worst$month]
   )
 
+  # Drought Severity Score: mean deficit of Rangeland, Crops, Trees only
+  key_classes    <- c("Rangeland", "Crops", "Trees")
+  key_df         <- merged[merged$land_cover %in% key_classes, ]
+  severity_score <- if (nrow(key_df) > 0) mean(key_df$deficit, na.rm = TRUE) else NA_real_
+  severity_label <- if (is.na(severity_score)) {
+    "Unknown"
+  } else if (severity_score > -0.02) {
+    "Normal"
+  } else if (severity_score > -0.05) {
+    "Mild stress"
+  } else if (severity_score > -0.10) {
+    "Moderate drought"
+  } else {
+    "Severe drought"
+  }
+
+  # Multi-class agreement: max number of non-flood classes simultaneously below average
+  non_flood_classes   <- unique(merged$land_cover[merged$land_cover != "Flooded_vegetation"])
+  months_available    <- sort(unique(merged$month))
+  agreement_by_month  <- sapply(months_available, function(mo) {
+    m_data <- merged[merged$month == mo & merged$land_cover %in% non_flood_classes, ]
+    sum(m_data$deficit < 0, na.rm = TRUE)
+  })
+  max_agreement        <- max(agreement_by_month, na.rm = TRUE)
+  worst_agreement_month <- months_available[which.max(agreement_by_month)]
+
+  # Main line chart
   lc_classes <- unique(merged$land_cover)
-  p_main <- plotly::plot_ly()
+  p_main     <- plotly::plot_ly()
 
   for (lc in lc_classes) {
-    df_lc <- merged[merged$land_cover == lc, ]
+    df_lc        <- merged[merged$land_cover == lc, ]
+    display_name <- if (lc == "Flooded_vegetation") "Flooded_vegetation ⚠" else lc
 
     p_main <- plotly::add_ribbons(
       p_main,
       x = df_lc$month,
       ymin = df_lc$hist_mean - df_lc$hist_sd,
       ymax = df_lc$hist_mean + df_lc$hist_sd,
-      name = paste0(lc, " ±1 SD"),
+      name = paste0(display_name, " ±1 SD"),
       legendgroup = lc,
       showlegend = FALSE,
       hoverinfo = "none",
@@ -190,10 +221,10 @@ plot_drought_impact <- function(df, comparison_year, reference_years = NULL) {
       p_main,
       x = df_lc$month,
       y = df_lc$mean_ndvi,
-      name = lc,
+      name = display_name,
       legendgroup = lc,
       hovertemplate = paste0(
-        "<b>", lc, "</b><br>Month: %{x}<br>",
+        "<b>", display_name, "</b><br>Month: %{x}<br>",
         comparison_year, " NDVI: %{y:.3f}<extra></extra>"
       )
     )
@@ -207,32 +238,42 @@ plot_drought_impact <- function(df, comparison_year, reference_years = NULL) {
     legend = list(orientation = "h")
   )
 
-  # Anomaly bar chart: annual mean deficit per class
+  # Bar chart: cumulative (total) NDVI deficit per class across all months
   class_deficit <- dplyr::summarise(
     dplyr::group_by(merged, land_cover),
-    mean_deficit = mean(deficit, na.rm = TRUE),
+    total_deficit = sum(deficit, na.rm = TRUE),
     .groups = "drop"
   )
-  class_deficit <- dplyr::arrange(class_deficit, mean_deficit)
-  bar_colors <- ifelse(class_deficit$mean_deficit >= 0, "#43A047", "#E53935")
+  class_deficit <- dplyr::arrange(class_deficit, total_deficit)
+  bar_colors    <- ifelse(class_deficit$total_deficit >= 0, "#43A047", "#E53935")
 
   p_bar <- plotly::plot_ly(
     data = class_deficit,
     x = ~land_cover,
-    y = ~mean_deficit,
+    y = ~total_deficit,
     type = "bar",
     marker = list(color = bar_colors),
-    hovertemplate = "<b>%{x}</b><br>Mean deficit: %{y:.3f}<extra></extra>"
+    hovertemplate = "<b>%{x}</b><br>Cumulative deficit: %{y:.3f}<extra></extra>"
   )
   p_bar <- plotly::layout(
     p_bar,
     xaxis = list(title = "Land Cover Class"),
-    yaxis = list(title = "NDVI Deficit (actual − historical mean)")
+    yaxis = list(title = "Cumulative NDVI Deficit (full year)")
   )
 
-  plotly::subplot(p_main, p_bar,
-                  nrows = 2, shareX = FALSE, titleY = TRUE,
-                  heights = c(0.65, 0.35))
+  p_combined <- plotly::subplot(p_main, p_bar,
+                                nrows = 2, shareX = FALSE, titleY = TRUE,
+                                heights = c(0.65, 0.35))
+
+  list(
+    plot                 = p_combined,
+    severity_score       = round(severity_score, 4),
+    severity_label       = severity_label,
+    multi_class_agreement = max_agreement,
+    worst_agreement_month = worst_agreement_month,
+    n_non_flood_classes  = length(non_flood_classes),
+    summary_text         = summary_text
+  )
 }
 
 # --- Sub-tab 2: Seasonal Vegetation Cycle ---

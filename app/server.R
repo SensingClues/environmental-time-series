@@ -103,49 +103,95 @@ server <- function(input, output, session) {
   # ---------------------------------------------------------------------------------------------------
   # SCENARIO EXPLORER: DROUGHT IMPACT
   # ---------------------------------------------------------------------------------------------------
-  scenario_drought_ready    <- reactiveVal(FALSE)
-  scenario_drought_plot_obj <- reactiveVal(NULL)
+  scenario_drought_ready  <- reactiveVal(FALSE)
+  scenario_drought_result <- reactiveVal(NULL)
 
   output$scenario_drought_plot_output <- plotly::renderPlotly({
-    p <- scenario_drought_plot_obj()
-    shiny::req(p)
-    p
+    res <- scenario_drought_result()
+    shiny::req(res)
+    res$plot
   })
 
   output$scenario_drought_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_drought_ready())) {
-      div(class = "image-fill top-center",
-          plotlyOutput("scenario_drought_plot_output", height = "700px"),
-          height = "auto")
+      res <- scenario_drought_result()
+      shiny::req(res)
+
+      severity_color <- switch(res$severity_label,
+        "Normal"           = "#4CAF50",
+        "Mild stress"      = "#FFC107",
+        "Moderate drought" = "#FF9800",
+        "Severe drought"   = "#F44336",
+        "#9E9E9E"
+      )
+
+      tagList(
+        fluidRow(
+          column(6,
+            div(style = paste0(
+                  "background:", severity_color, "22;",
+                  "border-left: 4px solid ", severity_color, ";",
+                  "padding: 12px; border-radius: 4px; margin-bottom: 8px;"),
+              tags$strong("Drought Severity Score"),
+              tags$br(),
+              tags$span(
+                style = paste0("font-size:1.3em; color:", severity_color, "; font-weight:bold;"),
+                res$severity_label),
+              tags$br(),
+              tags$small(paste0(
+                "Mean deficit of Rangeland, Crops & Trees: ",
+                res$severity_score))
+            )
+          ),
+          column(6,
+            div(style = paste0(
+                  "background: #E3F2FD22;",
+                  "border-left: 4px solid #1565C0;",
+                  "padding: 12px; border-radius: 4px; margin-bottom: 8px;"),
+              tags$strong("Multi-class Agreement"),
+              tags$br(),
+              tags$span(
+                style = "font-size:1.3em; color:#1565C0; font-weight:bold;",
+                paste0(res$multi_class_agreement, " of ",
+                       res$n_non_flood_classes, " classes below average")),
+              tags$br(),
+              tags$small(paste0("Worst month: ", month.name[res$worst_agreement_month]))
+            )
+          )
+        ),
+        div(class = "image-fill top-center",
+            plotlyOutput("scenario_drought_plot_output", height = "700px"),
+            height = "auto")
+      )
     } else NULL
   })
 
   observeEvent(list(input$tabs, input$scenariosubtabs), {
     scenario_drought_ready(FALSE)
-    scenario_drought_plot_obj(NULL)
+    scenario_drought_result(NULL)
     error_message_rv(NULL)
   }, ignoreInit = TRUE)
 
   observeEvent(input$generate_drought_impact, {
     scenario_drought_ready(FALSE)
-    scenario_drought_plot_obj(NULL)
+    scenario_drought_result(NULL)
     error_message_rv(NULL)
 
     comp_year <- as.integer(input$scenario_drought_year)
     ref_years <- as.integer(input$scenario_drought_ref_years)
 
     tryCatch({
-      p <- plot_drought_impact(
+      res <- plot_drought_impact(
         df              = scenario_ndvi_data(),
         comparison_year = comp_year,
         reference_years = ref_years
       )
-      scenario_drought_plot_obj(p)
+      scenario_drought_result(res)
       scenario_drought_ready(TRUE)
       error_message_rv(NULL)
     }, error = function(e) {
       scenario_drought_ready(FALSE)
-      scenario_drought_plot_obj(NULL)
+      scenario_drought_result(NULL)
       error_message_rv(e$message)
       showNotification(HTML("The figure cannot be generated due to missing data.
        Please contact us at
