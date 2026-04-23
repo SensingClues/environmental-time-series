@@ -335,61 +335,125 @@ plot_seasonal_cycle <- function(df, classes = NULL) {
 # --- Sub-tab 3: Land Cover Productivity ---
 # df: pre-loaded data frame (all years, all classes) from the server shared reactive
 
-plot_productivity_comparison <- function(df, selected_year) {
-  if (is.null(df) || nrow(df) == 0) stop("plot_productivity_comparison: df is empty.")
+.lc_colors <- c(
+  Trees              = "#27500A",
+  Rangeland          = "#1D9E75",
+  Crops              = "#EF9F27",
+  Flooded_vegetation = "#378ADD",
+  Bare_ground        = "#888780",
+  Built_Area         = "#D85A30",
+  Water              = "#534AB7"
+)
 
-  df <- df[df$year == as.integer(selected_year), ]
-  if (nrow(df) == 0) stop("plot_productivity_comparison: no data for year ", selected_year)
+.format_lc <- function(x) gsub("_", " ", x)
 
-  stats_df <- dplyr::summarise(
-    dplyr::group_by(df, land_cover),
+.compute_productivity_stats <- function(df, yr) {
+  d <- df[df$year == as.integer(yr), ]
+  if (nrow(d) == 0) stop("plot_productivity_comparison: no data for year ", yr)
+  s <- dplyr::summarise(
+    dplyr::group_by(d, land_cover),
     annual_mean = mean(mean_ndvi, na.rm = TRUE),
     min_ndvi    = min(mean_ndvi, na.rm = TRUE),
     max_ndvi    = max(mean_ndvi, na.rm = TRUE),
-    ndvi_range  = max(mean_ndvi, na.rm = TRUE) - min(mean_ndvi, na.rm = TRUE),
+    sd_ndvi     = stats::sd(mean_ndvi, na.rm = TRUE),
     .groups = "drop"
   )
-  stats_df <- dplyr::arrange(stats_df, dplyr::desc(annual_mean))
+  dplyr::mutate(s,
+    cv = ifelse(annual_mean != 0, sd_ndvi / abs(annual_mean), NA_real_)
+  )
+}
 
-  p_bar <- plotly::plot_ly(
-    data = stats_df,
-    x    = ~reorder(land_cover, -annual_mean),
-    y    = ~annual_mean,
-    type = "bar",
-    marker = list(color = "#1976D2"),
+plot_productivity_comparison <- function(df, selected_year, compare_year = NULL) {
+  if (is.null(df) || nrow(df) == 0) stop("plot_productivity_comparison: df is empty.")
+
+  stats_df <- .compute_productivity_stats(df, selected_year)
+  stats_df  <- dplyr::arrange(stats_df, dplyr::desc(annual_mean))
+
+  # Dynamic insight text
+  most_productive <- stats_df$land_cover[which.max(stats_df$annual_mean)]
+  most_variable   <- stats_df$land_cover[which.max(stats_df$cv)]
+  flood_note <- if (most_variable == "Flooded_vegetation") {
+    " — driven by flood dynamics rather than vegetation productivity"
+  } else ""
+  insight_text <- sprintf(
+    "In %s, %s had the highest annual mean NDVI (%.3f), making it the most productive class. %s showed the greatest seasonal variability (CV = %.2f)%s.",
+    selected_year, .format_lc(most_productive), max(stats_df$annual_mean, na.rm = TRUE),
+    .format_lc(most_variable), max(stats_df$cv, na.rm = TRUE), flood_note
+  )
+
+  # Bar chart — class-specific colours, grouped if compare year supplied
+  bar_colors_main <- unname(.lc_colors[stats_df$land_cover])
+  bar_colors_main[is.na(bar_colors_main)] <- "#888888"
+
+  p_bar <- plotly::plot_ly()
+  p_bar <- plotly::add_bars(
+    p_bar,
+    x    = .format_lc(stats_df$land_cover),
+    y    = stats_df$annual_mean,
+    name = as.character(selected_year),
+    marker = list(color = bar_colors_main),
     hovertemplate = "<b>%{x}</b><br>Annual Mean NDVI: %{y:.3f}<extra></extra>"
   )
+
+  if (!is.null(compare_year) && nzchar(compare_year)) {
+    comp_stats <- tryCatch(.compute_productivity_stats(df, compare_year), error = function(e) NULL)
+    if (!is.null(comp_stats)) {
+      comp_stats     <- comp_stats[match(stats_df$land_cover, comp_stats$land_cover), ]
+      bar_colors_cmp <- adjustcolor(bar_colors_main, alpha.f = 0.5)
+      p_bar <- plotly::add_bars(
+        p_bar,
+        x    = .format_lc(stats_df$land_cover),
+        y    = comp_stats$annual_mean,
+        name = as.character(compare_year),
+        marker = list(color = bar_colors_cmp),
+        hovertemplate = "<b>%{x}</b><br>Annual Mean NDVI: %{y:.3f}<extra></extra>"
+      )
+    }
+  }
+
   p_bar <- plotly::layout(
     p_bar,
-    xaxis = list(title = "Land Cover Class"),
-    yaxis = list(title = "Annual Mean NDVI")
+    barmode = "group",
+    xaxis   = list(title = "Land Cover Class"),
+    yaxis   = list(title = "Annual Mean NDVI"),
+    legend  = list(orientation = "h")
   )
+
+  # Scatter plot — CV on Y axis, class colours
+  scatter_colors <- unname(.lc_colors[stats_df$land_cover])
+  scatter_colors[is.na(scatter_colors)] <- "#888888"
 
   p_scatter <- plotly::plot_ly(
     data         = stats_df,
     x            = ~annual_mean,
-    y            = ~ndvi_range,
+    y            = ~cv,
     type         = "scatter",
     mode         = "markers+text",
-    text         = ~land_cover,
+    text         = ~.format_lc(land_cover),
     textposition = "top center",
-    marker       = list(size = 12, color = "#E64A19"),
-    hovertemplate = "<b>%{text}</b><br>Productivity: %{x:.3f}<br>Variability: %{y:.3f}<extra></extra>"
+    marker       = list(size = 14, color = scatter_colors),
+    hovertemplate = "<b>%{text}</b><br>Productivity (mean NDVI): %{x:.3f}<br>Variability (CV): %{y:.3f}<extra></extra>"
   )
   p_scatter <- plotly::layout(
     p_scatter,
     xaxis = list(title = "Productivity (Annual Mean NDVI)"),
-    yaxis = list(title = "Variability (NDVI Range: max − min)")
+    yaxis = list(title = "Variability (CV = SD / mean)")
   )
 
-  table_out <- stats_df
+  # Summary table
+  table_out <- stats_df[, c("land_cover", "annual_mean", "min_ndvi", "max_ndvi", "cv")]
+  table_out$land_cover  <- .format_lc(table_out$land_cover)
   table_out$annual_mean <- round(table_out$annual_mean, 3)
   table_out$min_ndvi    <- round(table_out$min_ndvi, 3)
   table_out$max_ndvi    <- round(table_out$max_ndvi, 3)
-  table_out$ndvi_range  <- round(table_out$ndvi_range, 3)
-  colnames(table_out) <- c("Land Cover", "Annual Mean", "Min NDVI", "Max NDVI", "Range")
+  table_out$cv          <- round(table_out$cv, 3)
+  table_out$Note        <- ifelse(
+    table_out$land_cover == "Flooded vegetation",
+    "⚠ High variability driven by flood dynamics — not a vegetation productivity signal", ""
+  )
+  colnames(table_out) <- c("Land Cover", "Annual Mean", "Min NDVI", "Max NDVI", "CV", "Note")
 
-  list(bar = p_bar, scatter = p_scatter, table = table_out)
+  list(bar = p_bar, scatter = p_scatter, table = table_out, insight_text = insight_text)
 }
 
 # --- Sub-tab 4: Agricultural Monitoring ---

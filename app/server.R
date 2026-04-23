@@ -282,7 +282,18 @@ server <- function(input, output, session) {
 
   output$scenario_productivity_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_productivity_ready())) {
+      res <- scenario_productivity_result()
+      shiny::req(res)
       tagList(
+        div(
+          style = paste0(
+            "background: #F1F8E922; border-left: 4px solid #558B2F;",
+            "padding: 12px; border-radius: 4px; margin-bottom: 12px;"
+          ),
+          tags$strong("Key Insight"),
+          tags$br(),
+          tags$span(res$insight_text)
+        ),
         fluidRow(
           column(6, plotlyOutput("scenario_productivity_bar_output",     height = "400px")),
           column(6, plotlyOutput("scenario_productivity_scatter_output", height = "400px"))
@@ -304,12 +315,14 @@ server <- function(input, output, session) {
     scenario_productivity_result(NULL)
     error_message_rv(NULL)
 
-    sel_year <- as.integer(input$scenario_productivity_year)
+    sel_year    <- as.integer(input$year)
+    cmp_year    <- input$scenario_productivity_compare_year
 
     tryCatch({
       res <- plot_productivity_comparison(
-        df            = scenario_ndvi_data(),
-        selected_year = sel_year
+        df           = scenario_ndvi_data(),
+        selected_year = sel_year,
+        compare_year  = if (nzchar(cmp_year)) cmp_year else NULL
       )
       scenario_productivity_result(res)
       scenario_productivity_ready(TRUE)

@@ -122,8 +122,8 @@ mod_sidebar_ui <- function(id) {
     conditionalPanel(
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
       div(
-        selectInput("scenario_productivity_year", "Select year",
-                    choices = 2019:2025, selected = 2023),
+        selectInput("scenario_productivity_compare_year", "Compare with year (optional)",
+                    choices = c("None" = "", 2019:2025), selected = ""),
         actionButton("generate_productivity", "Generate Figure", class = "action_button")
       )
     ),
