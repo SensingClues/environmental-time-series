@@ -69,7 +69,7 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
 
   test_files_df  <- filter(files_df, between(dates, start_date, end_date))
   months_in_test <- c(test_files_df$month)
-  year_in_test   <- test_files_df$year
+  year_in_test   <- year_in_test <- min(test_files_df$year)
   train_files_df <- files_df %>%
     dplyr::filter(month %in% months_in_test & year < year_in_test)
 
@@ -98,6 +98,15 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
     test_ndvi_df     = test_ndvi_df,
     land_cover_class = if (use_lc) land_cover_class else NULL
   )
+
+  #remove seasonality
+  # Step 1 - Summarise to monthly means first
+  train_monthly <- train_ndvi_df %>%
+    group_by(YearMonth) %>%
+    summarise(mean_val = mean(NDVI, na.rm = TRUE)) %>%
+    arrange(YearMonth)
+  # Step 2 - Apply remove_seasonality on the summarised data
+  train_monthly <- remove_seasonality(train_monthly, value_col = "mean_val", freq = 12)
 
   if (isTRUE(return_plot)) {
     stats <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
@@ -496,16 +505,16 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
   
   lulc_files <- get_filenames(filepath = lulc_path, data_type = "LandUseVector",
                               file_extension = ".geojson", country_name = country_name)
-  
+
   files_df <- get_filename_df(ndvi_files = ndvi_files)
-  
+
   test_files_df <- filter(files_df, between(dates, start_date, end_date))
-  
+
   months_in_test <- c(test_files_df$month)
   year_in_test   <- test_files_df$year
   train_files_df <- files_df %>%
     dplyr::filter(month %in% months_in_test & year < year_in_test)
-  
+
   aoi_proj <- get_aoi_vector(aoi_files = aoi_files, aoi_path = aoi_path,
                              projection = "EPSG:4326")
   
