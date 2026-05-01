@@ -1097,6 +1097,64 @@ plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
   return(ts_plot)
 }
 
+# Interactive Plotly BA time series matching NDVI TS style: ribbon + historical mean + current year line.
+plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
+                                       test_year = NULL) {
+  train_data <- train_data %>%
+    dplyr::mutate(date = as.Date(paste0(test_year, "-", Month, "-01")))
+  test_data <- test_data %>%
+    dplyr::mutate(date = as.Date(paste0(test_year, "-", Month, "-01")))
+
+  plotly::plot_ly() %>%
+    plotly::add_ribbons(
+      data        = train_data,
+      x           = ~date,
+      ymin        = ~lower_ci,
+      ymax        = ~upper_ci,
+      name        = "Historic range",
+      legendgroup = "historic",
+      fillcolor   = "rgba(39, 129, 207, 0.2)",
+      line        = list(color = "transparent"),
+      hoverinfo   = "skip"
+    ) %>%
+    plotly::add_lines(
+      data          = train_data,
+      x             = ~date, y = ~mean_val,
+      name          = "Historical monthly average",
+      line          = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      hovertemplate = "Month: %{x|%b}<br>Historical avg: %{y:.1f} km²<extra></extra>"
+    ) %>%
+    plotly::add_lines(
+      data          = test_data,
+      x             = ~date, y = ~mean_val,
+      name          = paste0("Burned Area ", test_year),
+      line          = list(width = 3, color = "#0072B2"),
+      marker        = list(size = 7, color = "#0072B2"),
+      mode          = "lines+markers",
+      hovertemplate = "Month: %{x|%b %Y}<br>Burned Area: %{y:.1f} km²<extra></extra>"
+    ) %>%
+    plotly::layout(
+      xaxis     = list(
+        title      = "Month",
+        tickmode   = "linear",
+        dtick      = "M1",
+        tickformat = "%b",
+        tickangle  = -45,
+        showgrid   = FALSE
+      ),
+      yaxis     = list(
+        title     = "Burned Area (km²)",
+        showgrid  = TRUE,
+        gridcolor = "rgba(0,0,0,0.08)"
+      ),
+      template  = "plotly_white",
+      hovermode = "x unified",
+      legend    = list(orientation = "h", x = 1, y = 1.05,
+                       xanchor = "right", yanchor = "top"),
+      margin    = list(t = 50, r = 30, l = 60, b = 60)
+    )
+}
+
 # Function to plot NDVI distribution per crop type, with confidence intervals. Assumes land_use column in train_data_grouped
 plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
                                                   country_name = NULL, resolution = NULL,
@@ -1212,27 +1270,28 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
 
 # Function to plot 2D maps for a specific month over several years
 plot_ba_maps <- function(data = NULL, month_to_plot = "01",
-                         plot_width = 15, plot_height = 8,
-                         zlim_range = c(0, 1), ncol = 6,
+                         plot_width = NULL, plot_height = NULL,
+                         zlim_range = c(0, 1), ncol = NULL, n_years = 4,
                          save_path = NULL, filename = "BA_maps.png") {
-  # Set plot size
-  options(repr.plot.width = plot_width, repr.plot.height = plot_height)
-  
   # Define a color map from brown to green
   colors <- c("lightgrey", "darkred")
-  
+
   # Filter the data for the specified month
   data_filtered <- data[data$Month == month_to_plot, ]
   data_filtered$BurnedArea <- factor(data_filtered$BurnedArea)
-  
-  # Filter data to only the select year and the previous one
-  this_and_last_year <- data_filtered %>%
-    dplyr::select(Year) %>%
-    unique() %>%
-    pull()
-  this_and_last_year <- tail(this_and_last_year, n = 2)
+
+  # Select the last n_years available
+  all_years <- sort(unique(data_filtered$Year))
+  selected_years <- tail(all_years, n = n_years)
+  n_shown <- length(selected_years)
   data_filtered <- data_filtered %>%
-    dplyr::filter(Year %in% this_and_last_year)
+    dplyr::filter(Year %in% selected_years)
+
+  # Compute layout dimensions dynamically based on number of panels
+  if (is.null(ncol))        ncol        <- if (n_shown <= 3) n_shown else 2
+  if (is.null(plot_width))  plot_width  <- if (n_shown <= 3) 8 * n_shown else 16
+  if (is.null(plot_height)) plot_height <- if (n_shown <= 2) 8 else if (n_shown == 3) 8 else 16
+  options(repr.plot.width = plot_width, repr.plot.height = plot_height)
   
   # Summarize area sizes and percentages per Year
   area_labels <- data_filtered %>%
@@ -1245,6 +1304,7 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
   
   ba_change <- data_filtered %>%
     distinct(Year, BurnedArea_Size) %>%
+    arrange(Year) %>%
     mutate(changeBurnedArea = ifelse(BurnedArea_Size <= 1 & lag(BurnedArea_Size) <= 1, 
                                      0,
                                      ifelse(BurnedArea_Size <= 1 & lag(BurnedArea_Size) > 1, 
@@ -1255,8 +1315,11 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
            # changeBurnedArea = BurnedArea_Size - lag(BurnedArea_Size)) %>%
     select(changeBurnedArea) %>%
     tibble::deframe()
-  BurnedArea_change <- round(ba_change[2], 1)
-  
+  BurnedArea_change <- round(ba_change[length(ba_change)], 1)
+  year_range_label <- if (n_shown >= 2) paste0(min(selected_years), "–", max(selected_years)) else as.character(selected_years)
+  change_label <- ifelse(BurnedArea_change == 0, "No difference",
+                         paste0(abs(BurnedArea_change), " km² burned ", ifelse(BurnedArea_change > 0, "more", "less")))
+
   # Generate the plot
   map_plot <- ggplot(data_filtered, aes(x = x, y = y, fill = BurnedArea)) +
     geom_raster() +
@@ -1264,12 +1327,8 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
                       labels = c("Unburned", "Burned")) +
     facet_wrap(~ Year, ncol = ncol, labeller = labeller(Year = area_labels)) +
     labs(
-      title = paste0("Burned Area development over ", month.name[as.numeric(month_to_plot)], 
-                     " in the past year - ", ifelse(BurnedArea_change == 0, "", abs(BurnedArea_change)), ifelse(BurnedArea_change == 0, 
-                                                                                                                "No difference",
-                                                                                                                ifelse(BurnedArea_change > 0, 
-                                                                                                                       " km² burned more",
-                                                                                                                       " km² burned less"))),
+      title = paste0("Burned Area in ", month.name[as.numeric(month_to_plot)],
+                     " (", year_range_label, ") — year-on-year: ", change_label),
       fill = "Burned Area",
       x = "Longitude",
       y = "Latitude"
@@ -1628,6 +1687,177 @@ plot_ba_geojson_from_a_folder <- function(input_file_path, data_dir = data_dir, 
   
   # Return the map
   return(map)
+}
+
+# Build interactive Leaflet map for a single month's burned area footprint.
+# geojson_path: path to the GeoJSON produced by generate_ba_export().
+# country: e.g. "Zambia_Mponda". year: 4-digit integer. month_num: 1-12.
+build_ba_monthly_leaflet <- function(geojson_path = NULL, data_dir = NULL,
+                                     country = NULL, year = NULL, month_num = NULL) {
+  aoi_files <- list.files(file.path(data_dir, "AoI"),
+                          pattern = paste0("AoI.*", country, ".*\\.geojson$"))
+  if (length(aoi_files) == 0) stop("No Area of Interest file found for the selected country.")
+  aoi_shape  <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]), quiet = TRUE)
+  aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
+  aoi_bounds <- sf::st_bbox(aoi_shape)
+
+  month_label <- format(as.Date(paste0(year, "-", sprintf("%02d", month_num), "-01")), "%B %Y")
+
+  m <- leaflet() %>%
+    addProviderTiles(providers$OpenStreetMap,      group = "Street Map") %>%
+    addProviderTiles(providers$Esri.WorldImagery,  group = "Satellite") %>%
+    addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                opacity = 0.9, fillOpacity = 0, label = "Study area boundary",
+                group = "Study Area") %>%
+    fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]])
+
+  has_burned <- FALSE
+
+  if (!is.null(geojson_path) && file.exists(geojson_path)) {
+    geojson_data <- sf::st_read(geojson_path, quiet = TRUE)
+    geojson_data <- sf::st_transform(geojson_data, crs = 4326)
+    date_col     <- setdiff(names(geojson_data), attr(geojson_data, "sf_column"))[1]
+    burned       <- geojson_data[!is.na(geojson_data[[date_col]]) & geojson_data[[date_col]] > 0, ]
+
+    if (nrow(burned) > 0) {
+      has_burned <- TRUE
+      burned$burn_date <- format(
+        as.Date(burned[[date_col]] - 1, origin = paste0(year, "-01-01")), "%B %d, %Y"
+      )
+      m <- m %>%
+        addPolygons(
+          data        = burned,
+          fillColor   = "#E25822", fillOpacity = 0.7,
+          color       = "#8B2500", weight = 1.5,
+          label       = lapply(paste0(
+            "<b>Burned on:</b> ", burned$burn_date, "<br>",
+            "<b>Area:</b> 0.25 km² per cell"
+          ), htmltools::HTML),
+          labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+          group = "Burned Area"
+        ) %>%
+        addLegend("bottomright", colors = "#E25822", labels = "Burned Area",
+                  title = month_label, opacity = 0.85)
+    }
+  }
+
+  if (!has_burned) {
+    m <- m %>%
+      addControl(
+        html = paste0(
+          '<div style="background:white;padding:10px 14px;border-radius:4px;',
+          'border:1px solid #ddd;font-size:13px;color:#555;">',
+          'No burned area detected in ', month_label, ' for this area.</div>'
+        ),
+        position = "topright"
+      )
+  }
+
+  m %>% addLayersControl(
+    baseGroups    = c("Street Map", "Satellite"),
+    overlayGroups = c("Study Area", "Burned Area"),
+    options       = layersControlOptions(collapsed = FALSE),
+    position      = "topleft"
+  )
+}
+
+# Build interactive Leaflet map showing fire return period across all available years.
+# Returns a list: map (leaflet), years_label (character), n_years (integer).
+build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = NULL) {
+  data_path  <- file.path(data_dir, "BurnedArea", country, paste0(resolution, "m_resolution"))
+  cache_dir  <- file.path(data_dir, ".cache")
+  cache_path <- file.path(cache_dir, paste0(country, "_", resolution, "_frp.rds"))
+
+  aoi_files <- list.files(file.path(data_dir, "AoI"),
+                          pattern = paste0("AoI.*", country, ".*\\.geojson$"))
+  if (length(aoi_files) == 0) stop("No Area of Interest file found for the selected country.")
+  aoi_shape  <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]), quiet = TRUE)
+  aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
+  aoi_bounds <- sf::st_bbox(aoi_shape)
+
+  ba_files <- list.files(data_path, pattern = "\\.tif$", full.names = TRUE)
+  if (length(ba_files) == 0) {
+    stop("No burned area data found for this area and resolution. Please try a different selection.")
+  }
+  n_files_now <- length(ba_files)
+
+  polys_rp    <- NULL
+  years_label <- NULL
+  n_years     <- NULL
+
+  if (file.exists(cache_path)) {
+    cached <- readRDS(cache_path)
+    if (isTRUE(cached$n_files == n_files_now)) {
+      polys_rp    <- cached$data
+      years_label <- cached$years_label
+      n_years     <- cached$n_years
+    }
+  }
+
+  if (is.null(polys_rp)) {
+    years_available <- sort(unique(sub("^(\\d{4})-.*", "\\1", basename(ba_files))))
+    n_years         <- length(years_available)
+    years_label     <- paste(min(years_available), "to", max(years_available))
+
+    yearly_burned <- lapply(years_available, function(yr) {
+      yr_files <- ba_files[grepl(paste0("^", yr, "-"), basename(ba_files))]
+      if (length(yr_files) == 0) return(NULL)
+      yr_max <- terra::app(terra::rast(yr_files), fun = max, na.rm = TRUE)
+      terra::ifel(yr_max > 0, 1, 0)
+    })
+    yearly_burned <- Filter(Negate(is.null), yearly_burned)
+
+    burn_count    <- terra::app(terra::rast(yearly_burned), fun = sum, na.rm = TRUE)
+    return_period <- terra::ifel(burn_count > 0, n_years / burn_count, NA)
+    return_period <- terra::project(return_period, "EPSG:4326")
+
+    polys_rp <- terra::as.polygons(return_period) |> sf::st_as_sf()
+    names(polys_rp)[1] <- "return_period"
+    polys_rp <- sf::st_transform(polys_rp, 4326)
+    polys_rp <- polys_rp[!is.na(polys_rp$return_period), ]
+
+    if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE)
+    saveRDS(list(data = polys_rp, n_files = n_files_now,
+                 n_years = n_years, years_label = years_label), cache_path)
+  }
+
+  if (nrow(polys_rp) == 0) stop("No burned pixels found for this selection.")
+
+  pal <- leaflet::colorNumeric(
+    palette  = rev(RColorBrewer::brewer.pal(9, "YlOrRd")),
+    domain   = c(1, max(polys_rp$return_period, na.rm = TRUE)),
+    na.color = "transparent"
+  )
+
+  rp_vals <- round(polys_rp$return_period, 1)
+  m <- leaflet() %>%
+    addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+    addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+    addPolygons(
+      data         = polys_rp,
+      fillColor    = ~pal(return_period), fillOpacity = 0.8,
+      color        = NA, weight = 0,
+      label        = lapply(paste0(
+        "<b>Burns approximately every ", rp_vals, " year",
+        ifelse(rp_vals == 1, "", "s"), "</b>"
+      ), htmltools::HTML),
+      labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+      group        = "Fire Return Period"
+    ) %>%
+    addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                opacity = 0.9, fillOpacity = 0, group = "Study Area") %>%
+    fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]]) %>%
+    addLegend("bottomright", pal = pal, values = polys_rp$return_period,
+              title   = "Fire Return Period<br>(years)", opacity = 0.85,
+              labFormat = labelFormat(suffix = " yrs", digits = 1)) %>%
+    addLayersControl(
+      baseGroups    = c("Street Map", "Satellite"),
+      overlayGroups = c("Study Area", "Fire Return Period"),
+      options       = layersControlOptions(collapsed = FALSE),
+      position      = "topleft"
+    )
+
+  list(map = m, years_label = years_label, n_years = n_years)
 }
 
 # Function to plot delta NDVI on a Leaflet map
