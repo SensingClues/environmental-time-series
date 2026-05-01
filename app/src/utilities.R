@@ -376,6 +376,26 @@ get_summary_ndvi_df <- function(ndvi_df = NULL) {
   return(summary_ndvi_df)
 }
 
+# Fast per-month burned area size (km²) — one file at a time, no pixel dataframe.
+# Replaces get_ba_raster + get_ba_df for the TS Plotly path.
+get_ba_summary_fast <- function(files_df, data_path, aoi_proj) {
+  aoi_vect <- terra::vect(aoi_proj)
+  results <- lapply(seq_len(nrow(files_df)), function(i) {
+    r <- terra::rast(file.path(data_path, files_df$filenames[i]))
+    r <- terra::project(r, "EPSG:4326")
+    r <- terra::mask(r, aoi_vect)
+    burned_r    <- terra::ifel(r > 0, 1L, NA)
+    burned_size <- sum(terra::expanse(burned_r, unit = "km"), na.rm = TRUE)
+    data.frame(
+      YearMonth       = files_df$dates[i],
+      Year            = format(files_df$dates[i], "%Y"),
+      Month           = sprintf("%02d", files_df$month[i]),
+      BurnedArea_Size = burned_size
+    )
+  })
+  dplyr::bind_rows(results)
+}
+
 # calculate BA area mean, SD, and confidence intervals per month
 get_summary_ba_df <- function(ba_df = NULL) {
   
