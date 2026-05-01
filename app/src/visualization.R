@@ -1101,21 +1101,26 @@ plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
 plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
                                        test_year = NULL) {
   train_data <- train_data %>%
-    dplyr::mutate(date = as.Date(paste0(test_year, "-", Month, "-01")))
+    dplyr::mutate(
+      date       = as.Date(paste0(test_year, "-", Month, "-01")),
+      hover_text = paste0("Month: ", format(as.Date(paste0(test_year, "-", Month, "-01")), "%b"),
+                          "<br>Historic range: ", round(lower_ci, 1), " – ", round(upper_ci, 1), " km²")
+    )
   test_data <- test_data %>%
     dplyr::mutate(date = as.Date(paste0(test_year, "-", Month, "-01")))
 
   plotly::plot_ly() %>%
     plotly::add_ribbons(
-      data        = train_data,
-      x           = ~date,
-      ymin        = ~lower_ci,
-      ymax        = ~upper_ci,
-      name        = "Historic range",
-      legendgroup = "historic",
-      fillcolor   = "rgba(39, 129, 207, 0.2)",
-      line        = list(color = "transparent"),
-      hoverinfo   = "skip"
+      data          = train_data,
+      x             = ~date,
+      ymin          = ~lower_ci,
+      ymax          = ~upper_ci,
+      text          = ~hover_text,
+      name          = "Historic range",
+      legendgroup   = "historic",
+      fillcolor     = "rgba(39, 129, 207, 0.2)",
+      line          = list(color = "transparent"),
+      hovertemplate = "%{text}<extra></extra>"
     ) %>%
     plotly::add_lines(
       data          = train_data,
