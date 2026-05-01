@@ -4,7 +4,7 @@ library(ggplot2)
 library(ipc)
 library(jsonlite)
 library(leaflet)
-library(leaflet.extras)
+library(leaflet.extras2)
 library(lubridate)
 library(promises)
 library(raster)
@@ -17,6 +17,7 @@ library(shinyWidgets)
 library(sf)
 library(terra)
 library(tidyr)
+library(trend)
 library(plotly)
 library(htmlwidgets)
 
@@ -49,8 +50,8 @@ figures_dir <- file.path("www/figures")
 data_dir <- file.path("/home/timeseries")
 
 # Set test folder structure (uncomment when working locally with a different folder structure)
-# test_dir <- file.path("www/data")
-# data_dir <- test_dir
+#test_dir <- file.path("www/data")
+#data_dir <- test_dir
 
 # --- Multilingual setup -------------------------------------------------------
 i18n <- Translator$new(translation_json_path = "translations.json")

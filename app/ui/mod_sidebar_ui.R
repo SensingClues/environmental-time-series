@@ -70,11 +70,7 @@ mod_sidebar_ui <- function(id) {
     
     # NDVI Land Cover Explorer page-specific selector and button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'",
-                     div(selectInput("landcover_Type", "Select land cover type",
-                                     selected = "Crops",
-                                     choices = c("Crops", "Rangeland", "Water", "Trees", "Flooded Vegetation" = "Flooded_vegetation", 
-                                                 "Built Area" = "Built_Area", "Bare Ground" = "Bare_ground")), 
-                         actionButton("generate_lc_figures", "Generate Figures", class = "action_button"))
+                     div(actionButton("generate_lc_figures", "Generate Figures", class = "action_button"))
                      ),
     
     # NDVI Delta Map page-specific button (specific to be able to link output generation to button press)
