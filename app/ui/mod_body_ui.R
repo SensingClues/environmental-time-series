@@ -115,7 +115,7 @@ mod_body_ui <- function(id) {
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
-                        div(class = "plot-container", br(),
+                        div(class = "plot-container",
 
                           # --- View toggle ---
                           shinyWidgets::radioGroupButtons(
@@ -126,7 +126,6 @@ mod_body_ui <- function(id) {
                             size     = "sm",
                             status   = "default"
                           ),
-                          br(),
 
                           # === SEASONAL OVERVIEW ===
                           conditionalPanel(
@@ -161,7 +160,7 @@ mod_body_ui <- function(id) {
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
-                        div(class = "plot-container", br(),
+                        div(class = "plot-container",
 
                           # --- View toggle ---
                           shinyWidgets::radioGroupButtons(
@@ -172,7 +171,6 @@ mod_body_ui <- function(id) {
                             size     = "sm",
                             status   = "default"
                           ),
-                          br(),
 
                           # === MONTHLY VIEW ===
                           conditionalPanel(
@@ -188,7 +186,6 @@ mod_body_ui <- function(id) {
                                              class = "action_button",
                                              style = "width:255px; color: white; background-color: #00897B;")
                             ),
-                            br(), br(),
                             # Historical comparison static map (rendered by server on button click)
                             div(style = "width:100%; overflow-x:auto;",
                                 uiOutput("ba_map_container")),

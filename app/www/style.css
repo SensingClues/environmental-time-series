@@ -269,7 +269,7 @@ textarea::-ms-input-placeholder {
 /* Annotation copy above plots — same gray as inactive tab labels (#6b7280, see .nav-tabs below) */
 .content .tab-explain,
 .content .tab-pane-explain {
-  margin: 10px;
+  margin: 6px 10px;
   color: #6b7280;
 }
 
@@ -283,8 +283,8 @@ textarea::-ms-input-placeholder {
 }
 
 .content .plot-container {
-  margin-top: 10px;
-  margin-bottom: 10px;
+  margin-top: 6px;
+  margin-bottom: 6px;
 }
 
 .busy-spinner {
