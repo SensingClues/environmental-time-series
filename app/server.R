@@ -670,6 +670,80 @@ server <- function(input, output, session) {
     ba_ts_plot_obj(NULL)
     error_message_rv(NULL)
   })
+
+  # --- Daily Activity chart ---
+  ba_daily_plot_obj <- reactiveVal(NULL)
+
+  # Dynamic year selector populated from available TIF files for selected country/resolution
+  output$ba_daily_year_selector <- renderUI({
+    country_name <- input$country
+    resolution   <- input$resolution
+    data_path    <- file.path(data_dir, "BurnedArea", country_name, paste0(resolution, "m_resolution"))
+    ba_files     <- tryCatch(
+      get_filenames(filepath = data_path, data_type = "BurnedArea",
+                    file_extension = ".tif", country_name = country_name),
+      error = function(e) character(0)
+    )
+    available_years <- if (length(ba_files) > 0) {
+      sort(unique(as.integer(sub("^(\\d{4})-.*", "\\1", ba_files))), decreasing = TRUE)
+    } else {
+      seq(2018, lubridate::year(Sys.Date()))
+    }
+    default_sel <- head(as.character(available_years), 3)
+    selectInput("ba_daily_years", "Select years to compare",
+                choices  = as.character(available_years),
+                selected = default_sel,
+                multiple = TRUE)
+  })
+
+  output$ba_daily_plot_container <- renderUI({
+    p <- ba_daily_plot_obj()
+    if (is.null(p)) return(NULL)
+    plotly::plotlyOutput("ba_daily_plot_output", height = "500px")
+  })
+
+  output$ba_daily_plot_output <- plotly::renderPlotly({
+    p <- ba_daily_plot_obj()
+    shiny::req(p)
+    p
+  })
+
+  observeEvent(input$generate_ba_daily_figures, {
+    message("=========== Starting Daily Burn Activity Generation =============")
+    ba_daily_plot_obj(NULL)
+    error_message_rv(NULL)
+
+    country_name   <- input$country
+    resolution     <- input$resolution
+    selected_years <- as.integer(input$ba_daily_years)
+    season_months  <- seq(input$ba_season_months[1], input$ba_season_months[2])
+    res_m          <- as.numeric(gsub("[^0-9]", "", resolution))
+    pixel_area_km2 <- (res_m / 1000)^2
+
+    data_path <- file.path(data_dir, "BurnedArea", country_name, paste0(resolution, "m_resolution"))
+
+    tryCatch({
+      ba_files <- get_filenames(filepath = data_path, data_type = "BurnedArea",
+                                file_extension = ".tif", country_name = country_name)
+      files_df <- get_ba_filename_df(ba_files = ba_files) %>%
+        dplyr::filter(month %in% season_months)
+
+      all_daily <- dplyr::bind_rows(lapply(selected_years, function(yr) {
+        get_ba_daily_activity(files_df, data_path, yr, pixel_area_km2)
+      }))
+      if (nrow(all_daily) == 0) all_daily <- NULL
+
+      ba_daily_plot_obj(plot_ba_daily_activity(all_daily, selected_years))
+      error_message_rv(NULL)
+    }, error = function(e) {
+      ba_daily_plot_obj(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("Daily activity chart could not be generated due to missing data.
+       Please contact us at <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a>."),
+                       type = "error", duration = 6)
+      message("Error generating daily burn activity: ", e$message)
+    })
+  })
   
   # Set Reactive values for error message, GeoJSON export path checker and map_generated toggle
   error_message_rv <- reactiveVal(NULL)

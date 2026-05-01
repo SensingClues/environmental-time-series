@@ -376,6 +376,31 @@ get_summary_ndvi_df <- function(ndvi_df = NULL) {
   return(summary_ndvi_df)
 }
 
+# Extract daily burned area (km²) for one year from a set of monthly TIF files.
+# pixel_area_km2: area per raster cell (e.g. 0.25 for 500m).
+get_ba_daily_activity <- function(files_df, data_path, year_val, pixel_area_km2 = 0.25) {
+  year_files <- files_df %>% dplyr::filter(year == year_val)
+  if (nrow(year_files) == 0) return(NULL)
+
+  results <- lapply(seq_len(nrow(year_files)), function(i) {
+    r    <- terra::rast(file.path(data_path, year_files$filenames[i]))
+    vals <- as.numeric(terra::values(r, na.rm = TRUE))
+    vals <- vals[vals > 0]
+    if (length(vals) == 0) return(NULL)
+    dates      <- as.Date(vals - 1, origin = paste0(year_val, "-01-01"))
+    date_counts <- table(dates)
+    data.frame(
+      date = as.Date(names(date_counts)),
+      km2  = as.numeric(date_counts) * pixel_area_km2,
+      year = as.character(year_val),
+      stringsAsFactors = FALSE
+    )
+  })
+  results <- Filter(Negate(is.null), results)
+  if (length(results) == 0) return(NULL)
+  dplyr::bind_rows(results)
+}
+
 # Fast per-month burned area size (km²) — one file at a time, no pixel dataframe.
 # Replaces get_ba_raster + get_ba_df for the TS Plotly path.
 get_ba_summary_fast <- function(files_df, data_path, aoi_proj) {

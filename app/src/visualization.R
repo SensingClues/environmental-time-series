@@ -1160,6 +1160,60 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
     )
 }
 
+# Interactive Plotly daily burn activity chart — one filled line per year.
+# daily_data: data frame with columns date, km2, year (character).
+# selected_years: character vector of years to plot (determines legend order).
+plot_ba_daily_activity <- function(daily_data, selected_years) {
+  year_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7")
+  names(year_colors) <- as.character(selected_years[seq_len(min(length(selected_years), 4))])
+
+  p <- plotly::plot_ly()
+
+  for (i in seq_along(selected_years)) {
+    yr    <- as.character(selected_years[i])
+    col   <- year_colors[[yr]]
+    ydata <- if (!is.null(daily_data)) dplyr::filter(daily_data, year == yr) else NULL
+
+    if (is.null(ydata) || nrow(ydata) == 0) {
+      p <- p %>%
+        plotly::add_lines(
+          x    = as.Date(NA), y = as.numeric(NA),
+          name = paste0(yr, " — no fire activity detected"),
+          line = list(color = col, width = 2),
+          showlegend = TRUE
+        )
+    } else {
+      ydata <- dplyr::arrange(ydata, date)
+      r_val <- strtoi(substr(col, 2, 3), 16L)
+      g_val <- strtoi(substr(col, 4, 5), 16L)
+      b_val <- strtoi(substr(col, 6, 7), 16L)
+      fill_col <- sprintf("rgba(%d,%d,%d,0.15)", r_val, g_val, b_val)
+      p <- p %>%
+        plotly::add_lines(
+          data          = ydata,
+          x             = ~date, y = ~km2,
+          name          = yr,
+          line          = list(color = col, width = 2.5),
+          fill          = "tozeroy",
+          fillcolor     = fill_col,
+          hovertemplate = paste0("%{x|%d %B %Y} — %{y:.2f} km² burned<extra>", yr, "</extra>")
+        )
+    }
+  }
+
+  p %>%
+    plotly::layout(
+      xaxis     = list(title = "Date", tickformat = "%b %d", tickangle = -45, showgrid = FALSE),
+      yaxis     = list(title = "Burned Area (km²) per day", showgrid = TRUE,
+                       gridcolor = "rgba(0,0,0,0.08)"),
+      template  = "plotly_white",
+      hovermode = "x unified",
+      legend    = list(orientation = "h", x = 1, y = 1.05,
+                       xanchor = "right", yanchor = "top"),
+      margin    = list(t = 50, r = 30, l = 60, b = 70)
+    )
+}
+
 # Function to plot NDVI distribution per crop type, with confidence intervals. Assumes land_use column in train_data_grouped
 plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
                                                   country_name = NULL, resolution = NULL,

@@ -114,16 +114,51 @@ mod_body_ui <- function(id) {
                       value = "BAtimeseries",
                       div(class="tab-pane-explain",
                           span("
-                          The Burned Area Time Series reveals the seasonal dynamics of burned areas within the selected region over a 12-month period. 
-                          It also shows the burned area up to the selected year, as well as the monthly averages up to that year. 
+                          The Burned Area Time Series reveals the seasonal dynamics of burned areas within the selected region over a 12-month period.
+                          It also shows the burned area up to the selected year, as well as the monthly averages up to that year.
                           It highlights key trends and variations, offering insights into ecological patterns and changes."),
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")
                       ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
-                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("ba_plot_container"))),
+                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
+                        div(class = "plot-container", br(),
+
+                          # --- View toggle ---
+                          shinyWidgets::radioGroupButtons(
+                            inputId  = "ba_ts_view",
+                            label    = NULL,
+                            choices  = c("Seasonal Overview" = "seasonal", "Daily Activity" = "daily"),
+                            selected = "seasonal",
+                            size     = "sm",
+                            status   = "default"
+                          ),
+                          br(),
+
+                          # === SEASONAL OVERVIEW ===
+                          conditionalPanel(
+                            condition = "input.ba_ts_view == 'seasonal'",
+                            uiOutput("ba_plot_container")
+                          ),
+
+                          # === DAILY ACTIVITY ===
+                          conditionalPanel(
+                            condition = "input.ba_ts_view == 'daily'",
+                            div(style = paste0(
+                                  "background:#fff3e0; border-left:4px solid #E25822;",
+                                  "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                                p(style = "margin:0; font-size:0.93em;",
+                                  "This chart shows when fires were detected during the fire season, ",
+                                  "using the exact day each area burned. ",
+                                  "Peaks indicate days with the most fire activity. ",
+                                  "Compare years to see whether fire seasons are shifting earlier or later, ",
+                                  "or becoming more intense.")
+                            ),
+                            uiOutput("ba_daily_plot_container")
+                          )
+                        )
+                      )
                     ),
 
                     tabPanel(
