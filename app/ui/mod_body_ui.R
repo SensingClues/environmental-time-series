@@ -348,15 +348,25 @@ mod_body_ui <- function(id) {
           tabPanel(
             title = "Land Cover Productivity",
             value = "ScenarioLandCoverProductivity",
-            div(class="tab-pane-explain",
-                span("Ranks land cover classes by annual mean NDVI and seasonal variability for the selected year."),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
             mod_busy_spinner_ui("busy_spinner"),
             conditionalPanel(
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
-              div(class="plot-container", uiOutput("scenario_productivity_container"))
+              div(class="plot-container",
+                div(style = paste0(
+                      "background:#f1f8e9; border-left:4px solid #558B2F;",
+                      "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                    p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;",
+                      "How to read this chart"),
+                    tags$ul(style = "margin:0; padding-left:18px; font-size:0.91em;",
+                      tags$li(tags$strong("Left bar chart"), " — which land cover class was most productive this year. Higher bars = healthier vegetation."),
+                      tags$li(tags$strong("Right scatter plot"), " — productivity (horizontal) vs year-to-year stability (vertical). Classes in the top-right are both productive AND stable — ideal."),
+                      tags$li(tags$strong("Table"), " — exact numbers. Check the Interpretation column for what each class's data means.")
+                    ),
+                    p(style = "margin:8px 0 0 0; font-size:0.91em;",
+                      HTML("⚠️ <strong>Note:</strong> Flooded vegetation's variability is driven by water levels, not vegetation stress — interpret it differently."))
+                ),
+                uiOutput("scenario_productivity_container")
+              )
             )
           ),
           tabPanel(
