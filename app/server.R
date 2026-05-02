@@ -57,6 +57,36 @@ server <- function(input, output, session) {
                         BAexplorerTab = "500",
                         ScenarioExplorerTab = "Sentinel_1000")
   )
+
+  selected_available_year <- function(years, current_value = NULL) {
+    years <- sort(unique(as.integer(years)))
+    years <- years[!is.na(years)]
+    if (length(years) == 0L) {
+      return(character(0))
+    }
+
+    current_year <- suppressWarnings(as.integer(current_value))
+    if (length(current_year) == 1L && !is.na(current_year) && current_year %in% years) {
+      return(as.character(current_year))
+    }
+
+    as.character(max(years))
+  }
+
+  sidebar_data_type <- reactive({
+    if (identical(input$tabs, "BAexplorerTab")) "BurnedArea" else "NDVI"
+  })
+
+  available_year_end <- function(data_type, country_name, resolution, year) {
+    dates_df <- get_available_dates(data_dir, data_type, country_name, resolution)
+    year <- suppressWarnings(as.integer(year))
+    months <- dates_df$month[dates_df$year == year]
+    if (length(months) == 0L) {
+      stop("No ", data_type, " data found for ", country_name, " in ", year, ".")
+    }
+
+    list(end_year = year, end_month = max(months))
+  }
   
   # Observe selected tab and update choices according to the one selected
   observeEvent(input$tabs, { 
@@ -67,6 +97,65 @@ server <- function(input, output, session) {
                       choices = resolutionchoices_rv$choice_set[[input$tabs]], 
                       selected = resolutionchoices_rv$selected_set[[input$tabs]])
   })
+
+  observeEvent(list(input$tabs, input$country, input$resolution), {
+    req(input$tabs, input$country, input$resolution)
+
+    years <- get_available_years(
+      data_dir      = data_dir,
+      data_type     = sidebar_data_type(),
+      country_name  = input$country,
+      resolution    = input$resolution
+    )
+
+    updateSelectInput(
+      session,
+      "year",
+      choices  = as.character(years),
+      selected = selected_available_year(years, input$year)
+    )
+  }, ignoreInit = FALSE)
+
+  observeEvent(list(input$tabs, input$country, input$resolution), {
+    req(input$tabs, input$country, input$resolution)
+
+    years <- get_available_years(
+      data_dir      = data_dir,
+      data_type     = "NDVI",
+      country_name  = input$country,
+      resolution    = input$resolution
+    )
+    if (length(years) == 0L) {
+      return()
+    }
+
+    year_choices <- stats::setNames(as.character(years), as.character(years))
+    drought_year <- selected_available_year(years, input$scenario_drought_year)
+    anomaly_year <- selected_available_year(years, input$scenario_anomaly_year)
+
+    ref_years <- intersect(as.character(input$scenario_drought_ref_years), as.character(years))
+    if (length(ref_years) == 0L) {
+      ref_years <- as.character(years)
+    }
+
+    compare_year <- input$scenario_productivity_compare_year
+    if (is.null(compare_year) || !compare_year %in% as.character(years)) {
+      compare_year <- ""
+    }
+
+    updateSelectInput(session, "scenario_drought_year",
+                      choices = year_choices,
+                      selected = drought_year)
+    updateCheckboxGroupInput(session, "scenario_drought_ref_years",
+                             choices = year_choices,
+                             selected = ref_years)
+    updateSelectInput(session, "scenario_productivity_compare_year",
+                      choices = c("None" = "", year_choices),
+                      selected = compare_year)
+    updateSelectInput(session, "scenario_anomaly_year",
+                      choices = year_choices,
+                      selected = anomaly_year)
+  }, ignoreInit = FALSE)
   
   # Enable/disable "Month" selector based on the tab
   observeEvent(c(input$tabs, input$basubtabs, input$ndvisubtabs), {
@@ -401,10 +490,19 @@ server <- function(input, output, session) {
   output$scenario_veg_trend_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_veg_trend_ready())) {
       res <- scenario_veg_trend_result()
+      trend_years <- sort(unique(scenario_ndvi_data()$year))
+      trend_years_label <- if (length(trend_years) > 0L) {
+        paste0(min(trend_years), "-", max(trend_years),
+               " (", length(trend_years), " year",
+               ifelse(length(trend_years) == 1L, "", "s"), ")")
+      } else {
+        "the available years"
+      }
       tagList(
         div(style = "background: #FFF8E122; border-left: 4px solid #F57F17; padding: 12px; margin-bottom: 6px; border-radius: 4px;",
-          tags$strong("📊 Data Sufficiency Note"), tags$br(),
-          tags$span("Trend analysis is most reliable with 10+ years of data. Current dataset covers 2019–2025 (6 years). Results should be interpreted cautiously.")
+          tags$strong("Data Sufficiency Note"), tags$br(),
+          tags$span(paste0("Trend analysis is most reliable with 10+ years of data. Current dataset covers ",
+                           trend_years_label, ". Results should be interpreted cautiously."))
         ),
         div(style = "background: #E3F2FD22; border-left: 4px solid #1565C0; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
           tags$strong("Trend Insight"), tags$br(),
@@ -578,29 +676,32 @@ server <- function(input, output, session) {
   aoi_shape_rv <- reactiveVal(NULL)
   error_message_rv <- reactiveVal(NULL)
   
-  # Initialise year and month selector accounting for change of year
-  observeEvent(TRUE, {
-    current_year  <- lubridate::year(Sys.Date())
-    current_month <- lubridate::month(Sys.Date())
-    
-    if (current_month == 1) {
-      updateSelectInput(session, "year",
-                        selected = current_year - 1)
+  # Update month selector based on the months available for the selected year.
+  observeEvent(list(input$tabs, input$country, input$resolution, input$year), {
+    req(input$tabs, input$country, input$resolution, input$year)
+
+    months <- get_available_month_names(
+      data_dir      = data_dir,
+      data_type     = sidebar_data_type(),
+      country_name  = input$country,
+      resolution    = input$resolution,
+      year          = input$year
+    )
+
+    if (length(months) == 0L) {
+      months <- month.name
     }
-  }, once = TRUE)
-  
-  # Update month selector based on the selected year
-  observeEvent(input$year, {
-    req(input$year)
-    
-    if (input$year == lubridate::year(Sys.Date())) {
-      updateSelectInput(session, "month",
-                        choices = month.name[1:(lubridate::month(Sys.Date()) - 1)])
+
+    selected_month <- if (!is.null(input$month) && input$month %in% months) {
+      input$month
     } else {
-      updateSelectInput(session, "month",
-                        choices = month.name[1:12])
+      months[[1]]
     }
-  })
+
+    updateSelectInput(session, "month",
+                      choices = months,
+                      selected = selected_month)
+  }, ignoreInit = FALSE)
   
   # Create Leaflet map with AoI selected
   observeEvent(input$country, {
@@ -718,18 +819,9 @@ server <- function(input, output, session) {
     country_name <- input$country
     resolution <- input$resolution
 
-    # Handling to avoid end/start of new year errors
-    if(input$year == lubridate::year(Sys.Date())) {
-      end_month <- lubridate::month(Sys.Date()) - 1
-      end_year <- input$year
-      if(end_month == 0) {
-        end_month <- 12
-        end_year <- end_year - 1
-      }
-    } else {
-      end_month <- 12
-      end_year <- input$year
-    }
+    selected_end <- available_year_end("NDVI", country_name, resolution, input$year)
+    end_month <- selected_end$end_month
+    end_year  <- selected_end$end_year
     
     # Wrap data generation in tryCatch to handle missing files/errors
     tryCatch({
@@ -919,18 +1011,9 @@ server <- function(input, output, session) {
     country_name <- input$country
     resolution <- input$resolution
     
-    # Handling to avoid end/start of new year errors
-    if(input$year == lubridate::year(Sys.Date())) {
-      end_month <- lubridate::month(Sys.Date()) - 1
-      end_year <- input$year
-      if(end_month == 0) {
-        end_month <- 12
-        end_year <- end_year - 1
-      }
-    } else {
-      end_month <- 12
-      end_year <- input$year
-    }
+    selected_end <- available_year_end("NDVI", country_name, resolution, input$year)
+    end_month <- selected_end$end_month
+    end_year  <- selected_end$end_year
     
     map_year <- "2023"
     vector_src <- "S2_10m_LULC"
@@ -1183,17 +1266,13 @@ server <- function(input, output, session) {
   output$ba_daily_year_selector <- renderUI({
     country_name <- input$country
     resolution   <- input$resolution
-    data_path    <- file.path(data_dir, "BurnedArea", country_name, paste0(resolution, "m_resolution"))
-    ba_files     <- tryCatch(
-      get_filenames(filepath = data_path, data_type = "BurnedArea",
-                    file_extension = ".tif", country_name = country_name),
-      error = function(e) character(0)
+    available_years <- get_available_years(
+      data_dir      = data_dir,
+      data_type     = "BurnedArea",
+      country_name  = country_name,
+      resolution    = resolution,
+      decreasing    = TRUE
     )
-    available_years <- if (length(ba_files) > 0) {
-      sort(unique(as.integer(sub("^(\\d{4})-.*", "\\1", ba_files))), decreasing = TRUE)
-    } else {
-      seq(2018, lubridate::year(Sys.Date()))
-    }
     default_sel <- head(as.character(available_years), 3)
     selectInput("ba_daily_years", "Select years to compare",
                 choices  = as.character(available_years),
@@ -1286,18 +1365,9 @@ server <- function(input, output, session) {
     country_name <- input$country
     resolution <- input$resolution
     
-    # Handling to avoid end/start of new year errors
-    if(input$year == lubridate::year(Sys.Date())) {
-      end_month <- lubridate::month(Sys.Date()) - 2
-      end_year <- input$year
-      if(end_month <= 0) {
-        end_month <- 12
-        end_year <- end_year - 1
-      }
-    } else {
-      end_month <- 12
-      end_year <- input$year
-    }
+    selected_end <- available_year_end("BurnedArea", country_name, resolution, input$year)
+    end_month <- selected_end$end_month
+    end_year  <- selected_end$end_year
     
     tryCatch({
       ba_plot <- generate_ba_timeseries(

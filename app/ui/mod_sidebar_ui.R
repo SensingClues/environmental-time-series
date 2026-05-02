@@ -52,8 +52,8 @@ mod_sidebar_ui <- function(id) {
         leafletOutput("map", height = "165px"), # Adds leaflet map for the AoI
         br(),
         selectInput("year", "Select year", 
-                    selected = lubridate::year(Sys.Date()), 
-                    choices = seq(2018, lubridate::year(Sys.Date()), 1)),
+                    selected = NULL,
+                    choices = NULL),
         shinyjs::disabled(selectInput("month", "Select month", 
                                       selected="January", 
                                       choices = month.name[1:lubridate::month(Sys.Date())-1])),
@@ -104,11 +104,11 @@ mod_sidebar_ui <- function(id) {
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioDroughtImpact'",
       div(
         selectInput("scenario_drought_year", "Comparison year",
-                    choices = 2019:2025, selected = 2022),
+                    choices = NULL, selected = NULL),
         checkboxGroupInput(
           "scenario_drought_ref_years", "Reference period",
-          choices  = 2019:2025,
-          selected = 2019:2025
+          choices  = NULL,
+          selected = NULL
         ),
         actionButton("generate_drought_impact", "Generate Figure", class = "action_button")
       )
@@ -142,7 +142,7 @@ mod_sidebar_ui <- function(id) {
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
       div(
         selectInput("scenario_productivity_compare_year", "Compare with year (optional)",
-                    choices = c("None" = "", 2019:2025), selected = ""),
+                    choices = c("None" = ""), selected = ""),
         actionButton("generate_productivity", "Generate Figure", class = "action_button")
       )
     ),
@@ -180,7 +180,7 @@ mod_sidebar_ui <- function(id) {
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
       div(
         selectInput("scenario_anomaly_year", "Anomaly year",
-                    choices = 2019:2025, selected = 2022),
+                    choices = NULL, selected = NULL),
         actionButton("generate_anomaly_resilience", "Generate Figure", class = "action_button")
       )
     )

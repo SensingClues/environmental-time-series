@@ -113,7 +113,7 @@ load_ndvi_per_class <- function(year, region, resolution, data_dir, lulc_path) {
   if (!dir.exists(ndvi_dir)) stop("NDVI directory not found: ", ndvi_dir)
   files <- list.files(ndvi_dir, pattern = "_NDVI_.*\\.tif$", full.names = FALSE)
   years <- suppressWarnings(as.integer(sub("^(\\d{4})-.*$", "\\1", files)))
-  sort(unique(years[!is.na(years) & years >= 2019 & years <= 2025]))
+  sort(unique(years[!is.na(years)]))
 }
 
 .load_all_years <- function(years, country_name, resolution, data_dir, lulc_dir,
