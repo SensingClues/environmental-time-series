@@ -566,69 +566,256 @@ plot_productivity_comparison <- function(df, selected_year, compare_year = NULL)
 # --- Sub-tab 4: Agricultural Monitoring ---
 # df: pre-loaded data frame (all years, all classes) from the server shared reactive
 
+# --- Phenology profiles (region + crop) ---
+# Each profile drives all detection windows, thresholds, and confidence scoring.
+# Add new profiles here as new regions are supported — no other code changes required.
+.phenology_profiles <- list(
+  "Zambia — Maize" = list(
+    region                  = "Southern Africa (Zambia)",
+    crop                    = "Maize",
+    lc_class                = "Crops",
+    green_up_window         = c(11L, 12L),
+    green_up_baseline_month = 10L,
+    green_up_threshold      = 0.08,
+    green_up_conf_high      = 0.10,
+    green_up_conf_med_low   = 0.06,
+    green_up_conf_lo_min    = 0.03,
+    peak_window             = c(1L, 3L),
+    peak_conf_delta         = 0.05,
+    senescence_window       = c(4L, 6L),
+    senescence_threshold    = 0.30,
+    notes                   = "Rainy season Oct–Apr; responds to October rains; harvest by June"
+  ),
+  "Spain — Wheat" = list(
+    region                  = "Mediterranean (Spain)",
+    crop                    = "Wheat",
+    lc_class                = "Crops",
+    green_up_window         = c(11L, 12L),
+    green_up_baseline_month = 10L,
+    green_up_threshold      = 0.10,
+    green_up_conf_high      = 0.12,
+    green_up_conf_med_low   = 0.08,
+    green_up_conf_lo_min    = 0.04,
+    peak_window             = c(2L, 4L),
+    peak_conf_delta         = 0.05,
+    senescence_window       = c(5L, 7L),
+    senescence_threshold    = 0.35,
+    notes                   = "Cool-season crop; planted in autumn, harvested early summer"
+  ),
+  "India — Rice" = list(
+    region                  = "South Asia (India)",
+    crop                    = "Rice",
+    lc_class                = "Crops",
+    green_up_window         = c(7L, 8L),
+    green_up_baseline_month = 6L,
+    green_up_threshold      = 0.12,
+    green_up_conf_high      = 0.14,
+    green_up_conf_med_low   = 0.10,
+    green_up_conf_lo_min    = 0.06,
+    peak_window             = c(8L, 9L),
+    peak_conf_delta         = 0.04,
+    senescence_window       = c(9L, 10L),
+    senescence_threshold    = 0.28,
+    notes                   = "Monsoon-driven; planted at rains, harvested before winter"
+  ),
+  "Brazil — Soybean" = list(
+    region                  = "Central Brazil (Cerrado)",
+    crop                    = "Soybean",
+    lc_class                = "Crops",
+    green_up_window         = c(10L, 11L),
+    green_up_baseline_month = 9L,
+    green_up_threshold      = 0.09,
+    green_up_conf_high      = 0.11,
+    green_up_conf_med_low   = 0.07,
+    green_up_conf_lo_min    = 0.04,
+    peak_window             = c(12L, 12L),
+    peak_conf_delta         = 0.05,
+    senescence_window       = c(1L, 2L),
+    senescence_threshold    = 0.32,
+    notes                   = "Summer crop; staggered plantings common; shorter cycle than maize"
+  ),
+  "Generic — Rangeland" = list(
+    region                  = "Generic",
+    crop                    = "Rangeland",
+    lc_class                = "Rangeland",
+    green_up_window         = c(10L, 12L),
+    green_up_baseline_month = 9L,
+    green_up_threshold      = 0.05,
+    green_up_conf_high      = 0.08,
+    green_up_conf_med_low   = 0.04,
+    green_up_conf_lo_min    = 0.02,
+    peak_window             = c(1L, 3L),
+    peak_conf_delta         = 0.04,
+    senescence_window       = c(4L, 7L),
+    senescence_threshold    = 0.20,
+    notes                   = "Generic rangeland — lower thresholds, broader senescence window"
+  )
+)
+
+# Expand a month window to a vector; handles wrap-around (e.g. 11:1 → c(11,12,1))
+.months_in_window <- function(start, end) {
+  if (start <= end) start:end else c(start:12L, 1L:end)
+}
+
+.score_green_up <- function(rise, profile) {
+  if (is.na(rise) || rise < profile$green_up_conf_lo_min) return("Not detected")
+  if (rise >= profile$green_up_conf_high)    return("High")
+  if (rise >= profile$green_up_conf_med_low) return("Medium")
+  return("Low")
+}
+
+.score_peak <- function(peak_ndvi, hist_avg, profile) {
+  if (is.na(peak_ndvi)) return("Not detected")
+  if (is.na(hist_avg))  return("Medium")
+  dev <- peak_ndvi - hist_avg
+  if (dev >  profile$peak_conf_delta) return("High")
+  if (dev < -profile$peak_conf_delta) return("Low")
+  return("Medium")
+}
+
+.score_senescence <- function(sen_ndvi, profile) {
+  if (is.na(sen_ndvi)) return("Not detected")
+  if (sen_ndvi < (profile$senescence_threshold - 0.05)) return("High")
+  return("Medium")
+}
+
+# Returns marker style list (symbol, size, opacity) keyed by confidence level.
+.conf_marker_style <- function(conf, base_symbol) {
+  switch(conf,
+    High           = list(symbol = base_symbol,                    size = 12, opacity = 1.00),
+    Medium         = list(symbol = paste0(base_symbol, "-open"),   size = 10, opacity = 0.85),
+    Low            = list(symbol = paste0(base_symbol, "-open"),   size = 8,  opacity = 0.55),
+    `Not detected` = NULL
+  )
+}
+
+.conf_label <- function(conf) {
+  switch(conf,
+    High           = "✅ High",
+    Medium         = "⚠️ Medium",
+    Low            = "⚠️ Low",
+    `Not detected` = "❌ Not detected",
+    conf
+  )
+}
+
+detect_phenology <- function(df_year, profile, hist_peak_avg = NA_real_) {
+  df_year <- dplyr::arrange(df_year, month)
+  ndvi    <- df_year$mean_ndvi
+  months  <- df_year$month
+
+  # --- Green-up ---
+  baseline_idx  <- which(months == profile$green_up_baseline_month)
+  baseline_ndvi <- if (length(baseline_idx) > 0L) ndvi[baseline_idx[1L]] else NA_real_
+
+  gu_win  <- .months_in_window(profile$green_up_window[1L], profile$green_up_window[2L])
+  gu_idx  <- which(months %in% gu_win)
+
+  green_up_month <- NA_integer_
+  green_up_conf  <- "Not detected"
+  green_up_rise  <- NA_real_
+
+  if (length(gu_idx) > 0L && !is.na(baseline_ndvi)) {
+    max_in_win    <- max(ndvi[gu_idx], na.rm = TRUE)
+    green_up_rise <- max_in_win - baseline_ndvi
+
+    if (green_up_rise >= profile$green_up_conf_lo_min) {
+      thr_val <- baseline_ndvi + profile$green_up_threshold
+      crossed <- gu_idx[ndvi[gu_idx] > thr_val]
+      green_up_month <- if (length(crossed) > 0L) months[crossed[1L]]
+                        else months[gu_idx[which.max(ndvi[gu_idx])]]
+      green_up_conf  <- .score_green_up(green_up_rise, profile)
+    }
+  }
+
+  # --- Peak ---
+  pk_win <- .months_in_window(profile$peak_window[1L], profile$peak_window[2L])
+  pk_idx <- which(months %in% pk_win)
+
+  peak_month    <- NA_integer_
+  peak_ndvi_val <- NA_real_
+  peak_conf     <- "Not detected"
+
+  if (length(pk_idx) > 0L) {
+    best          <- pk_idx[which.max(ndvi[pk_idx])]
+    peak_month    <- months[best]
+    peak_ndvi_val <- ndvi[best]
+    peak_conf     <- .score_peak(peak_ndvi_val, hist_peak_avg, profile)
+  } else {
+    fallback      <- which.max(ndvi)
+    peak_month    <- months[fallback]
+    peak_ndvi_val <- ndvi[fallback]
+    peak_conf     <- "Low"
+  }
+
+  # --- Senescence ---
+  sen_win <- .months_in_window(profile$senescence_window[1L], profile$senescence_window[2L])
+  sen_idx <- which(months %in% sen_win)
+
+  senescence_month <- NA_integer_
+  senescence_conf  <- "Not detected"
+  senescence_ndvi  <- NA_real_
+
+  for (k in seq_along(sen_idx)) {
+    i <- sen_idx[k]
+    if (!is.na(ndvi[i]) && ndvi[i] < profile$senescence_threshold) {
+      senescence_month <- months[i]
+      senescence_ndvi  <- ndvi[i]
+      senescence_conf  <- .score_senescence(ndvi[i], profile)
+      break
+    }
+  }
+
+  season_length_days <- if (!is.na(green_up_month) && !is.na(senescence_month))
+    as.integer((senescence_month + 12L - green_up_month) %% 12L * 30L)
+  else NA_integer_
+
+  data.frame(
+    year               = df_year$year[1L],
+    green_up           = green_up_month,
+    green_up_conf      = green_up_conf,
+    green_up_rise      = round(green_up_rise, 3),
+    peak               = peak_month,
+    peak_ndvi          = round(peak_ndvi_val, 3),
+    peak_conf          = peak_conf,
+    senescence         = senescence_month,
+    senescence_conf    = senescence_conf,
+    senescence_ndvi    = round(senescence_ndvi, 3),
+    season_length_days = season_length_days,
+    stringsAsFactors   = FALSE
+  )
+}
+
 plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
   if (is.null(df) || nrow(df) == 0) stop("plot_agricultural_monitoring: df is empty.")
+
+  # Auto-select first profile matching the requested class
+  matching <- names(.phenology_profiles)[
+    vapply(.phenology_profiles, function(p) p$lc_class == selected_class, logical(1L))
+  ]
+  if (length(matching) == 0L) stop("plot_agricultural_monitoring: no profile for class '", selected_class, "'")
+  profile_name <- matching[1L]
+  profile <- .phenology_profiles[[profile_name]]
 
   all_df <- df[df$land_cover == selected_class, ]
   if (nrow(all_df) == 0) stop("plot_agricultural_monitoring: no ", selected_class, " data found.")
 
-  detect_phenology <- function(df_year) {
-    df_year <- dplyr::arrange(df_year, month)
-    ndvi    <- df_year$mean_ndvi
-    months  <- df_year$month
-
-    # Green-up: Oct–Dec window, NDVI must rise > 0.08 above October baseline
-    oct_idx        <- which(months == 10L)
-    oct_ndvi       <- if (length(oct_idx) > 0L) ndvi[oct_idx[1L]] else NA_real_
-    gu_threshold   <- if (!is.na(oct_ndvi)) oct_ndvi + 0.08 else NA_real_
-    green_up_month <- NA_integer_
-    if (!is.na(gu_threshold)) {
-      for (mo in c(11L, 12L)) {
-        idx <- which(months == mo)
-        if (length(idx) > 0L && ndvi[idx[1L]] > gu_threshold) {
-          green_up_month <- mo; break
-        }
-      }
-    }
-
-    # Peak: Jan–Mar window
-    jan_mar_idx <- which(months %in% 1L:3L)
-    if (length(jan_mar_idx) > 0L) {
-      peak_idx <- jan_mar_idx[which.max(ndvi[jan_mar_idx])]
-    } else {
-      peak_idx <- which.max(ndvi)
-    }
-    peak_month <- months[peak_idx]
-
-    # Senescence: Apr–Jun window, first month NDVI drops below 0.3
-    senescence_month <- NA_integer_
-    for (mo in c(4L, 5L, 6L)) {
-      idx <- which(months == mo)
-      if (length(idx) > 0L && ndvi[idx[1L]] < 0.3) {
-        senescence_month <- mo; break
-      }
-    }
-
-    # Season length in days (green-up in Oct–Dec, senescence in Apr–Jun spans year boundary)
-    season_length_days <- if (!is.na(green_up_month) && !is.na(senescence_month)) {
-      as.integer((senescence_month + 12L - green_up_month) %% 12L * 30L)
-    } else NA_integer_
-
-    data.frame(
-      year               = df_year$year[1L],
-      green_up           = green_up_month,
-      peak               = peak_month,
-      senescence         = senescence_month,
-      peak_ndvi          = round(ndvi[peak_idx], 3),
-      season_length_days = season_length_days,
-      stringsAsFactors   = FALSE
+  # Pre-compute historical average peak NDVI for confidence scoring
+  pk_win <- .months_in_window(profile$peak_window[1L], profile$peak_window[2L])
+  hist_peak_avg <- tryCatch({
+    pk_by_yr <- dplyr::summarise(
+      dplyr::group_by(all_df[all_df$month %in% pk_win, ], year),
+      pk = max(mean_ndvi, na.rm = TRUE), .groups = "drop"
     )
-  }
+    mean(pk_by_yr$pk, na.rm = TRUE)
+  }, error = function(e) NA_real_)
 
-  pheno_df <- do.call(rbind, lapply(split(all_df, all_df$year), detect_phenology))
+  pheno_df <- do.call(rbind, lapply(
+    split(all_df, all_df$year),
+    function(d) detect_phenology(d, profile, hist_peak_avg)
+  ))
   pheno_df <- dplyr::arrange(pheno_df, year)
 
-  # Multi-year average reference line
   avg_df <- dplyr::arrange(
     dplyr::summarise(dplyr::group_by(all_df, month),
                      avg_ndvi = mean(mean_ndvi, na.rm = TRUE), .groups = "drop"),
@@ -638,57 +825,83 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
   years_available <- sort(unique(all_df$year))
   p <- plotly::plot_ly()
 
-  # Average reference line drawn first (behind year lines)
   p <- plotly::add_lines(
     p,
-    x    = avg_df$month,
-    y    = avg_df$avg_ndvi,
+    x = avg_df$month, y = avg_df$avg_ndvi,
     name = "Multi-year avg",
-    legendgroup      = "reference",
-    legendgrouptitle = list(text = "Reference"),
     line = list(color = "#888888", dash = "dash", width = 2),
     hovertemplate = paste0(selected_class, " avg: %{y:.3f}<extra></extra>")
   )
 
   for (yr in years_available) {
     df_yr <- dplyr::arrange(all_df[all_df$year == yr, ], month)
+    ph    <- pheno_df[pheno_df$year == yr, ]
 
     p <- plotly::add_lines(
       p,
-      x    = df_yr$month,
-      y    = df_yr$mean_ndvi,
+      x = df_yr$month, y = df_yr$mean_ndvi,
       name = as.character(yr),
-      legendgroup      = "years",
-      legendgrouptitle = list(text = "Year"),
       hovertemplate = paste0(
         "<b>", yr, "</b><br>Month: %{x}<br>", selected_class, " NDVI: %{y:.3f}<extra></extra>"
       )
     )
 
-    ph <- pheno_df[pheno_df$year == yr, ]
-    marker_list <- list(
-      list(month = ph$green_up,   label = "Green-up",   color = "#43A047", symbol = "triangle-up"),
-      list(month = ph$peak,       label = "Peak",       color = "#1565C0", symbol = "star"),
-      list(month = ph$senescence, label = "Senescence", color = "#E65100", symbol = "triangle-down")
+    marker_defs <- list(
+      list(
+        month    = ph$green_up,
+        conf     = ph$green_up_conf,
+        label    = "Green-up",
+        color    = "#43A047",
+        base_sym = "triangle-up",
+        tip      = if (!is.na(ph$green_up) && !is.na(ph$green_up_rise))
+                     sprintf("Green-up: %s\n%s confidence (%.2f NDVI rise above %s baseline)",
+                             month.name[ph$green_up], .conf_label(ph$green_up_conf),
+                             ph$green_up_rise, month.name[profile$green_up_baseline_month])
+                   else "Green-up: not detected"
+      ),
+      list(
+        month    = ph$peak,
+        conf     = ph$peak_conf,
+        label    = "Peak",
+        color    = "#1565C0",
+        base_sym = "star",
+        tip      = if (!is.na(ph$peak) && !is.na(ph$peak_ndvi))
+                     sprintf("Peak: %s (NDVI: %.3f)\n%s confidence",
+                             month.name[ph$peak], ph$peak_ndvi, .conf_label(ph$peak_conf))
+                   else "Peak: not detected"
+      ),
+      list(
+        month    = ph$senescence,
+        conf     = ph$senescence_conf,
+        label    = "Senescence",
+        color    = "#E65100",
+        base_sym = "triangle-down",
+        tip      = if (!is.na(ph$senescence) && !is.na(ph$senescence_ndvi))
+                     sprintf("Senescence: %s (NDVI: %.3f, threshold: %.2f)\n%s confidence",
+                             month.name[ph$senescence], ph$senescence_ndvi,
+                             profile$senescence_threshold, .conf_label(ph$senescence_conf))
+                   else "Senescence: not detected"
+      )
     )
 
-    for (mk in marker_list) {
-      if (!is.na(mk$month)) {
-        ndvi_val <- df_yr$mean_ndvi[df_yr$month == mk$month]
-        if (length(ndvi_val) > 0L) {
-          p <- plotly::add_markers(
-            p, x = mk$month, y = ndvi_val[1L],
-            name             = mk$label,
-            legendgroup      = "markers",
-            legendgrouptitle = list(text = "Phenology"),
-            showlegend       = (yr == years_available[1L]),
-            marker = list(size = 9, color = mk$color, symbol = mk$symbol),
-            hovertemplate = paste0(
-              "<b>", yr, " ", mk$label, "</b><br>Month: %{x}<br>NDVI: %{y:.3f}<extra></extra>"
-            )
-          )
-        }
-      }
+    is_first_year <- (yr == years_available[1L])
+    for (mk in marker_defs) {
+      if (is.na(mk$month) || mk$conf == "Not detected") next
+      ms <- .conf_marker_style(mk$conf, mk$base_sym)
+      if (is.null(ms)) next
+      ndvi_val <- df_yr$mean_ndvi[df_yr$month == mk$month]
+      if (length(ndvi_val) == 0L) next
+      p <- plotly::add_markers(
+        p, x = mk$month, y = ndvi_val[1L],
+        name             = mk$label,
+        legendgroup      = mk$label,
+        legendgrouptitle = if (is_first_year) list(text = "Phenology") else NULL,
+        showlegend       = is_first_year,
+        marker           = list(size = ms$size, color = mk$color,
+                                symbol = ms$symbol, opacity = ms$opacity),
+        hovertemplate    = paste0("<b>", yr, " ", mk$label, "</b><br>",
+                                  gsub("\n", "<br>", mk$tip), "<extra></extra>")
+      )
     }
   }
 
@@ -699,61 +912,75 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
     legend = list(orientation = "h", tracegroupgap = 20)
   )
 
-  # Season Performance insight for the most recent year
+  # Season Performance insight — multi-year summary using only years with ≥6 months of data
   insight_text <- tryCatch({
-    latest_yr  <- max(pheno_df$year)
-    latest_row <- pheno_df[pheno_df$year == latest_yr, ]
-    avg_peak   <- mean(pheno_df$peak_ndvi, na.rm = TRUE)
-    avg_gu     <- round(mean(pheno_df$green_up, na.rm = TRUE))
-    pct_diff   <- round((latest_row$peak_ndvi - avg_peak) / avg_peak * 100, 1)
-    direction  <- if (pct_diff >= 0) "above" else "below"
-    gu_latest  <- latest_row$green_up
-    gu_text    <- if (!is.na(gu_latest) && !is.na(avg_gu)) {
-      gu_diff <- as.integer(gu_latest) - avg_gu
-      if (gu_diff == 0L) {
-        paste0(month.name[gu_latest], ", on time with the historical average")
-      } else {
-        sprintf("%s, %d month(s) %s than the historical average (%s)",
-                month.name[gu_latest], abs(gu_diff),
-                if (gu_diff > 0L) "later" else "earlier",
-                month.name[avg_gu])
-      }
-    } else if (!is.na(gu_latest)) month.name[gu_latest] else "unknown"
+    months_per_yr  <- tapply(all_df$month, all_df$year, function(x) length(unique(x)))
+    complete_years <- as.integer(names(months_per_yr)[months_per_yr >= 6L])
+    ok <- pheno_df[!is.na(pheno_df$peak_ndvi) & pheno_df$year %in% complete_years, ]
+    if (nrow(ok) < 2L) stop("insufficient complete years")
+
+    n_yrs      <- nrow(ok)
+    yr_range   <- paste0(min(ok$year), "–", max(ok$year))
+    avg_peak_ndvi <- round(mean(ok$peak_ndvi, na.rm = TRUE), 2)
+    avg_peak_mo   <- round(mean(ok$peak,      na.rm = TRUE))
+
+    gu_ok      <- ok[!is.na(ok$green_up), ]
+    gu_text    <- if (nrow(gu_ok) >= 2L)
+      paste0(", with green-up typically in ", month.name[round(mean(gu_ok$green_up))])
+    else ""
+
+    trend_text <- if (n_yrs >= 3L) {
+      slope <- coef(lm(peak_ndvi ~ year, data = ok))[["year"]]
+      if      (slope >  0.005) sprintf(" Peak NDVI is trending upward (+%.3f/yr).",  slope)
+      else if (slope < -0.005) sprintf(" Peak NDVI is trending downward (%.3f/yr).", slope)
+      else                     " Peak NDVI is stable across this period."
+    } else ""
+
     sprintf(
-      "In %d, peak %s NDVI (%.2f) was %.1f%% %s the %d–%d average. Green-up arrived in %s.",
-      latest_yr, selected_class, latest_row$peak_ndvi, abs(pct_diff), direction,
-      min(pheno_df$year), max(pheno_df$year), gu_text
+      "Over %d years (%s), %s typically peaks at NDVI %.2f in %s%s.%s",
+      n_yrs, yr_range, selected_class, avg_peak_ndvi, month.name[avg_peak_mo],
+      gu_text, trend_text
     )
   }, error = function(e) "Season performance summary not available.")
 
-  # Table with average comparison row
-  avg_green_up <- round(mean(pheno_df$green_up,           na.rm = TRUE))
-  avg_peak_mo  <- round(mean(pheno_df$peak,               na.rm = TRUE))
-  avg_sen_mo   <- round(mean(pheno_df$senescence,         na.rm = TRUE))
-  avg_peak_ndvi <- round(mean(pheno_df$peak_ndvi,         na.rm = TRUE), 3)
-  avg_season   <- round(mean(pheno_df$season_length_days, na.rm = TRUE))
+  # Table
+  avg_green_up  <- round(mean(pheno_df$green_up,           na.rm = TRUE))
+  avg_peak_mo   <- round(mean(pheno_df$peak,               na.rm = TRUE))
+  avg_sen_mo    <- round(mean(pheno_df$senescence,         na.rm = TRUE))
+  avg_peak_ndvi <- round(mean(pheno_df$peak_ndvi,          na.rm = TRUE), 3)
+  avg_season    <- round(mean(pheno_df$season_length_days, na.rm = TRUE))
 
-  table_out <- pheno_df
-  table_out$green_up           <- ifelse(is.na(table_out$green_up),           "—", month.abb[table_out$green_up])
-  table_out$peak               <- ifelse(is.na(table_out$peak),               "—", month.abb[table_out$peak])
-  table_out$senescence         <- ifelse(is.na(table_out$senescence),         "—", month.abb[table_out$senescence])
-  table_out$season_length_days <- ifelse(is.na(table_out$season_length_days), "—", as.character(table_out$season_length_days))
-  table_out$year               <- as.character(table_out$year)
+  .fmt_event <- function(mo, conf) {
+    if (is.na(mo) || conf == "Not detected")
+      return(paste0("❌ — (", .conf_label(conf), ")"))
+    paste0(month.abb[mo], " (", .conf_label(conf), ")")
+  }
+
+  table_out <- data.frame(
+    Year        = as.character(pheno_df$year),
+    `Green-up`  = mapply(.fmt_event, pheno_df$green_up,  pheno_df$green_up_conf),
+    Peak        = mapply(.fmt_event, pheno_df$peak,       pheno_df$peak_conf),
+    Senescence  = mapply(.fmt_event, pheno_df$senescence, pheno_df$senescence_conf),
+    `Peak NDVI` = round(pheno_df$peak_ndvi, 3),
+    `Season length (days)` = ifelse(is.na(pheno_df$season_length_days), "—",
+                                    as.character(pheno_df$season_length_days)),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
 
   avg_row <- data.frame(
-    year               = "Average",
-    green_up           = if (!is.na(avg_green_up)) month.abb[avg_green_up] else "—",
-    peak               = if (!is.na(avg_peak_mo))  month.abb[avg_peak_mo]  else "—",
-    senescence         = if (!is.na(avg_sen_mo))   month.abb[avg_sen_mo]   else "—",
-    peak_ndvi          = avg_peak_ndvi,
-    season_length_days = if (!is.na(avg_season))   as.character(avg_season) else "—",
-    stringsAsFactors   = FALSE
+    Year        = "Average",
+    `Green-up`  = if (!is.na(avg_green_up)) month.abb[avg_green_up] else "—",
+    Peak        = if (!is.na(avg_peak_mo))  month.abb[avg_peak_mo]  else "—",
+    Senescence  = if (!is.na(avg_sen_mo))   month.abb[avg_sen_mo]   else "—",
+    `Peak NDVI` = avg_peak_ndvi,
+    `Season length (days)` = if (!is.na(avg_season)) as.character(avg_season) else "—",
+    check.names = FALSE, stringsAsFactors = FALSE
   )
   table_out <- rbind(table_out, avg_row)
-  colnames(table_out) <- c("Year", "Green-up", "Peak", "Senescence", "Peak NDVI", "Season length (days)")
 
   list(plot = p, phenology_table = table_out,
-       avg_green_up = avg_green_up, insight_text = insight_text)
+       avg_green_up = avg_green_up, insight_text = insight_text,
+       selected_class = selected_class)
 }
 
 # --- Sub-tab 5: Vegetation Trend ---

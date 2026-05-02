@@ -372,15 +372,27 @@ mod_body_ui <- function(id) {
           tabPanel(
             title = "Agricultural Monitoring",
             value = "ScenarioAgriculturalMonitoring",
-            div(class="tab-pane-explain",
-                span("Tracks crop season phenology — green-up, peak, and senescence — for the Crops class across all available years."),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
             mod_busy_spinner_ui("busy_spinner"),
             conditionalPanel(
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring'",
-              div(class="plot-container", uiOutput("scenario_agri_container"))
+              div(class="plot-container",
+                div(style = paste0(
+                      "background:#f1f8e9; border-left:4px solid #558B2F;",
+                      "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                    p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;",
+                      "How to read this chart"),
+                    p(style = "margin:0 0 4px 0; font-size:0.91em;",
+                      "Coloured lines show crop NDVI across months for each year. Markers show detected phenological events:"),
+                    tags$ul(style = "margin:2px 0 6px 0; padding-left:18px; font-size:0.91em;",
+                      tags$li(tags$strong("▲ Green-up"), " — when rains trigger initial crop growth"),
+                      tags$li(tags$strong("★ Peak"), " — when the crop reaches maximum health"),
+                      tags$li(tags$strong("▼ Senescence"), " — when the crop matures or dries down")
+                    ),
+                    p(style = "margin:0; font-size:0.91em;",
+                      "Solid markers = high confidence. Outlined markers = medium/low confidence.")
+                ),
+                uiOutput("scenario_agri_container")
+              )
             )
           ),
           tabPanel(

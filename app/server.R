@@ -498,6 +498,11 @@ server <- function(input, output, session) {
     error_message_rv(NULL)
   }, ignoreInit = TRUE)
 
+  observeEvent(input$agri_class, {
+    scenario_agri_ready(FALSE)
+    scenario_agri_result(NULL)
+  }, ignoreInit = TRUE)
+
   observeEvent(input$generate_agri_monitoring, {
     scenario_agri_ready(FALSE)
     scenario_agri_result(NULL)
