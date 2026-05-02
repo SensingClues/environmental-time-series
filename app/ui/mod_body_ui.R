@@ -23,6 +23,31 @@ mod_body_ui <- function(id) {
       tabPanel(
         title = "NDVI Explorer",
         value = "NDVIexplorerTab",
+        # What is NDVI? (collapsible)
+        tags$details(
+          id    = "ndviWhatIsNDVI",
+          class = "collapsible-section",
+          tags$summary(
+            class = "collapsible-header",
+            HTML('<span>What is NDVI?</span><i class="material-icons expand-icon">expand_more</i>')
+          ),
+          p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('ndviWhatIsNDVI');
+            if (el) {
+              var summary = el.querySelector('summary');
+              summary.addEventListener('click', function() {
+                setTimeout(function() {
+                  var icon = summary.querySelector('.expand-icon');
+                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                }, 100);
+              });
+            }
+          });"
+        )),
+
         # Data source guidance (collapsible)
         tags$details(
           id    = "ndviDataSourceGuidance",
