@@ -131,57 +131,70 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
     dplyr::filter(month %in% months_in_test & year < year_in_test)
   #train_files_df <- files_df[(files_df$dates< start_date),]
 
-  ### Load raster and vector objects - Aoi, train data and test data
-  # load input Area of Interest (AoI) to later mask data
   aoi_proj <- get_aoi_vector(aoi_files = aoi_files, aoi_path = aoi_path,
                              projection = "EPSG:4326")
-  
+
+  if (return_plot == TRUE) {
+    # Fast path: read one file at a time, skip pixel-level raster→dataframe conversion.
+    # Cache train summary (historical data changes only when new files are added).
+    cache_dir  <- file.path(data_dir, ".cache")
+    cache_path <- file.path(cache_dir,
+                            paste0("ba_ts_", country_name, "_", resolution, "_train.rds"))
+    dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
+
+    if (file.exists(cache_path)) {
+      cached <- readRDS(cache_path)
+      if (isTRUE(cached$n_files == nrow(train_files_df))) {
+        train_ba_summary <- cached$data
+      } else {
+        train_raw        <- get_ba_summary_fast(train_files_df, data_path, aoi_proj)
+        train_ba_summary <- get_summary_ba_df(ba_df = train_raw)
+        saveRDS(list(data = train_ba_summary, n_files = nrow(train_files_df)), cache_path)
+      }
+    } else {
+      train_raw        <- get_ba_summary_fast(train_files_df, data_path, aoi_proj)
+      train_ba_summary <- get_summary_ba_df(ba_df = train_raw)
+      saveRDS(list(data = train_ba_summary, n_files = nrow(train_files_df)), cache_path)
+    }
+
+    test_raw        <- get_ba_summary_fast(test_files_df, data_path, aoi_proj)
+    test_ba_summary <- get_summary_ba_df(ba_df = test_raw)
+
+    return(plot_ba_timeseries_plotly(
+      train_data = train_ba_summary,
+      test_data  = test_ba_summary,
+      test_year  = end_year
+    ))
+  }
+
+  # Slow path (PNG): full pixel-level raster processing
   test_ba_msk <- get_ba_raster(ba_files = test_files_df$filenames, data_path = data_path,
                                projection = "EPSG:4326", dates = test_files_df$dates,
                                aoi_proj = aoi_proj)
-  
   train_ba_msk <- get_ba_raster(ba_files = train_files_df$filenames, data_path = data_path,
                                 projection = "EPSG:4326", dates = train_files_df$dates,
                                 aoi_proj = aoi_proj)
-  
-  ### Calculate mean BA for each month
-  # Extract raster layers for each date
-  # and store in dataframe
-  test_ba_df <- get_ba_df(ba_rast = test_ba_msk, dates = test_files_df$dates) 
-  train_ba_df <- get_ba_df(ba_rast = train_ba_msk, dates = train_files_df$dates) 
-  
-  ## Compute mean, SD, and confidence intervals
-  # test data
-  test_ba_summary <- get_summary_ba_df(ba_df = test_ba_df)
-  # train data
+  test_ba_df   <- get_ba_df(ba_rast = test_ba_msk,  dates = test_files_df$dates)
+  train_ba_df  <- get_ba_df(ba_rast = train_ba_msk, dates = train_files_df$dates)
+  test_ba_summary  <- get_summary_ba_df(ba_df = test_ba_df)
   train_ba_summary <- get_summary_ba_df(ba_df = train_ba_df)
-  
-  # Retrieve latest month available in test data for label
-  test_end_month <- test_files_df[max(test_files_df$month),]$dates
-  
-  ## Make plot - distribution of NDVI values throughout the year.
-  ba_ts_plot <- plot_ba_timeseries(train_data = train_ba_summary, 
-                                   test_data = test_ba_summary,
-                                   country_name = country_name, 
-                                   resolution = resolution,
-                                   plot_width = 15, 
-                                   plot_height = 8,
-                                   ylim_range = NULL,
-                                   test_start_date = start_date,
-                                   test_end_date = end_date,
-                                   label_test = paste0("Burned Area ", paste(format(c(start_date, test_end_month), "%b %Y"),collapse=" - ") ),
-                                   label_train = paste0("Burned Area until ", format(start_date, "%b %Y") ),
-                                   label_mean = paste0("Burned Area monthly average until ", format(start_date, "%b %Y") ),
-                                   save_path = figures_dir,
-                                   filename = figure_filename
+  test_end_month   <- test_files_df[max(test_files_df$month), ]$dates
+
+  plot_ba_timeseries(train_data = train_ba_summary,
+                     test_data = test_ba_summary,
+                     country_name = country_name,
+                     resolution = resolution,
+                     plot_width = 15,
+                     plot_height = 8,
+                     ylim_range = NULL,
+                     test_start_date = start_date,
+                     test_end_date = end_date,
+                     label_test = paste0("Burned Area ", paste(format(c(start_date, test_end_month), "%b %Y"), collapse = " - ")),
+                     label_train = paste0("Burned Area until ", format(start_date, "%b %Y")),
+                     label_mean  = paste0("Burned Area monthly average until ", format(start_date, "%b %Y")),
+                     save_path = figures_dir,
+                     filename  = figure_filename
   )
-  
-  # if we want to return the ggplot object
-  if (return_plot == TRUE) {
-    
-    return(ba_ts_plot)
-    
-  }
 }
 
 # Function to create NDVI 2D map 
@@ -352,12 +365,10 @@ generate_ba_2Dmap <- function(country_name = NULL, resolution = NULL,
   train_ba_df <- get_ba_df(ba_rast = train_ba_msk, dates = train_files_df$dates) 
   
   ## Make plot - BA values for the selected month, throughout the years
-  ba_map <- plot_ba_maps(data = bind_rows(train_ba_df, test_ba_df), 
+  ba_map <- plot_ba_maps(data = bind_rows(train_ba_df, test_ba_df),
                          month_to_plot = sprintf("%02d", map_month),
-                         plot_width = 15, 
-                         plot_height = 8,
-                         zlim_range = c(-0.7, 0.7), 
-                         ncol = dim(train_files_df)[1] + 1,
+                         n_years = 2,
+                         zlim_range = c(-0.7, 0.7),
                          save_path = figures_dir,
                          filename = figure_filename
   )

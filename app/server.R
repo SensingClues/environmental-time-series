@@ -1147,28 +1147,107 @@ server <- function(input, output, session) {
   # BURNED AREA MAP AND EXPLORER FUNCTIONALITY
   # ---------------------------------------------------------------------------------------------------  
 
-  # Reactive flag to control whether the BA timeseries UI should be shown
-  ba_ts_ready <- reactiveVal(FALSE)
-  
+  # Reactive flag and plot object for BA timeseries
+  ba_ts_ready    <- reactiveVal(FALSE)
+  ba_ts_plot_obj <- reactiveVal(NULL)
+
+  output$ba_ts_plot_output <- plotly::renderPlotly({
+    p <- ba_ts_plot_obj()
+    shiny::req(p)
+    p
+  })
+
   # Render a container for the plot or error message
   output$ba_plot_container <- renderUI({
     error_msg <- error_message_rv()
-    
-    if (is.null(error_msg) && isTRUE(ba_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
-      div(class = "image-fill top-center",
-          imageOutput("ba_plot_output"), height = "auto")
+    if (is.null(error_msg) && isTRUE(ba_ts_ready())) {
+      div(class = "image-fill top-center ndvi-ts-plot-stack",
+          plotly::plotlyOutput("ba_ts_plot_output", height = "500px"),
+          height = "auto")
     } else {
-      return(NULL) # Return empty UI
+      return(NULL)
     }
   })
-  
-  # Clear the image when switching tabs or subtabs
+
+  # Clear when switching tabs or subtabs
   observeEvent(list(input$tabs, input$basubtabs), {
     ba_ts_ready(FALSE)
-    error_message_rv(NULL) 
-    
-    # Clear server outputs so nothing can re-appear
-    output$ba_plot_output <- NULL
+    ba_ts_plot_obj(NULL)
+    error_message_rv(NULL)
+  })
+
+  # --- Daily Activity chart ---
+  ba_daily_plot_obj <- reactiveVal(NULL)
+
+  # Dynamic year selector populated from available TIF files for selected country/resolution
+  output$ba_daily_year_selector <- renderUI({
+    country_name <- input$country
+    resolution   <- input$resolution
+    data_path    <- file.path(data_dir, "BurnedArea", country_name, paste0(resolution, "m_resolution"))
+    ba_files     <- tryCatch(
+      get_filenames(filepath = data_path, data_type = "BurnedArea",
+                    file_extension = ".tif", country_name = country_name),
+      error = function(e) character(0)
+    )
+    available_years <- if (length(ba_files) > 0) {
+      sort(unique(as.integer(sub("^(\\d{4})-.*", "\\1", ba_files))), decreasing = TRUE)
+    } else {
+      seq(2018, lubridate::year(Sys.Date()))
+    }
+    default_sel <- head(as.character(available_years), 3)
+    selectInput("ba_daily_years", "Select years to compare",
+                choices  = as.character(available_years),
+                selected = default_sel,
+                multiple = TRUE)
+  })
+
+  output$ba_daily_plot_container <- renderUI({
+    p <- ba_daily_plot_obj()
+    if (is.null(p)) return(NULL)
+    plotly::plotlyOutput("ba_daily_plot_output", height = "500px")
+  })
+
+  output$ba_daily_plot_output <- plotly::renderPlotly({
+    p <- ba_daily_plot_obj()
+    shiny::req(p)
+    p
+  })
+
+  observeEvent(input$generate_ba_daily_figures, {
+    message("=========== Starting Daily Burn Activity Generation =============")
+    ba_daily_plot_obj(NULL)
+    error_message_rv(NULL)
+
+    country_name   <- input$country
+    resolution     <- input$resolution
+    selected_years <- as.integer(input$ba_daily_years)
+    season_months  <- seq(input$ba_season_months[1], input$ba_season_months[2])
+    res_m          <- as.numeric(gsub("[^0-9]", "", resolution))
+    pixel_area_km2 <- (res_m / 1000)^2
+
+    data_path <- file.path(data_dir, "BurnedArea", country_name, paste0(resolution, "m_resolution"))
+
+    tryCatch({
+      ba_files <- get_filenames(filepath = data_path, data_type = "BurnedArea",
+                                file_extension = ".tif", country_name = country_name)
+      files_df <- get_ba_filename_df(ba_files = ba_files) %>%
+        dplyr::filter(month %in% season_months)
+
+      all_daily <- dplyr::bind_rows(lapply(selected_years, function(yr) {
+        get_ba_daily_activity(files_df, data_path, yr, pixel_area_km2)
+      }))
+      if (nrow(all_daily) == 0) all_daily <- NULL
+
+      ba_daily_plot_obj(plot_ba_daily_activity(all_daily, selected_years))
+      error_message_rv(NULL)
+    }, error = function(e) {
+      ba_daily_plot_obj(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("Daily activity chart could not be generated due to missing data.
+       Please contact us at <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a>."),
+                       type = "error", duration = 6)
+      message("Error generating daily burn activity: ", e$message)
+    })
   })
   
   # Set Reactive values for error message, GeoJSON export path checker and map_generated toggle
@@ -1220,71 +1299,28 @@ server <- function(input, output, session) {
       end_year <- input$year
     }
     
-    # Define script and figure paths
-    figure_filename <- paste0("figure_BurnedAreatimeseries_", country_name, "_", 
-                              end_month, "_", end_year, "_", resolution, "m", ".png")
-    figure_path <- file.path(figures_dir, figure_filename)
-    
-    # Wrap data generation in tryCatch to handle missing files/errors
     tryCatch({
-      
-      # If figure not stored yet, attempt to generate it
-      if (!file.exists(figure_path)) {
-        # Ensure the figures directory exists
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
-        }
-        
-        # Create timeseries plot
-        generate_ba_timeseries(
-          country_name   = country_name,
-          resolution     = resolution,
-          end_year       = end_year,
-          end_month      = end_month,
-          figures_dir    = figures_dir,
-          data_dir       = data_dir,
-          return_plot    = FALSE,
-          figure_filename= figure_filename
-        )
-      }
-      
-      # If no error so far, render the image
-      output$ba_plot_output <- renderImage({
-        list(src = figure_path, 
-             # width = "100%", 
-             alt = "Burned Area timeseries")
-      }, deleteFile = FALSE)
-      
-      ba_ts_ready(TRUE) # Mark UI as ready (renderUI will now return the container)
-      error_message_rv(NULL) # Clear any previous error messages
-      
+      ba_plot <- generate_ba_timeseries(
+        country_name    = country_name,
+        resolution      = resolution,
+        end_year        = end_year,
+        end_month       = end_month,
+        figures_dir     = figures_dir,
+        data_dir        = data_dir,
+        return_plot     = TRUE,
+        figure_filename = NULL
+      )
+      ba_ts_plot_obj(ba_plot)
+      ba_ts_ready(TRUE)
+      error_message_rv(NULL)
     }, error = function(e) {
-      # Clear server outputs so nothing can re-appear
       ba_ts_ready(FALSE)
-      error_message_rv(e$message) 
-      output$ba_plot_output <- NULL
-      
-      # Show error notification to user
-      showNotification(HTML("The figure cannot be generated due to missing data. 
-       Please contact us at 
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
-                       type = "error", 
-                       duration = 6)
-      
-      # Also log the error to the console for debugging
-      message("---Error generating Burned Area timeseries (old message)---", "\n",
-              "An error occurred while generating or reading the Burned Area timeseries data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("End Year:", end_year), "\n",
-              paste("End Month:", end_month), "\n",
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir))
-      
-      # Also log the error to the console for debugging
+      ba_ts_plot_obj(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
       message("Error generating Burned Area timeseries: ", e$message)
     })
     message("=========== End of Burned Area Time Series Generation =============")
@@ -1298,29 +1334,22 @@ server <- function(input, output, session) {
   # Reactive flag to control whether the BA Map UI should be shown
   ba_map_ready <- reactiveVal(FALSE)
   
-  # Render a container for the plot or error message
+  # Render a container for the historical comparison static map
   output$ba_map_container <- renderUI({
     error_msg <- error_message_rv()
-    
-    if (is.null(error_msg) && isTRUE(ba_map_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
-      fluidRow(
-        column(7, div(class = "image-fill top-center",
-                      imageOutput("ba_map_output"), height = "100%")),
-        column(5, uiOutput("ba_leaflet_map"))
-      )
+    if (is.null(error_msg) && isTRUE(ba_map_ready())) {
+      div(class = "image-fill top-center", imageOutput("ba_map_output"), height = "auto")
     } else {
-      return(NULL) # Return empty UI
+      return(NULL)
     }
   })
-  
-  # Clear the image when switching tabs or subtabs
+
+  # Clear outputs and hide the monthly leaflet when switching tabs or subtabs
   observeEvent(list(input$tabs, input$basubtabs), {
     ba_map_ready(FALSE)
-    error_message_rv(NULL) 
-    
-    # Clear server outputs so nothing can re-appear
+    error_message_rv(NULL)
     output$ba_map_output <- NULL
-    output$ba_leaflet_map <- NULL
+    shinyjs::hide("monthly_leaflet_wrap")
   })
   
   # Observe the Generate Figure button
@@ -1356,8 +1385,8 @@ server <- function(input, output, session) {
         map_generated(TRUE)
       }
       output$ba_map_output <- renderImage({
-        list(src = figure_path_bam, 
-             # width = "100%", 
+        list(src = figure_path_bam,
+             width = "100%",
              alt = "Burned Area 2D map")
       }, deleteFile = FALSE)
       
@@ -1369,110 +1398,98 @@ server <- function(input, output, session) {
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
-      # Clear server outputs so nothing can re-appear
       ba_map_ready(FALSE)
       error_message_rv(e$message)
       output$ba_map_output <- NULL
-      output$ba_leaflet_map <- NULL
-      
-      # Show error notification to user
-      showNotification(HTML("The figure cannot be generated due to missing data. 
-       Please contact us at 
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
-                       type = "error", 
-                       duration = 6)
-      
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating BA Map (old message)---", "\n",
-              "An error occurred while generating or reading the BA map data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("Map Year:", map_year), "\n",
-              paste("Map Month:", map_month), "\n", 
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir), "\n",
-              paste("BA Map Figure Directory:", figure_path_bam), "\n",
-              paste("GeoJSON Export Directory:", geojson_export_path_rv()))
-      
+      shinyjs::hide("monthly_leaflet_wrap")
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
       message("Error generating static Burned Area map: ", e$message)
     })
     
-    #### BA Leaflet map
-    # Define script and figure paths
-    ba_figure_input_filename <- paste0("figure_BurnedAreamaps_", country_name, "_", 
-                                       map_month, "_", map_year, "_", resolution, "m.geojson")
-    ba_figure_output_filename <- paste0("figure_BurnedAreamaps_", country_name, "_", 
-                                        map_month, "_", map_year, "_", resolution, "m.html")
-    ba_figure_path <- file.path(figures_dir, ba_figure_output_filename)
-    ba_figure_input_path <- file.path(figures_dir, ba_figure_input_filename)
-    
-    # Use tryCatch to handle missing data or any errors
+    #### BA interactive Leaflet map (monthly footprint)
     tryCatch({
-      # If figure not stored yet, try to generate it
-      if (!file.exists(ba_figure_path)) {
-        
-        # Ensure the figures directory exists
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
-        }
-        
-        # Create explorer plot
-        plot_ba_geojson_from_a_folder(
-          input_file_path = ba_figure_input_path,
-          data_dir = data_dir,
-          country = country_name,
-          save_path = figures_dir,
-          filename = ba_figure_output_filename)
-      }
-      
-      # Render the generated (or existing) HTML
-      output$ba_leaflet_map <- renderUI({
-        tags$iframe(
-          src = paste0("figures/", ba_figure_output_filename),
-          width = "100%",
-          height = "400px",
-          frameborder = 0)
+      # Capture current values for the renderer (avoids reactive dependency)
+      local({
+        captured_geojson <- geojson_export_path_rv()
+        captured_year    <- map_year
+        captured_month   <- map_month
+        captured_country <- country_name
+
+        output$ba_monthly_leaflet <- renderLeaflet({
+          build_ba_monthly_leaflet(
+            geojson_path = captured_geojson,
+            data_dir     = data_dir,
+            country      = captured_country,
+            year         = captured_year,
+            month_num    = captured_month
+          )
+        })
       })
-      
-      ba_map_ready(TRUE) # Mark UI as ready when both figures are rendered successfully (renderUI will now return the container)
-      error_message_rv(NULL) # Clear any previous error messages
+
+      shinyjs::show("monthly_leaflet_wrap")
+      ba_map_ready(TRUE)
+      error_message_rv(NULL)
     }, error = function(e) {
-      # Clear server outputs so nothing can re-appear
       ba_map_ready(FALSE)
       error_message_rv(e$message)
       output$ba_map_output <- NULL
-      output$ba_leaflet_map <- NULL
-      
-      # Show error notification to user
-      showNotification(HTML("The figure cannot be generated due to missing GeoJSON data. 
-       Please contact us at 
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
-                       type = "error", 
-                       duration = 6)
-      
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating BA Map or export (old message)---", "\n",
-              "An error occurred while generating or reading the BA map data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("Map Year:", map_year), "\n",
-              paste("Map Month:", map_month), "\n", 
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir), "\n",
-              paste("BA Map Figure Directory:", figure_path_bam), "\n",
-              paste("GeoJSON Export Directory:", geojson_export_path_rv()))
-      
-      # You could also log the error or print it to console
-      message("Error generating Burned Area map/export: ", e$message)
-      })   
-    message("=========== End of Burned Area Map Generation =============")
+      shinyjs::hide("monthly_leaflet_wrap")
+      showNotification(HTML("The map cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Burned Area interactive map: ", e$message)
     })
+    message("=========== End of Burned Area Map Generation =============")
+  })
+
+  # ------- Fire Return Period reactive + outputs ----------------------------
+
+  frp_result <- reactive({
+    req(input$ba_map_view == "frp")
+    req(input$country, input$resolution)
+    withProgress(message = "Analysing burn patterns across available years...", {
+      tryCatch(
+        build_ba_frp_leaflet(data_dir  = data_dir,
+                             country   = input$country,
+                             resolution = input$resolution),
+        error = function(e) {
+          showNotification(paste("Could not compute fire return period:", e$message),
+                           type = "error", duration = 8)
+          NULL
+        }
+      )
+    })
+  })
+
+  output$ba_frp_leaflet <- renderLeaflet({
+    result <- frp_result()
+    req(!is.null(result))
+    result$map
+  })
+
+  output$frp_year_range_text <- renderUI({
+    result <- frp_result()
+    req(!is.null(result))
+    p(style = "color:#555; font-size:0.9em; margin-bottom:10px;",
+      paste0("Based on data from ", result$years_label,
+             " (", result$n_years, " year", ifelse(result$n_years == 1, "", "s"), ")"))
+  })
+
+  # ------- Show/hide sidebar year & month when toggling BA map views --------
+
+  observeEvent(input$ba_map_view, {
+    if (isTRUE(input$ba_map_view == "frp")) {
+      shinyjs::hide("year")
+      shinyjs::hide("month")
+    } else {
+      shinyjs::show("year")
+      shinyjs::show("month")
+    }
+  }, ignoreNULL = TRUE)
   
   # Shiny download handler that uses the reactive value to access the GeoJSON path and filename
   output$download_ba_geojson <- downloadHandler(

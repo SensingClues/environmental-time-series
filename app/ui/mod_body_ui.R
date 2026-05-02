@@ -112,38 +112,104 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "Burned Area Time Series",
                       value = "BAtimeseries",
-                      div(class="tab-pane-explain",
-                          span("
-                          The Burned Area Time Series reveals the seasonal dynamics of burned areas within the selected region over a 12-month period. 
-                          It also shows the burned area up to the selected year, as well as the monthly averages up to that year. 
-                          It highlights key trends and variations, offering insights into ecological patterns and changes."),
-                          br(), br(),
-                          span("Use the sidepanel to generate a graph.")
-                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
-                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("ba_plot_container"))),
+                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
+                        div(class = "plot-container",
+
+                          # --- View toggle ---
+                          shinyWidgets::radioGroupButtons(
+                            inputId  = "ba_ts_view",
+                            label    = NULL,
+                            choices  = c("Seasonal Overview" = "seasonal", "Daily Activity" = "daily"),
+                            selected = "seasonal",
+                            size     = "sm",
+                            status   = "default"
+                          ),
+
+                          # === SEASONAL OVERVIEW ===
+                          conditionalPanel(
+                            condition = "input.ba_ts_view == 'seasonal'",
+                            div(style = paste0(
+                                  "background:#fff3e0; border-left:4px solid #E25822;",
+                                  "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                                p(style = "margin:0; font-size:0.93em;",
+                                  "This chart shows how much land burned each month over the year. The shaded band shows the typical range based on historical data. Use it to see whether this year's fire activity is higher or lower than usual.")
+                            ),
+                            uiOutput("ba_plot_container")
+                          ),
+
+                          # === DAILY ACTIVITY ===
+                          conditionalPanel(
+                            condition = "input.ba_ts_view == 'daily'",
+                            div(style = paste0(
+                                  "background:#fff3e0; border-left:4px solid #E25822;",
+                                  "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                                p(style = "margin:0; font-size:0.93em;",
+                                  "This chart shows when fires were detected during the fire season, using the exact day each area burned. Peaks indicate days with the most fire activity. Compare years to see whether fire seasons are shifting earlier or later, or becoming more intense.")
+                            ),
+                            uiOutput("ba_daily_plot_container")
+                          )
+                        )
+                      )
                     ),
 
                     tabPanel(
                       title = "Burned Area Map Explorer",
                       value = "BAmapexplorer",
-                      div(class="tab-pane-explain",
-                          span("
-                          The Burned Area Map Explorer displays the location and extent of burned areas for a given month and compares them with the same period in the previous year. 
-                          This allows users to identify spatial patterns, detect anomalies, and compare burned areas within the Area of Interest (AOI)."),
-                          br(), br(),
-                          span("Use the sidepanel to generate a graph.")
-                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
-                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", br(),
-                                           shinyjs::disabled(downloadButton("download_ba_geojson", "Download Burned Area GeoJSON",
-                                                                            class = "action_button",
-                                                                            style = "width:255px; color: white; background-color: #00897B;")), br(), br(),
-                                           uiOutput("ba_map_container")),
+                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
+                        div(class = "plot-container",
+
+                          # --- View toggle ---
+                          shinyWidgets::radioGroupButtons(
+                            inputId  = "ba_map_view",
+                            label    = NULL,
+                            choices  = c("Monthly View" = "monthly", "Fire Return Period" = "frp"),
+                            selected = "monthly",
+                            size     = "sm",
+                            status   = "default"
+                          ),
+
+                          # === MONTHLY VIEW ===
+                          conditionalPanel(
+                            condition = "input.ba_map_view == 'monthly'",
+                            div(style = paste0(
+                                  "background:#fff3e0; border-left:4px solid #E25822;",
+                                  "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                                p(style = "margin:0; font-size:0.93em;",
+                                  "This map shows where fires occurred in the selected month. Each red area is a patch of land where burning was detected. In the Interactive Burned Area Map, hover over an area to see the exact date it burned. Use the Download button to save the data for use in other tools.")
+                            ),
+                            shinyjs::disabled(
+                              downloadButton("download_ba_geojson", "Download Burned Area GeoJSON",
+                                             class = "action_button",
+                                             style = "width:255px; color: white; background-color: #00897B;")
+                            ),
+                            # Historical comparison static map (rendered by server on button click)
+                            div(style = "width:100%; overflow-x:auto;",
+                                uiOutput("ba_map_container")),
+                            # Interactive monthly leaflet (hidden until generated)
+                            div(id = "monthly_leaflet_wrap", style = "display:none;",
+                                hr(style = "margin: 24px 0 16px 0; border-color: #ddd;"),
+                                p(style = "font-weight:600; color:#444; margin-bottom:10px;",
+                                  "Interactive Burned Area Map"),
+                                leafletOutput("ba_monthly_leaflet", height = "450px"))
+                          ),
+
+                          # === FIRE RETURN PERIOD VIEW ===
+                          conditionalPanel(
+                            condition = "input.ba_map_view == 'frp'",
+                            div(style = paste0(
+                                  "background:#fff3e0; border-left:4px solid #E25822;",
+                                  "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                                p(style = "margin:0; font-size:0.93em;",
+                                  "The fire return period shows how often each area tends to burn. A short return period (e.g. 1–2 years) means the area burns almost every year. A longer return period (e.g. 8–10 years) means fires are rare. Areas that burn frequently may indicate fire-prone vegetation or land management practices.")
+                            ),
+                            uiOutput("frp_year_range_text"),
+                            leafletOutput("ba_frp_leaflet", height = "450px")
+                          )
+                        )
                       )
                     )
         )
