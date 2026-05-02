@@ -87,6 +87,51 @@ server <- function(input, output, session) {
 
     list(end_year = year, end_month = max(months))
   }
+
+  selected_country_label <- function(country_value = input$country, tab_value = input$tabs) {
+    choices <- countrychoices_rv$choice_set[[tab_value]]
+    label <- names(choices)[match(country_value, unname(choices))]
+    if (length(label) == 0L || is.na(label)) country_value else label
+  }
+
+  selected_resolution_label <- function(resolution_value = input$resolution, tab_value = input$tabs) {
+    choices <- resolutionchoices_rv$choice_set[[tab_value]]
+    label <- names(choices)[match(resolution_value, unname(choices))]
+    if (length(label) == 0L || is.na(label)) resolution_value else label
+  }
+
+  ndvi_source_label <- function(resolution_value = input$resolution) {
+    if (grepl("MODIS|250|500", resolution_value, ignore.case = TRUE)) {
+      "MODIS"
+    } else if (grepl("Sentinel|100", resolution_value, ignore.case = TRUE)) {
+      "Sentinel-2"
+    } else {
+      "selected data source"
+    }
+  }
+
+  ndvi_year_range_label <- function(country_name = input$country, resolution = input$resolution) {
+    years <- get_available_years(data_dir, "NDVI", country_name, resolution)
+    if (length(years) == 0L) {
+      return("")
+    }
+    if (min(years) == max(years)) as.character(min(years)) else paste0(min(years), "-", max(years))
+  }
+
+  friendly_ndvi_no_data_message <- function(year = input$year, resolution = input$resolution,
+                                            country = input$country) {
+    paste0(
+      "No data available for ", year, " at ",
+      selected_resolution_label(resolution, "NDVIexplorerTab"),
+      " for ", selected_country_label(country, "NDVIexplorerTab"),
+      ". Please try selecting a different year or resolution."
+    )
+  }
+
+  ndvi_error_ui <- function(message) {
+    if (is.null(message) || !nzchar(message)) return(NULL)
+    div(class = "ndvi-error-message", message)
+  }
   
   # Observe selected tab and update choices according to the one selected
   observeEvent(input$tabs, { 
@@ -777,7 +822,7 @@ server <- function(input, output, session) {
         height = "auto"
       )
     } else {
-      return(NULL) # Return empty UI
+      ndvi_error_ui(error_msg)
     }
   })
   
@@ -794,7 +839,11 @@ server <- function(input, output, session) {
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
       return(NULL)
     }
-    ndvi_insight_smk_card_ui(s)
+    ndvi_insight_smk_card_ui(
+      s,
+      source_label = ndvi_source_label(input$resolution),
+      year_range_label = ndvi_year_range_label(input$country, input$resolution)
+    )
   })
 
   output$ndvi_data_source_guidance <- renderUI({
@@ -838,16 +887,27 @@ server <- function(input, output, session) {
     s <- ndvi_ts_stats()
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
 
-    # Determine status from SMK trend test
-    status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05) {
-      if (!is.null(s$sen_slope) && !is.na(s$sen_slope) && s$sen_slope > 0) "Improving" else "Degrading"
+    # Determine status from long-term trend and current-year condition.
+    status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05 &&
+                  !is.null(s$sen_slope) && !is.na(s$sen_slope) && s$sen_slope < 0) {
+      "Degrading"
+    } else if (!is.null(s$wilcox_p) && !is.na(s$wilcox_p) && s$wilcox_p < 0.05 &&
+               !is.null(s$wilcox_median) && !is.na(s$wilcox_median) && s$wilcox_median < 0) {
+      "Mild stress"
     } else {
       "Stable"
     }
     status_color <- switch(status,
-      "Improving" = "#4CAF50",
+      "Stable" = "#4CAF50",
+      "Mild stress" = "#FFC107",
       "Degrading" = "#F44336",
       "#9E9E9E"
+    )
+    status_explanation <- switch(status,
+      "Stable" = "No significant change detected compared to historical data.",
+      "Mild stress" = "Vegetation health is below its usual range this year.",
+      "Degrading" = "Long-term vegetation health is declining compared to historical data.",
+      "No significant change detected compared to historical data."
     )
 
     # Data coverage from available files
@@ -870,7 +930,7 @@ server <- function(input, output, session) {
       if (length(modis_years) >= 2L) {
         sprintf("Switch to MODIS for a longer-term perspective covering %d–%d.",
                 min(modis_years), max(modis_years))
-      } else NULL
+      } else ndvi_error_ui(error_msg)
     } else NULL
 
     div(
@@ -881,7 +941,13 @@ server <- function(input, output, session) {
       fluidRow(
         column(4,
           tags$strong("Overall status:"), tags$br(),
-          tags$span(style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"), status)
+          tags$span(
+            style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"),
+            tags$span(class = "ndvi-status-dot", style = paste0("background:", status_color, ";")),
+            status
+          ),
+          tags$br(),
+          tags$span(style = "font-size:0.92em; color:#333;", status_explanation)
         ),
         column(8,
           tags$strong("Data coverage:"), tags$br(),
@@ -947,7 +1013,8 @@ server <- function(input, output, session) {
       ndvi_ts_ready(FALSE)
       ndvi_ts_plot_obj(NULL)
       ndvi_ts_stats(NULL)
-      error_message_rv(e$message)
+      # Improvement 9: Use friendly error message with dynamic values
+      error_message_rv(friendly_ndvi_no_data_message(input$year, input$resolution, input$country))
       
       # Show error notification to user
       showNotification(HTML("The figure cannot be generated due to missing data. 
@@ -956,20 +1023,7 @@ server <- function(input, output, session) {
                        type = "error", 
                        duration = 6)
       
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating NDVI timeseries (old message)---", "\n",
-              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("End Year:", end_year), "\n",
-              paste("End Month:", end_month), "\n",
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir))
-      
-      # Optionally, also log the error to the console for debugging
+      # Log the error to the console for debugging
       message("Error generating NDVI timeseries: ", e$message)
     })
     message("=========== End of NDVI Time Series Generation =============")
@@ -1011,7 +1065,7 @@ server <- function(input, output, session) {
                ))
       )
     } else {
-      return(NULL) # Return empty UI
+      ndvi_error_ui(error_msg)
     }
   })
   
@@ -1148,7 +1202,8 @@ server <- function(input, output, session) {
       
     }, error = function(e) {
       ndvi_lc_ready(FALSE)
-      error_message_rv(e$message)
+      # Improvement 9: Use friendly error message with dynamic values
+      error_message_rv(friendly_ndvi_no_data_message(input$year, input$resolution, input$country))
       lc_ts_plot_obj(NULL)
       lc_lc_highlight(NULL)
       lc_plot_year(NULL)
@@ -1159,16 +1214,6 @@ server <- function(input, output, session) {
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
                        type = "error", 
                        duration = 6)
-      
-      message("---Error generating NDVI Land Cover---", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("End Year:", end_year), "\n",
-              paste("End Month:", end_month), "\n",
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir), "\n",
-              paste("Land Cover Figure Directory:", lc_figure_path))
       
       message("Error generating Land Cover NDVI / map: ", e$message)
     })
@@ -1228,7 +1273,8 @@ server <- function(input, output, session) {
     }, error = function(e) {
       ndvi_annual_ready(FALSE)
       ndvi_annual_result(NULL)
-      error_message_rv(e$message)
+      # Improvement 9: Use friendly error message with dynamic values
+      error_message_rv(friendly_ndvi_no_data_message(input$year, input$resolution, input$country))
       showNotification(HTML("The figure cannot be generated due to missing data.
        Please contact us at
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
@@ -1249,23 +1295,48 @@ server <- function(input, output, session) {
                         imageOutput("ndvi_histmap_output"), height = "100%")),
           column(4, htmlOutput("ndvi_delta_map_output"))
         )
-      } else NULL
+      } else ndvi_error_ui(error_msg)
     } else {
       if (is.null(error_msg) && isTRUE(ndvi_annual_ready())) {
         res <- ndvi_annual_result()
-        net_dir <- if (res$pos_km2 >= res$neg_km2) "net vegetation gain" else "net vegetation loss"
+        net_gain <- res$pos_km2 >= res$neg_km2
+        net_dir <- if (net_gain) "Net vegetation gain" else "Net vegetation loss"
+        net_color <- if (net_gain) "#1D9E75" else "#C62828"
+        total_km2 <- if (!is.null(res$total_km2) && !is.na(res$total_km2) && res$total_km2 > 0) res$total_km2 else res$pos_km2 + res$neg_km2
+        gain_pct <- if (total_km2 > 0) round((res$pos_km2 / total_km2) * 100) else NA_integer_
+        loss_pct <- if (total_km2 > 0) round((res$neg_km2 / total_km2) * 100) else NA_integer_
+        gain_pct_label <- if (!is.na(gain_pct)) paste0(" (", gain_pct, "% of study area)") else ""
+        loss_pct_label <- if (!is.na(loss_pct)) paste0(" (", loss_pct, "% of study area)") else ""
+        interpretation <- if (net_gain) {
+          paste0("Most of the study area had higher average vegetation health in ", res$year_b,
+                 " compared to ", res$year_a,
+                 ". This may reflect a wetter than usual year, vegetation recovery, or land management changes.")
+        } else {
+          paste0("Most of the study area had lower average vegetation health in ", res$year_b,
+                 " compared to ", res$year_a,
+                 ". This may reflect a drier than usual year or ongoing land cover change.")
+        }
         tagList(
           div(
             style = "background: #E8F5E922; border-left: 4px solid #1D9E75; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
             tags$strong("Annual Change Summary"), tags$br(),
-            tags$span(sprintf(
+            tags$span(style = paste0("font-weight:700; color:", net_color, ";"), net_dir),
+            tags$br(),
+            tags$span(style = "display:none;", sprintf(
               "Between %s and %s: %.1f km² showed vegetation gain and %.1f km² showed vegetation loss — %s.",
               res$year_a, res$year_b, res$pos_km2, res$neg_km2, net_dir
-            ))
+            )),
+            tags$br(),
+            tags$span(sprintf(
+              "Vegetation gain: %.1f km2%s. Vegetation loss: %.1f km2%s.",
+              res$pos_km2, gain_pct_label, res$neg_km2, loss_pct_label
+            )),
+            tags$br(),
+            tags$span(interpretation)
           ),
           leafletOutput("ndvi_annual_leaflet_output", height = "500px")
         )
-      } else NULL
+      } else ndvi_error_ui(error_msg)
     }
   })
 
@@ -1312,7 +1383,8 @@ server <- function(input, output, session) {
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_dm_ready(FALSE)
-      error_message_rv(e$message)
+      # Improvement 9: Use friendly error message with dynamic values
+      error_message_rv(friendly_ndvi_no_data_message(input$year, input$resolution, input$country))
       output$ndvi_histmap_output <- NULL
       output$ndvi_delta_map_output <- renderUI(NULL) 
       
@@ -1322,20 +1394,6 @@ server <- function(input, output, session) {
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
                        type = "error", 
                        duration = 6)
-      
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating NDVI Delta Map (old message)---", "\n",
-              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("Map Year:", map_year), "\n",
-              paste("Map Month:", map_month), "\n", 
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir), "\n",
-              paste("Delta Map Figure Directory:", figure_path))
       
       message("Error generating static NDVI map: ", e$message)
     })
@@ -1364,7 +1422,8 @@ server <- function(input, output, session) {
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_dm_ready(FALSE)
-      error_message_rv(e$message)
+      # Improvement 9: Use friendly error message with dynamic values
+      error_message_rv(friendly_ndvi_no_data_message(input$year, input$resolution, input$country))
       output$ndvi_histmap_output <- NULL
       output$ndvi_delta_map_output <- renderUI(NULL) 
       
@@ -1374,20 +1433,6 @@ server <- function(input, output, session) {
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
                        type = "error", 
                        duration = 6)
-      
-      # Optionally, also log the error to the console for debugging
-      message("---Error generating NDVI Delta Map (old message)---", "\n",
-              "An error occurred while generating or reading the NDVI timeseries data. ", "\n",
-              "This may be due to missing files or incorrect file paths. ", "\n",
-              "Please verify that the necessary data files exist in '", data_dir, "'.", "\n",
-              paste("Details:", e$message), "\n",
-              paste("Country Name:", country_name), "\n",
-              paste("Resolution:", resolution), "\n",
-              paste("Map Year:", map_year), "\n",
-              paste("Map Month:", map_month), "\n", 
-              paste("Figures Directory:", figures_dir), "\n",
-              paste("Data Directory:", data_dir), "\n",
-              paste("Delta Map Figure Directory:", figure_path))
       
       message("Error generating delta NDVI map: ", e$message)
     })

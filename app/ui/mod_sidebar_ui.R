@@ -70,7 +70,7 @@ mod_sidebar_ui <- function(id) {
     
     # NDVI Land Cover Explorer page-specific selector and button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'",
-                     div(actionButton("generate_lc_figures", "Generate Figures", class = "action_button"))
+                     div(actionButton("generate_lc_figures", "Generate Figure", class = "action_button"))
                      ),
     
     # NDVI Delta Map — Monthly view button

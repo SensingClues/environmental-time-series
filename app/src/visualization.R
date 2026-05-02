@@ -396,8 +396,10 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   aoi_bbox_for_frame <- NULL
   aoi_ok <- !is.null(aoi_sf) && inherits(aoi_sf, "sf") && nrow(aoi_sf) > 0L &&
     !all(sf::st_is_empty(sf::st_geometry(aoi_sf)))
+  total_study_area_ha <- NA_real_
   if (isTRUE(aoi_ok)) {
     aoi_wgs <- lc_simplify_wgs84_for_plot(sf::st_transform(aoi_sf, 4326))
+    total_study_area_ha <- sum(as.numeric(sf::st_area(aoi_wgs)), na.rm = TRUE) / 10000
     bb_aoi <- sf::st_bbox(aoi_wgs)
     aoi_bbox_for_frame <- bb_aoi
     all_xmin <- c(all_xmin, bb_aoi[["xmin"]])
@@ -417,6 +419,13 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       text = "Study area"
     )
   }
+  if (is.na(total_study_area_ha) || total_study_area_ha <= 0) {
+    total_study_area_ha <- sum(vapply(geojson_files, function(fp) {
+      g <- sf::st_read(fp, quiet = TRUE)
+      g <- sf::st_transform(g, crs = 4326)
+      sum(as.numeric(sf::st_area(g)), na.rm = TRUE) / 10000
+    }, numeric(1)), na.rm = TRUE)
+  }
   for (i in seq_along(geojson_files)) {
     stem <- landuse_types[i]
     geojson_data <- sf::st_read(geojson_files[i], quiet = TRUE)
@@ -434,9 +443,15 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       "#999999"
     }
     area_ha <- sum(as.numeric(sf::st_area(geojson_data))) / 10000
+    area_ha_label <- format(round(area_ha), big.mark = ",", scientific = FALSE)
+    pct_label <- if (!is.na(total_study_area_ha) && total_study_area_ha > 0) {
+      paste0(" (", round((area_ha / total_study_area_ha) * 100), "% of study area)")
+    } else {
+      ""
+    }
     htxt <- paste0(
-      "<b>", htmltools::htmlEscape(pop_lab), "</b><br>",
-      "Area (hectares): ", round(area_ha, 3)
+      "<b>", htmltools::htmlEscape(pop_lab), "</b> - ",
+      area_ha_label, " ha", pct_label
     )
     bb <- bbox_by_stem[[stem]]
     all_xmin <- c(all_xmin, bb[["xmin"]])
@@ -747,18 +762,22 @@ ndvi_insight_wilcox_card_ui <- function(stats) {
   if (is.null(stats)) return(NULL)
   p <- stats$wilcox_p
   med <- stats$wilcox_median
+  plain_text <- "Vegetation health this year is within the expected range for this area."
   if (is.na(p)) {
     main <- "Not enough data for this summary"
     col <- "#555555"
     p_lab <- "p-value: N/A"
+    plain_text <- "There is not enough monthly data to compare this year with usual conditions."
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
     main <- "Above normal vegetation"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- "Vegetation health this year is notably better than usual."
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
     main <- "Below normal vegetation"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- "Vegetation health this year is notably worse than usual - this may indicate drought, land degradation, or other stress."
   } else {
     main <- "No significant difference from normal"
     col <- "#555555"
@@ -781,19 +800,28 @@ ndvi_insight_wilcox_card_ui <- function(stats) {
     ),
     shiny::tags$div(
       class = "ndvi-insight-card__footer",
-      p_lab
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
     )
   )
 }
 
 #' Shiny UI: Long-Term Trend card (Seasonal Mann–Kendall + Sen slope sign).
-ndvi_insight_smk_card_ui <- function(stats) {
+ndvi_insight_smk_card_ui <- function(stats, source_label = NULL, year_range_label = NULL) {
   if (is.null(stats)) return(NULL)
   p <- stats$smk_p
   slope <- stats$sen_slope
   n_m <- stats$smk_n_months
+  source_label <- if (!is.null(source_label) && nzchar(source_label)) source_label else "the selected data source"
+  year_phrase <- if (!is.null(year_range_label) && nzchar(year_range_label)) {
+    paste0(" over ", year_range_label)
+  } else {
+    " over the available data period"
+  }
+  modis_hint <- if (!identical(source_label, "MODIS")) " Switch to MODIS for a longer-term view." else ""
   if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
   smk_min_months <- 60L
+  plain_text <- paste0("Vegetation health has been broadly consistent", year_phrase, ".", modis_hint)
   if (!is.na(n_m) && n_m < smk_min_months) {
     main <- "Long-term trend not shown (insufficient series length)"
     col <- "#555555"
@@ -806,18 +834,26 @@ ndvi_insight_smk_card_ui <- function(stats) {
       if (n_m == 1L) "" else "s",
       "."
     )
+    plain_text <- paste0("There is not enough monthly data from ", source_label,
+                         " to show a reliable long-term trend.", modis_hint)
   } else if (is.na(p) || is.na(slope)) {
     main <- "Long-term trend cannot be assessed from this series"
     col <- "#555555"
     p_lab <- "p-value: N/A"
+    plain_text <- paste0("The available ", source_label,
+                         " data could not produce a reliable trend summary.", modis_hint)
   } else if (p < 0.05 && slope > 0) {
     main <- "Significant increasing trend"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Vegetation health has been improving over time", year_phrase,
+                         " - a positive sign for this landscape.")
   } else if (p < 0.05 && slope < 0) {
     main <- "Significant decreasing trend"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Vegetation health has been declining over time", year_phrase,
+                         " - this may indicate long-term degradation and warrants closer monitoring.")
   } else {
     main <- "No significant long-term trend"
     col <- "#555555"
@@ -840,7 +876,8 @@ ndvi_insight_smk_card_ui <- function(stats) {
     ),
     shiny::tags$div(
       class = "ndvi-insight-card__footer",
-      p_lab
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
     )
   )
 }
@@ -1497,6 +1534,14 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   geojson_files <- geojson_files[ord]
   landuse_types <- landuse_types[ord]
   
+  # Pre-calculate total study area (Improvement 7: for percentage in tooltip)
+  total_study_area_ha <- 0
+  for (file in geojson_files) {
+    gj <- sf::st_read(file, quiet = TRUE)
+    gj <- sf::st_transform(gj, crs = 4326)
+    total_study_area_ha <- total_study_area_ha + sum(as.numeric(sf::st_area(gj)) / 10000)
+  }
+  
   pal_named <- land_cover_class_colors()
   hex_by_stem <- vapply(landuse_types, function(stem) {
     k <- geojson_stem_to_class_key(stem)
@@ -1520,7 +1565,7 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     landuse_type <- landuse_types[i]
     
     # Read the GeoJSON file
-    geojson_data <- sf::st_read(file)
+    geojson_data <- sf::st_read(file, quiet = TRUE)
     
     # Transform the GeoJSON data to WGS 84 (EPSG:4326)
     geojson_data <- sf::st_transform(geojson_data, crs = 4326)
@@ -1533,6 +1578,19 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     } else {
       landuse_type
     }
+    
+    # Improvement 7: Format tooltip with class name, hectares (with commas), and percentage
+    areas_ha <- as.numeric(sf::st_area(geojson_data)) / 10000
+    pct <- if (total_study_area_ha > 0) round((areas_ha / total_study_area_ha) * 100) else 0
+    popup_text <- paste0(
+      htmltools::htmlEscape(pop_lab),
+      " — ",
+      format(round(areas_ha), big.mark = ","),
+      " ha (",
+      pct,
+      "% of study area)"
+    )
+    
     map <- map %>%
       addPolygons(
         data         = geojson_data,
@@ -1542,10 +1600,7 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
         fillOpacity  = 0.3,
         group        = landuse_type,
         layerId      = rep(landuse_type, nrow(geojson_data)),
-        popup        = paste0(
-          "<strong>", htmltools::htmlEscape(pop_lab), "</strong><br>",
-          "Area (hectares): ", round(as.numeric(sf::st_area(geojson_data)) / 10000, 3)
-        )
+        popup        = popup_text
       )
   }
   
@@ -2014,10 +2069,13 @@ compute_annual_ndvi_change <- function(year_a, year_b, country_name, resolution,
 
   pos_rast <- terra::ifel(delta_rast > 0, 1, NA)
   neg_rast <- terra::ifel(delta_rast < 0, 1, NA)
+  valid_rast <- terra::ifel(!is.na(delta_rast), 1, NA)
   pos_km2  <- round(sum(terra::expanse(pos_rast, unit = "km"), na.rm = TRUE), 1)
   neg_km2  <- round(sum(terra::expanse(neg_rast, unit = "km"), na.rm = TRUE), 1)
+  total_km2 <- round(sum(terra::expanse(valid_rast, unit = "km"), na.rm = TRUE), 1)
 
   list(delta_df = delta_df, pos_km2 = pos_km2, neg_km2 = neg_km2,
+       total_km2 = total_km2,
        year_a = year_a, year_b = year_b, country_name = country_name)
 }
 
@@ -2054,6 +2112,44 @@ plot_annual_ndvi_leaflet <- function(result) {
       pal      = pal,
       values   = ~scales::squish(delta, c(-max_abs, max_abs)),
       title    = paste0("Annual NDVI Change<br>", year_a, " → ", year_b),
+      opacity  = 0.8
+    )
+}
+
+# Plain-language legend variant for annual NDVI change. Defined after the
+# original renderer so this version is the one used by the app.
+plot_annual_ndvi_leaflet <- function(result) {
+  delta_df <- result$delta_df
+  year_a   <- result$year_a
+  year_b   <- result$year_b
+
+  quants   <- quantile(delta_df$delta, c(0.02, 0.98), na.rm = TRUE)
+  max_abs  <- max(abs(quants), na.rm = TRUE)
+  if (max_abs == 0 || is.na(max_abs)) max_abs <- 0.1
+
+  pal <- leaflet::colorNumeric(
+    palette  = c("#8B0000", "#CC3300", "#FFFFFF", "#66BB6A", "#1B5E20"),
+    domain   = c(-max_abs, max_abs),
+    na.color = "transparent"
+  )
+
+  leaflet::leaflet(delta_df) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~x, lat = ~y,
+      radius = 3, stroke = FALSE, fillOpacity = 0.8,
+      fillColor = ~pal(scales::squish(delta, c(-max_abs, max_abs))),
+      popup = ~paste0(
+        "<b>Delta NDVI:</b> ", round(delta, 3), "<br>",
+        "<b>Baseline NDVI (", year_a, "):</b> ", round(ndvi_a, 3), "<br>",
+        "<b>Comparison NDVI (", year_b, "):</b> ", round(ndvi_b, 3)
+      )
+    ) %>%
+    leaflet::addLegend(
+      position = "bottomright",
+      colors   = c(pal(-max_abs), pal(0), pal(max_abs)),
+      labels   = c("Large loss", "No change", "Large gain"),
+      title    = paste0("Annual vegetation change<br>", year_a, " to ", year_b),
       opacity  = 0.8
     )
 }

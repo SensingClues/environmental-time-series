@@ -111,18 +111,12 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "NDVI Time Series",
                       value = "NDVItsTab",
-                      div(class="tab-pane-explain",
-                          span("
-                           The NDVI Time Series reveals the seasonal dynamics of vegetation health within the selected region over a 12-month period. 
-                           It highlights key trends and variations, offering insights into ecological patterns and changes. 
-                           Higher NDVI values generally indicate denser, healthier vegetation, while lower values may reflect sparse growth, environmental stress, or land cover changes driven by factors such as drought, deforestation, or agricultural activity."), 
-                          br(), br(),
-                          span("Use the sidepanel to generate a graph.")
-                      ),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
                                        div(
                                          class = "plot-container",
                                          style = "margin-left: 10px; margin-right: 10px;",
+                                         div(class = "ndvi-callout",
+                                             p("This chart shows average monthly vegetation health for the selected year compared to previous years. The shaded band shows the typical range. Use it to see whether this year's vegetation is better or worse than usual.")),
                                          uiOutput("ndvi_health_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
                                          div(
@@ -141,31 +135,18 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "NDVI Land Cover Explorer",
                       value = "LCexplorerTab",
-                      div(class="tab-pane-explain",
-                          span("
-                               The NDVI Land Cover Explorer offers insights into average NDVI values for specific land cover types within the area of interest. 
-                               Users can track NDVI fluctuations throughout the year, observing peaks during growing seasons and declines during dry or dormant periods. 
-                               This visualisation is ideal for agricultural monitoring, ecosystem assessments, and climate impact studies."), 
-                          br(), br(),
-                          span("Use the sidepanel to generate a graph.")
-                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("lc_plot_container"))),
+                                       div(class="plot-container",
+                                           div(class = "ndvi-callout",
+                                               p("This chart shows vegetation health for each land cover type throughout the year. Each coloured line represents one type - click the legend to show or hide classes. Use the map on the right to see where each type is located.")),
+                                           uiOutput("lc_plot_container"))),
                     ),
                     
                     tabPanel(
                       title = "NDVI Delta Map",
                       value = "NDVIdeltaTab",
-                      div(class="tab-pane-explain",
-                          span("
-                          The NDVI Delta Map visualises NDVI values across the selected region, with each pixel representing the value at a specific geographic location.
-                          This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month.
-                          The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
-                          br(), br(),
-                          span("Use the sidepanel to generate a graph.")
-                      ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(
@@ -179,6 +160,16 @@ mod_body_ui <- function(id) {
                             selected = "monthly",
                             size     = "sm",
                             status   = "default"
+                          ),
+                          conditionalPanel(
+                            condition = "input.ndvi_delta_view == 'monthly'",
+                            div(class = "ndvi-callout",
+                                p("This map shows how vegetation health has changed compared to the same month in previous years. Green dots = improvement. Red dots = decline. Use it to spot where conditions are changing within the study area."))
+                          ),
+                          conditionalPanel(
+                            condition = "input.ndvi_delta_view == 'annual'",
+                            div(class = "ndvi-callout",
+                                p("This map compares annual average vegetation health between two selected years. Green = vegetation gaining. Red = vegetation declining. Use it to identify long-term gains and losses across the landscape."))
                           ),
                           uiOutput("dm_plot_container")
                         )
