@@ -663,20 +663,14 @@ ndvi_anomaly_help_tooltip_text <- function() {
   )
 }
 
-# Shiny UI: tags$h4 title + tags$span circled-i with native multiline tooltip above plotlyOutput.
+# Shiny UI: tags$h4 title above plotlyOutput.
 ndvi_anomaly_titles_ui <- function(resolution = NULL) {
   res_suffix <- ndvi_resolution_title_suffix(resolution)
-  tip <- ndvi_anomaly_help_tooltip_text()
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
       class = "ndvi-anomaly-title-h4",
-      paste0("NDVI Anomaly", res_suffix),
-      shiny::tags$span(
-        title = tip,
-        class = "ndvi-help-icon",
-        "ⓘ"
-      )
+      paste0("NDVI time series", res_suffix)
     )
   )
 }
