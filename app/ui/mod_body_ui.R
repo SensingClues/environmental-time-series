@@ -23,16 +23,88 @@ mod_body_ui <- function(id) {
       tabPanel(
         title = "NDVI Explorer",
         value = "NDVIexplorerTab",
-        div(class="tab-explain", 
+        div(class="tab-explain",
             span("
-            NDVI, or Normalised Difference Vegetation Index, is commonly used to track changes in vegetation, particularly in protected areas. 
+            NDVI, or Normalised Difference Vegetation Index, is commonly used to track changes in vegetation, particularly in protected areas.
             It is used to quantify vegetation greenness and is useful in understanding vegetation density and assessing changes in plant health.
             NDVI values range from -1 to 1, with higher values indicating healthier vegetation, and lower values indicating stressed vegetation or barren areas like sand or snow."),
             br(),
             br(),
             span("In this section you will find the NDVI Time Series displaying average NDVI values per month, the NDVI Land Cover Explorer for detailed analysis by land cover class, and the NDVI Delta Map showing geospatial distributions of NDVI values by month.")
         ),
-        
+
+        # Data source guidance (collapsible)
+        tags$details(
+          id    = "ndviDataSourceGuidance",
+          class = "collapsible-section",
+          tags$summary(
+            class = "collapsible-header",
+            HTML('<span>Which data source should I use?</span><i class="material-icons expand-icon">expand_more</i>')
+          ),
+          uiOutput("ndvi_data_source_guidance")
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('ndviDataSourceGuidance');
+            if (el) {
+              var summary = el.querySelector('summary');
+              summary.addEventListener('click', function() {
+                setTimeout(function() {
+                  var icon = summary.querySelector('.expand-icon');
+                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                }, 100);
+              });
+            }
+          });"
+        )),
+
+        # Guided workflow (collapsible)
+        tags$details(
+          id    = "ndviWorkflowGuide",
+          class = "collapsible-section",
+          tags$summary(
+            class = "collapsible-header",
+            HTML('<span>How to use this section</span><i class="material-icons expand-icon">expand_more</i>')
+          ),
+          tags$ol(
+            tags$li(
+              tags$strong(
+                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVItsTab\']\").tab(\'show\'); return false;',
+                       "NDVI Time Series")
+              ),
+              " — Start here to see the overall vegetation trend for your area. Check the Long-Term Trend card. If using Sentinel-2, consider switching to MODIS for a longer baseline."
+            ),
+            tags$li(
+              tags$strong(
+                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'LCexplorerTab\']\").tab(\'show\'); return false;',
+                       "NDVI Land Cover Explorer")
+              ),
+              " — Drill down by land cover class to identify which class (Trees, Crops, Rangeland etc.) is driving any trend you observed."
+            ),
+            tags$li(
+              tags$strong(
+                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVIdeltaTab\']\").tab(\'show\'); return false;',
+                       "NDVI Delta Map")
+              ),
+              " — Use the Annual Change view to see spatially where gains and losses are occurring within the project area."
+            )
+          )
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('ndviWorkflowGuide');
+            if (el) {
+              var summary = el.querySelector('summary');
+              summary.addEventListener('click', function() {
+                setTimeout(function() {
+                  var icon = summary.querySelector('.expand-icon');
+                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                }, 100);
+              });
+            }
+          });"
+        )),
+
         tabsetPanel(id   = "ndvisubtabs",
                     type = "tabs",
                     
@@ -51,6 +123,7 @@ mod_body_ui <- function(id) {
                                        div(
                                          class = "plot-container",
                                          style = "margin-left: 10px; margin-right: 10px;",
+                                         uiOutput("ndvi_health_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
                                          div(
                                            class = "ndvi-ts-insight-cards",
@@ -87,16 +160,29 @@ mod_body_ui <- function(id) {
                       value = "NDVIdeltaTab",
                       div(class="tab-pane-explain",
                           span("
-                          The NDVI Delta Map visualises NDVI values across the selected region, with each pixel representing the value at a specific geographic location. 
-                          This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month. 
+                          The NDVI Delta Map visualises NDVI values across the selected region, with each pixel representing the value at a specific geographic location.
+                          This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month.
                           The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
                           br(), br(),
                           span("Use the sidepanel to generate a graph.")
                       ),
                       # Busy Spinner always available for this tab
                       mod_busy_spinner_ui("busy_spinner"),
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container", uiOutput("dm_plot_container"))),
+                      conditionalPanel(
+                        condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'",
+                        div(
+                          class = "plot-container",
+                          shinyWidgets::radioGroupButtons(
+                            inputId  = "ndvi_delta_view",
+                            label    = NULL,
+                            choices  = c("Monthly view" = "monthly", "Annual change view" = "annual"),
+                            selected = "monthly",
+                            size     = "sm",
+                            status   = "default"
+                          ),
+                          uiOutput("dm_plot_container")
+                        )
+                      )
                     ),
         )
       ),

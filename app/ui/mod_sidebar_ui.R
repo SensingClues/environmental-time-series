@@ -73,10 +73,20 @@ mod_sidebar_ui <- function(id) {
                      div(actionButton("generate_lc_figures", "Generate Figures", class = "action_button"))
                      ),
     
-    # NDVI Delta Map page-specific button (specific to be able to link output generation to button press)
-    conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'",
-                     div(actionButton("generate_ndvi_delta_plot", "Generate Figures", class = "action_button"))
-                     ),
+    # NDVI Delta Map — Monthly view button
+    conditionalPanel(
+      condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'monthly'",
+      div(actionButton("generate_ndvi_delta_plot", "Generate Figure", class = "action_button"))
+    ),
+
+    # NDVI Delta Map — Annual change view controls
+    conditionalPanel(
+      condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'annual'",
+      div(
+        uiOutput("ndvi_annual_year_selectors"),
+        actionButton("generate_ndvi_annual_change", "Generate Figure", class = "action_button")
+      )
+    ),
     
     # Burned Area Time Series — Seasonal Overview
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'seasonal'",

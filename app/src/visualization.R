@@ -1981,3 +1981,79 @@ plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
   
   return(map)  # Return the Leaflet map
 }
+
+# Compute per-pixel annual mean NDVI delta between two years
+compute_annual_ndvi_change <- function(year_a, year_b, country_name, resolution, data_dir) {
+  data_path <- file.path(data_dir, "NDVI", country_name, paste0(resolution, "m_resolution"))
+  aoi_country <- sub("_.*", "", country_name)
+  aoi_path    <- file.path(data_dir, "AoI")
+  aoi_files   <- get_filenames(aoi_path, "AoI", ".geojson", aoi_country)
+  aoi_proj    <- get_aoi_vector(aoi_files[[1]], aoi_path, "EPSG:4326")
+
+  ndvi_files <- get_filenames(data_path, "NDVI", ".tif", country_name)
+  files_df   <- get_filename_df(ndvi_files)
+
+  load_year_mean <- function(yr) {
+    yr_files <- files_df[files_df$year == as.integer(yr), ]
+    if (nrow(yr_files) == 0L) stop("No NDVI files for year ", yr)
+    rast <- get_ndvi_raster(yr_files$filenames, data_path, "EPSG:4326", yr_files$dates, aoi_proj)
+    terra::mean(rast, na.rm = TRUE)
+  }
+
+  rast_a <- load_year_mean(year_a)
+  rast_b <- load_year_mean(year_b)
+  delta_rast <- rast_b - rast_a
+
+  df_a     <- as.data.frame(rast_a,    xy = TRUE); names(df_a)[3]     <- "ndvi_a"
+  df_b     <- as.data.frame(rast_b,    xy = TRUE); names(df_b)[3]     <- "ndvi_b"
+  df_delta <- as.data.frame(delta_rast, xy = TRUE); names(df_delta)[3] <- "delta"
+
+  delta_df <- merge(df_a, df_b, by = c("x", "y"))
+  delta_df <- merge(delta_df, df_delta, by = c("x", "y"))
+  delta_df <- delta_df[!is.na(delta_df$delta), ]
+
+  pos_rast <- terra::ifel(delta_rast > 0, 1, NA)
+  neg_rast <- terra::ifel(delta_rast < 0, 1, NA)
+  pos_km2  <- round(sum(terra::expanse(pos_rast, unit = "km"), na.rm = TRUE), 1)
+  neg_km2  <- round(sum(terra::expanse(neg_rast, unit = "km"), na.rm = TRUE), 1)
+
+  list(delta_df = delta_df, pos_km2 = pos_km2, neg_km2 = neg_km2,
+       year_a = year_a, year_b = year_b, country_name = country_name)
+}
+
+# Render annual NDVI change as a Leaflet map with diverging colour scale
+plot_annual_ndvi_leaflet <- function(result) {
+  delta_df <- result$delta_df
+  year_a   <- result$year_a
+  year_b   <- result$year_b
+
+  quants   <- quantile(delta_df$delta, c(0.02, 0.98), na.rm = TRUE)
+  max_abs  <- max(abs(quants), na.rm = TRUE)
+  if (max_abs == 0 || is.na(max_abs)) max_abs <- 0.1
+
+  pal <- leaflet::colorNumeric(
+    palette  = c("#8B0000", "#CC3300", "#FFFFFF", "#66BB6A", "#1B5E20"),
+    domain   = c(-max_abs, max_abs),
+    na.color = "transparent"
+  )
+
+  leaflet::leaflet(delta_df) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~x, lat = ~y,
+      radius = 3, stroke = FALSE, fillOpacity = 0.8,
+      fillColor = ~pal(scales::squish(delta, c(-max_abs, max_abs))),
+      popup = ~paste0(
+        "<b>Delta NDVI:</b> ", round(delta, 3), "<br>",
+        "<b>Baseline NDVI (", year_a, "):</b> ", round(ndvi_a, 3), "<br>",
+        "<b>Comparison NDVI (", year_b, "):</b> ", round(ndvi_b, 3)
+      )
+    ) %>%
+    leaflet::addLegend(
+      position = "bottomright",
+      pal      = pal,
+      values   = ~scales::squish(delta, c(-max_abs, max_abs)),
+      title    = paste0("Annual NDVI Change<br>", year_a, " → ", year_b),
+      opacity  = 0.8
+    )
+}

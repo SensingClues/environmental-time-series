@@ -796,7 +796,102 @@ server <- function(input, output, session) {
     }
     ndvi_insight_smk_card_ui(s)
   })
-  
+
+  output$ndvi_data_source_guidance <- renderUI({
+    req(input$country)
+    s2_years  <- get_available_years(data_dir, "NDVI", input$country, "Sentinel_1000")
+    mod_years <- get_available_years(data_dir, "NDVI", input$country, "MODIS_1000")
+
+    s2_range  <- if (length(s2_years)  > 0) paste0(min(s2_years),  "–", max(s2_years))  else "N/A"
+    mod_range <- if (length(mod_years) > 0) paste0(min(mod_years), "–", max(mod_years)) else "N/A"
+
+    tags$table(
+      style = "width:100%; border-collapse:collapse; font-size:0.93em;",
+      tags$thead(
+        tags$tr(
+          tags$th(style = "padding:6px 8px; background:#f5f5f5; border:1px solid #ddd;", "Goal"),
+          tags$th(style = "padding:6px 8px; background:#f5f5f5; border:1px solid #ddd;", "Recommended settings")
+        )
+      ),
+      tags$tbody(
+        tags$tr(
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", paste0("Long-term trend analysis (", mod_range, ")")),
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", "MODIS, 1000m, maximum year range")
+        ),
+        tags$tr(
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", paste0("Recent vegetation monitoring (", s2_range, ")")),
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", "Sentinel-2, 100m or 1000m")
+        ),
+        tags$tr(
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", "Intervention monitoring (plot scale)"),
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", "Sentinel-2, 100m, narrow time window")
+        ),
+        tags$tr(
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", "Fire and burn area analysis"),
+          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", "MODIS, 500m, Burned Area Explorer")
+        )
+      )
+    )
+  })
+
+  output$ndvi_health_summary_card <- renderUI({
+    s <- ndvi_ts_stats()
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
+
+    # Determine status from SMK trend test
+    status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05) {
+      if (!is.null(s$sen_slope) && !is.na(s$sen_slope) && s$sen_slope > 0) "Improving" else "Degrading"
+    } else {
+      "Stable"
+    }
+    status_color <- switch(status,
+      "Improving" = "#4CAF50",
+      "Degrading" = "#F44336",
+      "#9E9E9E"
+    )
+
+    # Data coverage from available files
+    years_avail <- get_available_years(data_dir, "NDVI", input$country, input$resolution)
+    res_label   <- dplyr::case_when(
+      grepl("Sentinel", input$resolution) ~ "Sentinel-2",
+      grepl("MODIS",    input$resolution) ~ "MODIS",
+      TRUE                                ~ "satellite"
+    )
+    coverage <- if (length(years_avail) > 0) {
+      sprintf("Based on %s data from %d to %d", res_label, min(years_avail), max(years_avail))
+    } else {
+      "Based on available data"
+    }
+
+    # MODIS recommendation when Sentinel-2 is selected
+    is_sentinel <- grepl("Sentinel", input$resolution, ignore.case = TRUE)
+    recommendation <- if (is_sentinel) {
+      modis_years <- get_available_years(data_dir, "NDVI", input$country, "MODIS_1000")
+      if (length(modis_years) >= 2L) {
+        sprintf("Switch to MODIS for a longer-term perspective covering %d–%d.",
+                min(modis_years), max(modis_years))
+      } else NULL
+    } else NULL
+
+    div(
+      style = paste0(
+        "background:", status_color, "22; border-left:4px solid ", status_color,
+        "; padding:12px; margin-bottom:16px; border-radius:4px;"
+      ),
+      fluidRow(
+        column(4,
+          tags$strong("Overall status:"), tags$br(),
+          tags$span(style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"), status)
+        ),
+        column(8,
+          tags$strong("Data coverage:"), tags$br(),
+          tags$span(coverage),
+          if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
+        )
+      )
+    )
+  })
+
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_ts_ready(FALSE)
@@ -1087,30 +1182,103 @@ server <- function(input, output, session) {
 
   # Reactive flag to control whether the NDVI Delta Map UI should be shown
   ndvi_dm_ready <- reactiveVal(FALSE)
-  
+  ndvi_annual_ready  <- reactiveVal(FALSE)
+  ndvi_annual_result <- reactiveVal(NULL)
+
+  output$ndvi_annual_leaflet_output <- renderLeaflet({
+    res <- ndvi_annual_result()
+    shiny::req(res)
+    plot_annual_ndvi_leaflet(res)
+  })
+
+  output$ndvi_annual_year_selectors <- renderUI({
+    req(input$country, input$resolution)
+    years <- get_available_years(data_dir, "NDVI", input$country, input$resolution)
+    if (length(years) < 2L) {
+      return(p("Not enough years available for annual comparison."))
+    }
+    tagList(
+      selectInput("ndvi_annual_year_a", "Baseline year",
+                  choices = years, selected = min(years)),
+      selectInput("ndvi_annual_year_b", "Comparison year",
+                  choices = years, selected = max(years))
+    )
+  })
+
+  observeEvent(input$generate_ndvi_annual_change, {
+    ndvi_annual_ready(FALSE)
+    ndvi_annual_result(NULL)
+    error_message_rv(NULL)
+
+    country_name <- input$country
+    resolution   <- input$resolution
+    year_a       <- as.integer(input$ndvi_annual_year_a)
+    year_b       <- as.integer(input$ndvi_annual_year_b)
+
+    if (is.na(year_a) || is.na(year_b) || year_b <= year_a) {
+      showNotification("Comparison year must be after baseline year.", type = "warning", duration = 5)
+      return()
+    }
+
+    tryCatch({
+      res <- compute_annual_ndvi_change(year_a, year_b, country_name, resolution, data_dir)
+      ndvi_annual_result(res)
+      ndvi_annual_ready(TRUE)
+      error_message_rv(NULL)
+    }, error = function(e) {
+      ndvi_annual_ready(FALSE)
+      ndvi_annual_result(NULL)
+      error_message_rv(e$message)
+      showNotification(HTML("The figure cannot be generated due to missing data.
+       Please contact us at
+       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
+                       type = "error", duration = 6)
+      message("Error generating Annual NDVI Change: ", e$message)
+    })
+  })
+
   # Render a container for the plot or error message
   output$dm_plot_container <- renderUI({
+    view <- if (is.null(input$ndvi_delta_view)) "monthly" else input$ndvi_delta_view
     error_msg <- error_message_rv()
-    
-    if (is.null(error_msg) && isTRUE(ndvi_dm_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
-      fluidRow(
-        column(8, div(class = "image-fill top-center",
-                      imageOutput("ndvi_histmap_output"), height = "100%")),
-        column(4, htmlOutput("ndvi_delta_map_output"))
-      )
+
+    if (view == "monthly") {
+      if (is.null(error_msg) && isTRUE(ndvi_dm_ready())) {
+        fluidRow(
+          column(8, div(class = "image-fill top-center",
+                        imageOutput("ndvi_histmap_output"), height = "100%")),
+          column(4, htmlOutput("ndvi_delta_map_output"))
+        )
+      } else NULL
     } else {
-      return(NULL) # Return empty UI
+      if (is.null(error_msg) && isTRUE(ndvi_annual_ready())) {
+        res <- ndvi_annual_result()
+        net_dir <- if (res$pos_km2 >= res$neg_km2) "net vegetation gain" else "net vegetation loss"
+        tagList(
+          div(
+            style = "background: #E8F5E922; border-left: 4px solid #1D9E75; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
+            tags$strong("Annual Change Summary"), tags$br(),
+            tags$span(sprintf(
+              "Between %s and %s: %.1f km² showed vegetation gain and %.1f km² showed vegetation loss — %s.",
+              res$year_a, res$year_b, res$pos_km2, res$neg_km2, net_dir
+            ))
+          ),
+          leafletOutput("ndvi_annual_leaflet_output", height = "500px")
+        )
+      } else NULL
     }
   })
-  
+
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_dm_ready(FALSE)
+    ndvi_annual_ready(FALSE)
+    ndvi_annual_result(NULL)
     error_message_rv(NULL)
-    
+
     # Clear server outputs so nothing can re-appear
     output$ndvi_histmap_output <- NULL
-    output$ndvi_delta_map_output <- renderUI(NULL)   
+    output$ndvi_delta_map_output <- renderUI(NULL)
   }, ignoreInit = TRUE)
   
   
