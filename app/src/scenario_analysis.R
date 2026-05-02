@@ -315,13 +315,24 @@ plot_seasonal_cycle <- function(df, classes = NULL) {
     df_lc     <- summary_df[summary_df$land_cover == lc, ]
     lc_color  <- if (lc %in% names(.lc_colors)) .lc_colors[[lc]] else "#888888"
     disp_name <- .format_lc(lc)
+    rgb_v     <- grDevices::col2rgb(lc_color)
+    ci_fill   <- sprintf("rgba(%d,%d,%d,0.15)", rgb_v[1], rgb_v[2], rgb_v[3])
 
-    p <- plotly::add_ribbons(
+    # CI ribbon: lower bound first, then upper fills down to it
+    p <- plotly::add_trace(
       p,
-      x = df_lc$month, ymin = df_lc$ci_low, ymax = df_lc$ci_high,
-      name = paste0(disp_name, " 95% CI"), legendgroup = lc,
-      showlegend = FALSE, hoverinfo = "none", opacity = 0.15,
-      fillcolor = lc_color, line = list(color = lc_color, width = 0)
+      x = df_lc$month, y = df_lc$ci_low, type = "scatter", mode = "lines",
+      name = paste0(disp_name, " CI"), legendgroup = lc,
+      showlegend = FALSE, hoverinfo = "none",
+      line = list(color = "transparent", width = 0)
+    )
+    p <- plotly::add_trace(
+      p,
+      x = df_lc$month, y = df_lc$ci_high, type = "scatter", mode = "lines",
+      name = paste0(disp_name, " CI"), legendgroup = lc,
+      showlegend = FALSE, hoverinfo = "none",
+      fill = "tonexty", fillcolor = ci_fill,
+      line = list(color = "transparent", width = 0)
     )
 
     p <- plotly::add_lines(
@@ -344,12 +355,14 @@ plot_seasonal_cycle <- function(df, classes = NULL) {
     legend = list(orientation = "h")
   )
 
-  flood_note <- if (most_variable == "Flooded_vegetation")
+  flood_note <- if (length(most_variable) == 1L && most_variable == "Flooded_vegetation")
     " — driven by varying flood levels rather than vegetation health" else ""
-  insight_text <- sprintf(
-    "%s shows the most year-to-year variability (widest confidence interval)%s. %s shows the most consistent seasonal pattern (narrowest confidence interval).",
-    .format_lc(most_variable), flood_note, .format_lc(most_stable)
-  )
+  insight_text <- if (length(most_variable) == 1L && length(most_stable) == 1L) {
+    sprintf(
+      "%s shows the most year-to-year variability (widest confidence interval)%s. %s shows the most consistent seasonal pattern (narrowest confidence interval).",
+      .format_lc(most_variable), flood_note, .format_lc(most_stable)
+    )
+  } else "Seasonal pattern insight not available."
 
   list(plot = p, insight_text = insight_text)
 }
