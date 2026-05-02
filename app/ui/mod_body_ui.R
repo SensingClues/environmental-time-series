@@ -23,16 +23,6 @@ mod_body_ui <- function(id) {
       tabPanel(
         title = "NDVI Explorer",
         value = "NDVIexplorerTab",
-        div(class="tab-explain",
-            span("
-            NDVI, or Normalised Difference Vegetation Index, is commonly used to track changes in vegetation, particularly in protected areas.
-            It is used to quantify vegetation greenness and is useful in understanding vegetation density and assessing changes in plant health.
-            NDVI values range from -1 to 1, with higher values indicating healthier vegetation, and lower values indicating stressed vegetation or barren areas like sand or snow."),
-            br(),
-            br(),
-            span("In this section you will find the NDVI Time Series displaying average NDVI values per month, the NDVI Land Cover Explorer for detailed analysis by land cover class, and the NDVI Delta Map showing geospatial distributions of NDVI values by month.")
-        ),
-
         # Data source guidance (collapsible)
         tags$details(
           id    = "ndviDataSourceGuidance",
