@@ -402,7 +402,8 @@ server <- function(input, output, session) {
   })
   output$scenario_productivity_table_output <- renderTable({
     res <- scenario_productivity_result(); shiny::req(res); res$table
-  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+  }, striped = TRUE, hover = TRUE, bordered = TRUE,
+     sanitize.colnames.function = identity)
 
   output$scenario_productivity_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_productivity_ready())) {

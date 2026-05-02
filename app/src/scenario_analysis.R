@@ -547,14 +547,14 @@ plot_productivity_comparison <- function(df, selected_year, compare_year = NULL)
     `Annual Mean NDVI`  = round(stats_df$annual_mean, 3),
     `Historical Min`    = round(stats_df$hist_min,    3),
     `Historical Max`    = round(stats_df$hist_max,    3),
-    `Year-to-Year CV`   = round(stats_df$cv,          3),
+    `Year-to-Year CV <span title="SD ÷ mean of each class’s annual NDVI across all available years — lower means more consistent year to year." style="cursor:help;color:#888;font-size:0.85em;">ⓘ</span>` = round(stats_df$cv, 3),
     `Interpretation`    = stats_df$interpretation,
     check.names = FALSE, stringsAsFactors = FALSE
   )
 
   if (!is.null(comp_stats) && nrow(comp_stats) > 0) {
     change_vals <- round(stats_df$annual_mean - comp_stats$annual_mean, 3)
-    table_out[["Change"]] <- ifelse(
+    table_out[[paste0('Change <span title="Annual mean NDVI for the selected year minus the compare year — positive means improvement, negative means decline." style="cursor:help;color:#888;font-size:0.85em;">ⓘ</span>')]] <- ifelse(
       is.na(change_vals), "—",
       ifelse(change_vals >= 0, paste0("+", change_vals), as.character(change_vals))
     )
