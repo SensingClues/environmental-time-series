@@ -1158,7 +1158,7 @@ plot_rainy_season_onset <- function(df, selected_class = "Crops") {
     # Search from September onward only; require 2 consecutive months above threshold
     onset_month <- NA_integer_
     search_idx  <- which(months >= 9L)
-    for (k in seq_len(length(search_idx) - 1L)) {
+    for (k in seq_len(max(0L, length(search_idx) - 1L))) {
       i <- search_idx[k]
       j <- search_idx[k + 1L]
       if (ndvi[i] > threshold && ndvi[j] > threshold) {
@@ -1208,34 +1208,46 @@ plot_rainy_season_onset <- function(df, selected_class = "Crops") {
 
   onset_valid <- onset_df[!is.na(onset_df$onset_month), ]
 
-  p_bar <- plotly::plot_ly(
-    data = onset_valid,
-    x    = ~year, y = ~onset_month,
-    type = "bar",
-    marker = list(color = "#1565C0"),
-    hovertemplate = "<b>%{x}</b><br>Onset Month: %{y}<extra></extra>"
-  )
+  if (nrow(onset_valid) == 0L) {
+    p_bar <- plotly::layout(
+      plotly::add_annotations(
+        plotly::plot_ly(type = "scatter", mode = "markers"),
+        x = 0.5, y = 0.5, text = "No onset months detected",
+        xref = "paper", yref = "paper", showarrow = FALSE,
+        font = list(size = 14, color = "#888888")
+      ),
+      xaxis = list(visible = FALSE), yaxis = list(visible = FALSE)
+    )
+  } else {
+    trend_text <- ""
+    if (nrow(onset_valid) >= 3L) {
+      lm_fit         <- lm(onset_month ~ year, data = onset_valid)
+      slope_per_yr   <- coef(lm_fit)[["year"]]
+      n_years_span   <- max(onset_valid$year) - min(onset_valid$year)
+      total_shift_wk <- slope_per_yr * n_years_span * 4.33
+      direction      <- if (slope_per_yr > 0) "later" else "earlier"
+      trend_text     <- sprintf(
+        "Onset shifted %.1f weeks %s since %d",
+        abs(total_shift_wk), direction, min(onset_valid$year)
+      )
+    }
 
-  trend_text <- ""
-  if (nrow(onset_valid) >= 3) {
-    lm_fit         <- lm(onset_month ~ year, data = onset_valid)
-    slope_per_yr   <- coef(lm_fit)[["year"]]
-    n_years_span   <- max(onset_valid$year) - min(onset_valid$year)
-    total_shift_wk <- slope_per_yr * n_years_span * 4.33
-    direction      <- if (slope_per_yr > 0) "later" else "earlier"
-    trend_text     <- sprintf(
-      "Onset shifted %.1f weeks %s since %d",
-      abs(total_shift_wk), direction, min(onset_valid$year)
+    p_bar <- plotly::plot_ly(
+      data = onset_valid,
+      x    = ~year, y = ~onset_month,
+      type = "bar",
+      marker = list(color = "#1565C0"),
+      hovertemplate = "<b>%{x}</b><br>Onset Month: %{y}<extra></extra>"
+    )
+    p_bar <- plotly::layout(
+      p_bar,
+      xaxis = list(title = "Year", tickmode = "array",
+                   tickvals = onset_valid$year, tickformat = "d"),
+      yaxis = list(title = "Onset Month", tickmode = "array",
+                   tickvals = 1:12, ticktext = month.abb),
+      title = list(text = trend_text, font = list(size = 12))
     )
   }
-
-  p_bar <- plotly::layout(
-    p_bar,
-    xaxis = list(title = "Year", tickmode = "array", tickvals = onset_valid$year, tickformat = "d"),
-    yaxis = list(title = "Onset Month", tickmode = "array",
-                 tickvals = 1:12, ticktext = month.abb),
-    title = list(text = trend_text, font = list(size = 12))
-  )
 
   table_out <- onset_df
   table_out$onset_month <- ifelse(
