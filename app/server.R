@@ -765,7 +765,9 @@ server <- function(input, output, session) {
           column(4, plotlyOutput("scenario_anomaly_recovery_output", height = "400px"))
         ),
         br(),
-        tableOutput("scenario_anomaly_table_output")
+        tableOutput("scenario_anomaly_table_output"),
+        p(style = "color:#888; font-size:0.85em; margin-top:6px;",
+          "— = no recovery detected within the selected year. This usually means stress peaked late in the year (e.g. December), leaving no months remaining to observe a rebound.")
       )
     } else NULL
   })
