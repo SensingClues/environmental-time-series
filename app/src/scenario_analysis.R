@@ -1261,6 +1261,47 @@ plot_rainy_season_onset <- function(df, selected_class = "Crops") {
 # --- Sub-tab 7: Anomaly Resilience ---
 # df: pre-loaded data frame (all years, all classes) from the server shared reactive
 
+.anomaly_severity <- function(deficit) {
+  if (is.na(deficit) || deficit >= 0)
+    return(list(badge = "\U0001f7e2", label = "Minimal",  text = "Negligible stress, barely noticeable"))
+  if (deficit < -0.15)
+    return(list(badge = "\U0001f534", label = "Severe",   text = "Major stress, significant vegetation loss"))
+  if (deficit < -0.10)
+    return(list(badge = "\U0001f7e0", label = "Moderate", text = "Notable stress, visible vegetation decline"))
+  if (deficit < -0.05)
+    return(list(badge = "\U0001f7e1", label = "Mild",     text = "Minor stress, recovery expected quickly"))
+  list(badge = "\U0001f7e2", label = "Minimal", text = "Negligible stress, barely noticeable")
+}
+
+.anomaly_class_interp <- function(lc, deficit) {
+  if (is.na(deficit)) return("No data available")
+  if (lc == "Flooded_vegetation")
+    return("High variability driven by flood dynamics (water levels), not vegetation stress")
+  if (lc == "Built_Area") return("Low & stable — built surfaces don't respond to rainfall")
+  if (lc == "Water")      return("Not a vegetation metric — NDVI near zero for water bodies")
+  if (lc == "Trees") {
+    if (deficit < -0.10) return("Severe stress, unusual for this stable class")
+    if (deficit < -0.05) return("Moderate stress, slower than expected recovery")
+    return("Minimal stress, recovered quickly")
+  }
+  if (lc == "Rangeland") {
+    if (deficit < -0.10) return("Severe drought impact, grass recovery sensitive to rainfall")
+    if (deficit < -0.05) return("Moderate drought, typical recovery pattern")
+    return("Mild stress, resilient to rainfall variability")
+  }
+  if (lc == "Crops") {
+    if (deficit < -0.10) return("Poor growing season, crop failure risk")
+    if (deficit < -0.05) return("Moderate yield loss, recovery depends on next planting season")
+    return("Minimal impact, manageable for farmers")
+  }
+  if (lc == "Bare_ground") {
+    if (deficit < -0.10) return("Variable & low productivity — may indicate active land cover change")
+    if (deficit < -0.05) return("Variable but stable")
+    return("Minimal change")
+  }
+  .anomaly_severity(deficit)$text
+}
+
 plot_anomaly_resilience <- function(df, anomaly_year) {
   if (is.null(df) || nrow(df) == 0) stop("plot_anomaly_resilience: df is empty.")
 
@@ -1285,26 +1326,27 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
   recovery_results <- lapply(lc_classes, function(lc) {
     df_lc <- dplyr::arrange(merged[merged$land_cover == lc, ], month)
 
-    worst_row    <- df_lc[which.min(df_lc$anomaly), ]
-    max_deficit  <- worst_row$anomaly
-    deficit_month <- worst_row$month
+    worst_row         <- df_lc[which.min(df_lc$anomaly), ]
+    max_deficit       <- worst_row$anomaly
+    deficit_month_int <- as.integer(worst_row$month)
 
-    subsequent <- df_lc[df_lc$month > deficit_month, ]
+    subsequent <- df_lc[df_lc$month > deficit_month_int, ]
     recovery_months <- NA_integer_
     for (i in seq_len(nrow(subsequent))) {
       row_i <- subsequent[i, ]
       if (abs(row_i$mean_ndvi - row_i$hist_mean) <= row_i$hist_sd) {
-        recovery_months <- as.integer(row_i$month - deficit_month)
+        recovery_months <- as.integer(row_i$month - deficit_month_int)
         break
       }
     }
 
     data.frame(
-      land_cover    = lc,
-      max_deficit   = round(max_deficit, 3),
-      deficit_month = month.abb[deficit_month],
-      recovery_months = recovery_months,
-      stringsAsFactors = FALSE
+      land_cover        = lc,
+      max_deficit       = round(max_deficit, 3),
+      deficit_month_int = deficit_month_int,
+      deficit_month     = month.abb[deficit_month_int],
+      recovery_months   = recovery_months,
+      stringsAsFactors  = FALSE
     )
   })
 
@@ -1318,6 +1360,11 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
   recovery_df$resilience_rank  <- rank(recovery_df$resilience_score,
                                        ties.method = "min", na.last = TRUE)
 
+  fmt_rec <- function(r) {
+    if (is.na(r$recovery_months)) "—"
+    else paste0(r$recovery_months, " month", ifelse(r$recovery_months == 1L, "", "s"))
+  }
+
   # Insight text
   insight_text <- tryCatch({
     most_affected  <- recovery_df[which.min(recovery_df$max_deficit), ]
@@ -1326,14 +1373,41 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
     slowest        <- if (nrow(slowest_valid) > 0)
       slowest_valid[which.max(slowest_valid$recovery_months), ] else NULL
     slow_text <- if (!is.null(slowest))
-      sprintf(" %s took the longest to recover (%d months).",
-              .format_lc(slowest$land_cover), slowest$recovery_months) else ""
+      sprintf(" %s took the longest to recover (%s).",
+              .format_lc(slowest$land_cover), fmt_rec(slowest)) else ""
     sprintf(
-      "In %s, %s showed the largest deficit (%.3f NDVI) in %s.%s %s was the most resilient class (lowest combined deficit × recovery score).",
+      "In %s, %s showed the largest deficit (%.3f NDVI) in %s.%s %s was the most resilient class (lowest deficit %.3f NDVI, fastest recovery %s).",
       anomaly_year, .format_lc(most_affected$land_cover), most_affected$max_deficit,
-      most_affected$deficit_month, slow_text, .format_lc(most_resilient$land_cover)
+      most_affected$deficit_month, slow_text,
+      .format_lc(most_resilient$land_cover), most_resilient$max_deficit, fmt_rec(most_resilient)
     )
   }, error = function(e) "Resilience summary not available.")
+
+  # Resilience Ranking Card
+  ranking_card <- tryCatch({
+    most_resilient  <- recovery_df[which.min(recovery_df$resilience_score), ]
+    most_vulnerable <- recovery_df[which.max(recovery_df$resilience_score), ]
+    other_rows <- recovery_df[recovery_df$land_cover != most_resilient$land_cover &
+                                recovery_df$land_cover != most_vulnerable$land_cover, ]
+    other_text <- if (nrow(other_rows) > 0L) {
+      mid <- other_rows[which.min(abs(other_rows$resilience_score -
+                                        stats::median(recovery_df$resilience_score))), ]
+      sev <- .anomaly_severity(mid$max_deficit)
+      sprintf("%s shows %s vulnerability — %.3f NDVI deficit, %s recovery.",
+              .format_lc(mid$land_cover), tolower(sev$label), mid$max_deficit, fmt_rec(mid))
+    } else ""
+    list(
+      resilient    = sprintf("Most Resilient: %s — smallest deficit (%.3f NDVI), %s recovery",
+                             .format_lc(most_resilient$land_cover),
+                             most_resilient$max_deficit, fmt_rec(most_resilient)),
+      vulnerable   = sprintf("Most Vulnerable: %s — largest deficit (%.3f NDVI), %s recovery",
+                             .format_lc(most_vulnerable$land_cover),
+                             most_vulnerable$max_deficit, fmt_rec(most_vulnerable)),
+      other        = other_text,
+      flood_note   = if ("Flooded_vegetation" %in% recovery_df$land_cover)
+        "⚠️ Flooded vegetation's deficit and recovery time are flood-driven, not vegetation stress." else ""
+    )
+  }, error = function(e) NULL)
 
   # Heatmap of anomaly per class × month
   hm_data <- tidyr::pivot_wider(
@@ -1345,13 +1419,37 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
   rownames(hm_matrix) <- lc_names
   col_months <- as.integer(colnames(hm_matrix))
 
+  # Per-cell hover text for heatmap
+  hm_hover <- matrix("", nrow = length(lc_names), ncol = length(col_months))
+  for (i in seq_along(lc_names)) {
+    lc <- lc_names[i]
+    for (j in seq_along(col_months)) {
+      mo    <- col_months[j]
+      row_m <- merged[merged$land_cover == lc & merged$month == mo, ]
+      if (nrow(row_m) == 0L) next
+      anom  <- row_m$anomaly[1L]
+      sd_v  <- row_m$hist_sd[1L]
+      status <- if (is.na(anom))         "No data"
+                else if (abs(anom) <= sd_v) "Normal range"
+                else if (anom < 0)     "Below normal (deficit)"
+                else                   "Above normal"
+      sev <- .anomaly_severity(anom)
+      hm_hover[i, j] <- paste0(
+        .format_lc(lc), " — ", month.abb[mo], " ", anomaly_year,
+        "<br>Anomaly: ", sprintf("%.3f", anom), " NDVI (", sev$label, ")",
+        "<br>Status: ", status
+      )
+    }
+  }
+
   p_heatmap <- plotly::plot_ly(
     x = col_months, y = lc_names, z = hm_matrix,
+    text = hm_hover,
     type = "heatmap",
     colorscale = list(c(0, "#E53935"), c(0.5, "#FFFFFF"), c(1, "#43A047")),
     zmid = 0,
     colorbar = list(title = "NDVI deficit\n(negative = below avg)"),
-    hovertemplate = "<b>%{y}</b><br>Month: %{x}<br>Anomaly: %{z:.3f}<extra></extra>"
+    hovertemplate = "%{text}<extra></extra>"
   )
   p_heatmap <- plotly::layout(
     p_heatmap,
@@ -1361,16 +1459,34 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
   )
 
   # Recovery bar chart coloured by class
-  recovery_valid    <- recovery_df[!is.na(recovery_df$recovery_months), ]
-  rec_bar_colors    <- sapply(recovery_valid$land_cover, function(lc)
+  recovery_valid  <- recovery_df[!is.na(recovery_df$recovery_months), ]
+  rec_bar_colors  <- sapply(recovery_valid$land_cover, function(lc)
     if (lc %in% names(.lc_colors)) .lc_colors[[lc]] else "#888888")
+
+  rec_hover <- vapply(seq_len(nrow(recovery_valid)), function(i) {
+    lc      <- recovery_valid$land_cover[i]
+    rec     <- recovery_valid$recovery_months[i]
+    def     <- recovery_valid$max_deficit[i]
+    def_mo  <- recovery_valid$deficit_month_int[i]
+    rec_mo  <- if (!is.na(def_mo) && !is.na(rec) && (def_mo + rec) <= 12L)
+      month.abb[def_mo + rec] else "end of year"
+    sev <- .anomaly_severity(def)
+    paste0(
+      .format_lc(lc), ": ", rec, " month", ifelse(rec == 1L, "", "s"), " to recovery",
+      "<br>Max deficit: ", sprintf("%.3f", def), " NDVI (", sev$label, ": ", sev$text, ")",
+      "<br>Recovered by: ", rec_mo, " ", anomaly_year
+    )
+  }, character(1L))
+
   p_recovery <- plotly::plot_ly(
     data = recovery_valid,
-    x    = ~.format_lc(land_cover),
+    x    = ~vapply(land_cover, .format_lc, character(1L)),
     y    = ~recovery_months,
     type = "bar",
+    text = rec_hover,
+    textposition = "none",
     marker = list(color = rec_bar_colors),
-    hovertemplate = "<b>%{x}</b><br>Recovery: %{y} months<extra></extra>"
+    hovertemplate = "%{text}<extra></extra>"
   )
   p_recovery <- plotly::layout(
     p_recovery,
@@ -1378,19 +1494,34 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
     yaxis = list(title = "Months to Recovery")
   )
 
-  # Summary table: formatted names, resilience rank, ⚠️ note for Flooded_vegetation
+  # Summary table with Interpretation column
+  interp_col <- vapply(seq_len(nrow(recovery_df)), function(i) {
+    lc  <- recovery_df$land_cover[i]
+    def <- recovery_df$max_deficit[i]
+    if (lc == "Flooded_vegetation") {
+      "⚠️ Severe (flood-driven) — high variability reflects water dynamics, not drought"
+    } else {
+      sev    <- .anomaly_severity(def)
+      interp <- .anomaly_class_interp(lc, def)
+      paste0(sev$badge, " ", sev$label, " — ", interp)
+    }
+  }, character(1L))
+
   table_out <- recovery_df[, c("land_cover", "max_deficit", "deficit_month",
                                 "recovery_months", "resilience_rank")]
   table_out$land_cover      <- .format_lc(table_out$land_cover)
   table_out$recovery_months <- ifelse(is.na(table_out$recovery_months), "—",
                                       as.character(table_out$recovery_months))
-  table_out$Note <- ifelse(
-    table_out$land_cover == "Flooded vegetation",
-    "⚠ Anomalies reflect flood dynamics — interpret alongside Rangeland and Crops", ""
-  )
-  colnames(table_out) <- c("Land Cover", "Max Deficit", "Deficit Month",
-                            "Recovery (months)", "Resilience Rank", "Note")
+  table_out$Interpretation  <- interp_col
+  .tip <- function(txt) sprintf(' <span title="%s" style="cursor:help;color:#888;font-size:0.85em;">ⓘ</span>', txt)
+  col_deficit    <- paste0("Max Deficit (NDVI)",   .tip("How far NDVI dropped below its historical average — a larger negative value means more stress."))
+  col_def_month  <- paste0("Deficit Month",        .tip("The month when vegetation stress was at its worst."))
+  col_recovery   <- paste0("Recovery (months)",    .tip("How many months it took for NDVI to return to normal after the worst stress point."))
+  col_rank       <- paste0("Resilience Rank",      .tip("Classes ranked from most resilient (1) to most vulnerable, based on deficit size and recovery time."))
+  col_interp     <- paste0("Interpretation",       .tip("Overall stress severity and what it means for this land cover type."))
+  colnames(table_out) <- c("Land Cover", col_deficit, col_def_month,
+                            col_recovery, col_rank, col_interp)
 
   list(heatmap = p_heatmap, recovery = p_recovery, summary_table = table_out,
-       insight_text = insight_text)
+       insight_text = insight_text, ranking_card = ranking_card)
 }

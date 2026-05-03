@@ -52,7 +52,7 @@ mod_sidebar_ui <- function(id) {
         leafletOutput("map", height = "165px"), # Adds leaflet map for the AoI
         br(),
         conditionalPanel(
-          condition = "!(input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring')",
+          condition = "!(input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience'))",
           selectInput("year", "Select year", selected = NULL, choices = NULL),
           shinyjs::disabled(selectInput("month", "Select month",
                                         selected = "January",

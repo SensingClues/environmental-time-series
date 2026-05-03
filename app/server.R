@@ -710,16 +710,56 @@ server <- function(input, output, session) {
   })
   output$scenario_anomaly_table_output <- renderTable({
     res <- scenario_anomaly_result(); shiny::req(res); res$summary_table
-  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+  }, striped = TRUE, hover = TRUE, bordered = TRUE,
+     sanitize.text.function = identity, sanitize.colnames.function = identity)
 
   output$scenario_anomaly_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_anomaly_ready())) {
       res <- scenario_anomaly_result()
+
+      callout_box <- div(
+        style = "background:#E8F5E9; border-left:4px solid #1D9E75; border-radius:4px; padding:12px 16px; margin-bottom:14px;",
+        p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;", "How to read this chart"),
+        p(style = "margin:0 0 4px 0; font-size:0.91em;",
+          "This chart shows how quickly land cover classes bounce back from stress. An ",
+          tags$strong("anomaly"), " is when NDVI drops below the typical range for that month. ",
+          tags$strong("Recovery"), " means NDVI returns to within normal range (within 1 standard deviation of the historical average)."
+        ),
+        p(style = "margin:0 0 4px 0; font-size:0.91em;",
+          "The heatmap shows which classes suffered most (red = largest deficit) and when they recovered (green = back to normal)."
+        ),
+        p(style = "margin:0 0 4px 0; font-size:0.91em;",
+          "The bar chart ranks classes by recovery time. ",
+          tags$strong("Faster recovery = more resilient. Slower recovery = more vulnerable.")
+        ),
+        p(style = "margin:0; font-size:0.91em; color:#E65100; font-weight:600;",
+          "⚠️ Flooded vegetation anomalies reflect flood dynamics (water levels), not drought stress — interpret it differently."
+        )
+      )
+
+      ranking_card <- if (!is.null(res$ranking_card)) {
+        rc <- res$ranking_card
+        div(
+          style = "background:#EDE7F6; border-left:4px solid #6A1B9A; padding:12px; margin-bottom:12px; border-radius:4px;",
+          tags$strong("Resilience Ranking"), tags$br(),
+          p(style = "margin:6px 0 2px 0; font-size:0.93em;",
+            tags$span(style = "color:#2E7D32; font-weight:600;", "✅ "), rc$resilient),
+          p(style = "margin:2px 0; font-size:0.93em;",
+            tags$span(style = "color:#C62828; font-weight:600;", "🔴 "), rc$vulnerable),
+          if (nzchar(rc$other))
+            p(style = "margin:2px 0; font-size:0.91em; color:#333;", rc$other) else NULL,
+          if (nzchar(rc$flood_note))
+            p(style = "margin:6px 0 0 0; font-size:0.91em; color:#E65100;", rc$flood_note) else NULL
+        )
+      } else NULL
+
       tagList(
+        callout_box,
         div(style = "background: #FCE4EC22; border-left: 4px solid #C62828; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
           tags$strong("Resilience Insight"), tags$br(),
           tags$span(res$insight_text)
         ),
+        ranking_card,
         fluidRow(
           column(8, plotlyOutput("scenario_anomaly_heatmap_output",  height = "400px")),
           column(4, plotlyOutput("scenario_anomaly_recovery_output", height = "400px"))

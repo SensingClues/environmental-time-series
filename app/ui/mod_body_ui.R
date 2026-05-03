@@ -412,11 +412,7 @@ mod_body_ui <- function(id) {
           tabPanel(
             title = "Anomaly Resilience",
             value = "ScenarioAnomalyResilience",
-            div(class="tab-pane-explain",
-                span("When NDVI drops below normal, which land cover classes are most affected and which recover fastest?"),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
+            div(class="tab-pane-explain"),
             mod_busy_spinner_ui("busy_spinner"),
             conditionalPanel(
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
