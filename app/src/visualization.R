@@ -664,15 +664,16 @@ ndvi_anomaly_help_tooltip_text <- function() {
 }
 
 # Shiny UI: tags$h4 title above plotlyOutput.
-ndvi_anomaly_titles_ui <- function(resolution = NULL, land_cover_class = NULL) {
+ndvi_anomaly_titles_ui <- function(resolution = NULL, land_cover_class = NULL, view = "monthly") {
   res_suffix <- ndvi_resolution_title_suffix(resolution)
   lc_suffix  <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
     paste0(" — ", gsub("_", " ", land_cover_class)) else ""
+  base_title <- if (identical(view, "annual")) "Annual NDVI trend" else "NDVI time series"
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
       class = "ndvi-anomaly-title-h4",
-      paste0("NDVI time series", lc_suffix, res_suffix)
+      paste0(base_title, lc_suffix, res_suffix)
     )
   )
 }
@@ -1059,6 +1060,298 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, land_co
     plotly::layout(
       margin = list(t = 20, r = 30, l = 60, b = 80)
     )
+}
+
+#' Compute annual-view stats from complete years only (12 months of data).
+#' @return list(mk_p, mk_slope, n_years, year_range)
+compute_ndvi_annual_stats <- function(annual_df) {
+  # Only use complete years for all statistics
+  complete_df <- if ("is_complete" %in% names(annual_df)) {
+    annual_df[annual_df$is_complete == TRUE, ]
+  } else {
+    annual_df
+  }
+  n_years  <- nrow(complete_df)
+  mk_p     <- NA_real_
+  mk_slope <- NA_real_
+  min_yr   <- if (n_years > 0L) min(complete_df$year) else NA_integer_
+  max_yr   <- if (n_years > 0L) max(complete_df$year) else NA_integer_
+  year_range <- if (!is.na(min_yr) && !is.na(max_yr)) {
+    if (min_yr == max_yr) as.character(min_yr) else paste0(min_yr, "–", max_yr)
+  } else ""
+  if (n_years >= 5L) {
+    mk  <- tryCatch(trend::mk.test(complete_df$mean_ndvi),    error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(complete_df$mean_ndvi), error = function(e) NULL)
+    if (!is.null(mk))  mk_p     <- unname(mk$p.value)
+    if (!is.null(sen)) mk_slope <- as.numeric(sen$estimates)[1]
+  }
+  list(mk_p = mk_p, mk_slope = mk_slope, n_years = n_years, year_range = year_range)
+}
+
+#' Interactive annual NDVI trend chart (plotly) with box/whisker reference.
+#' Complete years (12 months) only used for statistics and the blue line.
+#' Incomplete years shown as orange open-circle markers.
+plot_ndvi_annual <- function(annual_df, land_cover_class = NULL) {
+
+  # Split complete vs incomplete years
+  has_complete <- "is_complete" %in% names(annual_df)
+  if (has_complete) {
+    complete_df   <- annual_df[annual_df$is_complete == TRUE,  ]
+    incomplete_df <- annual_df[annual_df$is_complete == FALSE, ]
+  } else {
+    complete_df   <- annual_df
+    incomplete_df <- annual_df[0L, ]
+  }
+  n_complete <- nrow(complete_df)
+
+  # Box-plot statistics from complete years only
+  ndvi_mean <- if (n_complete > 0L) mean(complete_df$mean_ndvi,   na.rm = TRUE) else NA_real_
+  ndvi_q1   <- if (n_complete > 0L) unname(quantile(complete_df$mean_ndvi, 0.25, na.rm = TRUE)) else NA_real_
+  ndvi_q3   <- if (n_complete > 0L) unname(quantile(complete_df$mean_ndvi, 0.75, na.rm = TRUE)) else NA_real_
+  ndvi_min  <- if (n_complete > 0L) min(complete_df$mean_ndvi,    na.rm = TRUE) else NA_real_
+  ndvi_max  <- if (n_complete > 0L) max(complete_df$mean_ndvi,    na.rm = TRUE) else NA_real_
+
+  yr_all_min <- min(annual_df$year)
+  yr_all_max <- max(annual_df$year)
+  yr_min     <- if (n_complete > 0L) min(complete_df$year) else yr_all_min
+  yr_max     <- if (n_complete > 0L) max(complete_df$year) else yr_all_max
+  x_pad      <- 0.4
+  # Dense x sequence gives good ribbon hover coverage at every year position
+  x_ribbon   <- seq(yr_min - x_pad, yr_max + x_pad, length.out = 60L)
+
+  # Mann-Kendall trend from complete years only
+  mk_result <- list(p = NA_real_, slope = NA_real_)
+  if (n_complete >= 3L) {
+    mk  <- tryCatch(trend::mk.test(complete_df$mean_ndvi),    error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(complete_df$mean_ndvi), error = function(e) NULL)
+    if (!is.null(mk))  mk_result$p     <- unname(mk$p.value)
+    if (!is.null(sen)) mk_result$slope <- as.numeric(sen$estimates)[1]
+  }
+
+  if (n_complete > 0L) {
+    complete_df$hover <- paste0(
+      "Year: ", complete_df$year, "<br>",
+      "Annual mean NDVI: ", sprintf("%.3f", complete_df$mean_ndvi), "<br>",
+      "Long-term average: ", sprintf("%.3f", ndvi_mean)
+    )
+  }
+
+  pad_y <- function(lo, hi, pad = 0.09) {
+    if (!is.finite(lo) || !is.finite(hi) || lo > hi) return(NULL)
+    if (abs(hi - lo) < 1e-9) {
+      p <- max(0.03, abs(lo) * 0.06 + 0.01)
+      return(c(lo - p, hi + p))
+    }
+    span <- hi - lo
+    c(max(-1.05, lo - pad * span - 0.02), min(1.05, hi + pad * span + 0.02))
+  }
+  vals_y <- c(complete_df$mean_ndvi,
+              if (nrow(incomplete_df) > 0L) incomplete_df$mean_ndvi else NULL,
+              ndvi_min, ndvi_max)
+  vals_y <- vals_y[is.finite(vals_y)]
+  rng_y  <- if (length(vals_y) > 0L) pad_y(min(vals_y), max(vals_y)) else NULL
+
+  y_axis <- list(title = "Annual Mean NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)")
+  if (!is.null(rng_y)) { y_axis$range <- rng_y; y_axis$autorange <- FALSE }
+
+  note_text <- if (n_complete > 0L) {
+    sprintf("Annual data: %d–%d (complete years only)", min(complete_df$year), max(complete_df$year))
+  } else {
+    "No complete years (12 months) found in data"
+  }
+
+  fig <- plotly::plot_ly()
+
+  # Layer 1: IQR box (Q1-Q3), light grey fill
+  if (all(is.finite(c(ndvi_q1, ndvi_q3)))) {
+    iqr_hover_txt <- paste0("Typical range (25th-75th percentile):<br>",
+                             sprintf("%.3f", ndvi_q1), " to ", sprintf("%.3f", ndvi_q3))
+    fig <- fig %>% plotly::add_ribbons(
+      x             = x_ribbon,
+      ymin          = rep(ndvi_q1, length(x_ribbon)),
+      ymax          = rep(ndvi_q3, length(x_ribbon)),
+      name          = sprintf("Typical range (Q1-Q3: %.3f-%.3f)", ndvi_q1, ndvi_q3),
+      fillcolor     = "rgba(150,150,150,0.22)",
+      line          = list(color = "rgba(130,130,130,0.45)", width = 0.8),
+      text          = rep(iqr_hover_txt, length(x_ribbon)),
+      hovertemplate = "%{text}<extra></extra>"
+    )
+  }
+
+  # Layer 2: Min/Max dotted whisker lines
+  if (all(is.finite(c(ndvi_min, ndvi_max)))) {
+    fig <- fig %>%
+      plotly::add_segments(
+        x = yr_min - x_pad, xend = yr_max + x_pad,
+        y = ndvi_min, yend = ndvi_min,
+        line = list(color = "rgba(100,100,100,0.5)", dash = "dot", width = 1.3),
+        name = sprintf("Min/Max range (%.3f-%.3f)", ndvi_min, ndvi_max),
+        hovertemplate = sprintf("Historical minimum: %.3f<extra></extra>", ndvi_min)
+      ) %>%
+      plotly::add_segments(
+        x = yr_min - x_pad, xend = yr_max + x_pad,
+        y = ndvi_max, yend = ndvi_max,
+        line = list(color = "rgba(100,100,100,0.5)", dash = "dot", width = 1.3),
+        showlegend    = FALSE,
+        hovertemplate = sprintf("Historical maximum: %.3f<extra></extra>", ndvi_max)
+      )
+  }
+
+  # Layer 3: Long-term mean dashed line
+  if (is.finite(ndvi_mean)) {
+    fig <- fig %>% plotly::add_segments(
+      x = yr_min - x_pad, xend = yr_max + x_pad,
+      y = ndvi_mean, yend = ndvi_mean,
+      line = list(color = "rgba(80,80,80,0.65)", dash = "dash", width = 1.5),
+      name = sprintf("Long-term average (%.3f)", ndvi_mean),
+      hoverinfo = "skip"
+    )
+  }
+
+  # Layer 4: Trend line if Mann-Kendall p < 0.1
+  if (!is.na(mk_result$p) && mk_result$p < 0.1 && !is.na(mk_result$slope) && n_complete > 0L) {
+    mid_yr    <- mean(complete_df$year)
+    intercept <- ndvi_mean - mk_result$slope * (mid_yr - yr_min)
+    trend_y   <- intercept + mk_result$slope * (complete_df$year - yr_min)
+    trend_dir <- if (mk_result$slope > 0) "increasing" else "decreasing"
+    fig <- fig %>% plotly::add_lines(
+      x    = complete_df$year, y = trend_y,
+      line = list(color = "rgba(180,60,60,0.65)", dash = "dash", width = 1.8),
+      name = sprintf("Trend (%s, p = %.3f)", trend_dir, mk_result$p),
+      hoverinfo = "skip"
+    )
+  }
+
+  # Layer 5: Blue line + filled dots for complete years only
+  if (n_complete > 0L) {
+    fig <- fig %>%
+      plotly::add_lines(
+        data = complete_df, x = ~year, y = ~mean_ndvi,
+        line = list(width = 2.5, color = "#0072B2"),
+        name = "Annual mean NDVI",
+        hoverinfo = "skip"
+      ) %>%
+      plotly::add_markers(
+        data          = complete_df, x = ~year, y = ~mean_ndvi,
+        marker        = list(color = "#0072B2", size = 8),
+        showlegend    = FALSE,
+        hovertemplate = ~paste0(hover, "<extra></extra>")
+      )
+  }
+
+  # Layer 6: Orange open-circle markers for incomplete years
+  if (nrow(incomplete_df) > 0L) {
+    n_mo_vec <- if ("n_months" %in% names(incomplete_df)) incomplete_df$n_months
+                else rep(NA_integer_, nrow(incomplete_df))
+    incomplete_df$hover_inc <- paste0(
+      "Year: ", incomplete_df$year, " (incomplete - excluded from statistics)<br>",
+      "Annual mean NDVI: ", sprintf("%.3f", incomplete_df$mean_ndvi), "<br>",
+      "Months available: ", n_mo_vec, " of 12"
+    )
+    inc_label <- if (nrow(incomplete_df) == 1L && !is.na(n_mo_vec[1])) {
+      sprintf("Incomplete year (%d/12 months)", n_mo_vec[1])
+    } else {
+      "Incomplete years (< 12 months)"
+    }
+    fig <- fig %>% plotly::add_markers(
+      data          = incomplete_df, x = ~year, y = ~mean_ndvi,
+      marker        = list(color = "#E69F00", size = 9, symbol = "circle-open",
+                           line = list(width = 2.5, color = "#E69F00")),
+      name          = inc_label,
+      hovertemplate = ~paste0(hover_inc, "<extra></extra>")
+    )
+  }
+
+  fig %>% plotly::layout(
+    xaxis = list(
+      title    = "Year",
+      tickmode = "linear",
+      dtick    = 1,
+      showgrid = FALSE,
+      range    = c(yr_all_min - x_pad - 0.1, yr_all_max + x_pad + 0.1)
+    ),
+    yaxis     = y_axis,
+    template  = "plotly_white",
+    hovermode = "closest",
+    legend    = list(orientation = "h", x = 1, y = 1.08, xanchor = "right", yanchor = "top"),
+    margin    = list(t = 65, r = 30, l = 60, b = 60),
+    annotations = list(list(
+      x = 0, xref = "paper", y = 1.055, yref = "paper",
+      text      = note_text,
+      showarrow = FALSE,
+      font      = list(size = 10, color = "#666666"),
+      xanchor   = "left",
+      yanchor   = "bottom"
+    ))
+  )
+}
+
+#' Shiny UI: Long-Term Annual Trend card (Mann-Kendall on annual means).
+ndvi_annual_trend_card_ui <- function(stats, land_cover_class = NULL) {
+  if (is.null(stats)) return(NULL)
+  p      <- stats$mk_p
+  slope  <- stats$mk_slope
+  n_yrs  <- stats$n_years
+  yr_rng <- stats$year_range
+  lc_label   <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    gsub("_", " ", land_cover_class) else NULL
+  subject     <- if (!is.null(lc_label)) paste0(lc_label, " vegetation health") else "Vegetation health"
+  year_phrase <- if (!is.null(yr_rng) && nzchar(yr_rng)) paste0(" over ", yr_rng) else " over the available data period"
+  min_yrs <- 5L
+
+  if (is.na(n_yrs) || n_yrs < min_yrs) {
+    main       <- "Long-term trend not shown (insufficient data)"
+    col        <- "#555555"
+    n_yrs_show <- if (!is.null(n_yrs) && !is.na(n_yrs)) n_yrs else 0L
+    p_lab      <- paste0("At least ", min_yrs, " years required. Current: ", n_yrs_show,
+                         " year", if (n_yrs_show == 1L) "" else "s", ".")
+    plain_text <- "Not enough annual data to show a reliable long-term trend."
+  } else if (is.na(p) || is.na(slope)) {
+    main       <- "Long-term trend cannot be assessed"
+    col        <- "#555555"
+    p_lab      <- "p-value: N/A"
+    plain_text <- "The available data could not produce a reliable trend summary."
+  } else if (p < 0.05 && slope > 0) {
+    main       <- "Significant increasing trend"
+    col        <- "#009E73"
+    p_lab      <- paste0("Mann–Kendall p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been improving over time", year_phrase,
+                         " — a positive sign for this landscape.")
+  } else if (p < 0.05 && slope < 0) {
+    main       <- "Significant decreasing trend"
+    col        <- "#D55E00"
+    p_lab      <- paste0("Mann–Kendall p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been declining over time", year_phrase,
+                         " — this may indicate long-term degradation and warrants monitoring.")
+  } else {
+    main       <- "No significant long-term trend"
+    col        <- "#555555"
+    p_lab      <- paste0("Mann–Kendall p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been broadly consistent", year_phrase, ".")
+  }
+
+  shiny::tags$div(
+    class = "ndvi-insight-card",
+    shiny::tags$h4(
+      class = "ndvi-insight-card__heading",
+      "Long-Term Annual Trend",
+      shiny::tags$span(
+        title = paste(
+          "Based on the Mann–Kendall test applied to annual mean NDVI values.",
+          "Checks whether vegetation shows a consistent increase or decrease over the full data record.",
+          "Requires at least 5 years of data."
+        ),
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(class = ndvi_insight_main_class(col), main),
+    shiny::tags$div(
+      class = "ndvi-insight-card__footer",
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
+    )
+  )
 }
 
 # Function to plot Burned Area distribution

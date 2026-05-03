@@ -56,7 +56,10 @@ mod_sidebar_ui <- function(id) {
           selectInput("year", "Select year", selected = NULL, choices = NULL)
         ),
         conditionalPanel(
-          condition = "!(input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience' || input.scenariosubtabs == 'ScenarioLandCoverProductivity'))",
+          condition = "!(
+            (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience' || input.scenariosubtabs == 'ScenarioLandCoverProductivity')) ||
+            (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab')
+          )",
           shinyjs::disabled(selectInput("month", "Select month",
                                         selected = "January",
                                         choices  = month.name[1:lubridate::month(Sys.Date())-1]))

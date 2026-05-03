@@ -126,20 +126,28 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "NDVI Time Series",
                       value = "NDVItsTab",
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
                                        div(
                                          class = "plot-container",
                                          style = "margin-left: 10px; margin-right: 10px;",
-                                         div(class = "ndvi-callout",
-                                             p("This chart shows average monthly vegetation health for the selected year compared to previous years. The shaded band shows the typical range. Use it to see whether this year's vegetation is better or worse than usual.")),
+                                         shinyWidgets::radioGroupButtons(
+                                           inputId  = "ndvi_ts_view",
+                                           label    = NULL,
+                                           choices  = c("Monthly view" = "monthly", "Annual view" = "annual"),
+                                           selected = "monthly",
+                                           size     = "sm",
+                                           status   = "default"
+                                         ),
+                                         uiOutput("ndvi_ts_callout"),
                                          uiOutput("ndvi_health_summary_card"),
+                                         uiOutput("ndvi_annual_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
                                          div(
                                            class = "ndvi-ts-insight-cards",
                                            style = "margin-top: 16px;",
                                            fluidRow(
-                                             column(6, uiOutput("wilcoxon_card")),
-                                             column(6, uiOutput("smk_card"))
+                                             column(12, uiOutput("wilcoxon_card")),
+                                             column(12, uiOutput("smk_card"))
                                            )
                                          )
                                        )),

@@ -890,7 +890,8 @@ server <- function(input, output, session) {
   ndvi_ts_ready <- reactiveVal(FALSE)
   # Plotly figure: set after successful generate (works with conditional UI + renderPlotly).
   ndvi_ts_plot_obj <- reactiveVal(NULL)
-  ndvi_ts_stats <- reactiveVal(NULL)
+  ndvi_ts_stats    <- reactiveVal(NULL)
+  ndvi_ts_view_rv  <- reactiveVal("monthly")
   
   output$ndvi_ts_plot_output <- plotly::renderPlotly({
     p <- ndvi_ts_plot_obj()
@@ -905,7 +906,8 @@ server <- function(input, output, session) {
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
       div(
         class = "image-fill top-center ndvi-ts-plot-stack",
-        ndvi_anomaly_titles_ui(input$resolution, land_cover_class = input$ndvi_ts_lc_class),
+        ndvi_anomaly_titles_ui(input$resolution, land_cover_class = input$ndvi_ts_lc_class,
+                               view = ndvi_ts_view_rv()),
         plotlyOutput("ndvi_ts_plot_output", height = "550px"),
         height = "auto"
       )
@@ -916,23 +918,16 @@ server <- function(input, output, session) {
   
   output$wilcoxon_card <- renderUI({
     s <- ndvi_ts_stats()
-    if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
-      return(NULL)
-    }
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
+    if (!identical(s$view, "monthly")) return(NULL)
     ndvi_insight_wilcox_card_ui(s, land_cover_class = input$ndvi_ts_lc_class)
   })
 
   output$smk_card <- renderUI({
     s <- ndvi_ts_stats()
-    if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
-      return(NULL)
-    }
-    ndvi_insight_smk_card_ui(
-      s,
-      source_label     = ndvi_source_label(input$resolution),
-      year_range_label = ndvi_year_range_label(input$country, input$resolution),
-      land_cover_class = input$ndvi_ts_lc_class
-    )
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
+    if (!identical(s$view, "annual")) return(NULL)
+    ndvi_annual_trend_card_ui(s, land_cover_class = input$ndvi_ts_lc_class)
   })
 
   output$ndvi_data_source_guidance <- renderUI({
@@ -972,9 +967,20 @@ server <- function(input, output, session) {
     )
   })
 
+  output$ndvi_ts_callout <- renderUI({
+    view <- if (!is.null(input$ndvi_ts_view)) input$ndvi_ts_view else "monthly"
+    text <- if (identical(view, "annual")) {
+      "This chart shows annual average vegetation health across all available years. The blue line shows the annual mean NDVI, and the shaded band shows the typical year-to-year range (±1 SD). A dashed trend line appears when a statistically significant long-term change is detected."
+    } else {
+      "This chart shows average monthly vegetation health for the selected year compared to previous years. The shaded band shows the typical range. Use it to see whether this year's vegetation is better or worse than usual."
+    }
+    div(class = "ndvi-callout", p(text))
+  })
+
   output$ndvi_health_summary_card <- renderUI({
     s <- ndvi_ts_stats()
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
+    if (identical(s$view, "annual")) return(NULL)
 
     # Determine status from long-term trend and current-year condition.
     status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05 &&
@@ -1047,6 +1053,93 @@ server <- function(input, output, session) {
     )
   })
 
+  output$ndvi_annual_summary_card <- renderUI({
+    s <- ndvi_ts_stats()
+    if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
+    if (!identical(s$view, "annual")) return(NULL)
+
+    p     <- s$mk_p
+    slope <- s$mk_slope
+
+    trend_status <- if (is.na(p) || is.na(slope)) {
+      "Insufficient data"
+    } else if (p < 0.05 && slope > 0) {
+      "Improving"
+    } else if (p < 0.05 && slope < 0) {
+      "Declining"
+    } else {
+      "No significant trend"
+    }
+
+    trend_color <- switch(trend_status,
+      "Improving"            = "#4CAF50",
+      "Declining"            = "#F44336",
+      "No significant trend" = "#9E9E9E",
+      "#9E9E9E"
+    )
+
+    trend_explanation <- switch(trend_status,
+      "Improving"            = "Annual vegetation health has been consistently increasing over the data record.",
+      "Declining"            = "Annual vegetation health has been consistently declining — this may indicate long-term degradation.",
+      "No significant trend" = "No consistent upward or downward trend detected across the data record.",
+      "Not enough data to determine a trend direction."
+    )
+
+    slope_label <- if (!is.na(slope)) {
+      sprintf("Sen's slope: %+.4f NDVI/year", slope)
+    } else {
+      "Slope: N/A"
+    }
+
+    years_avail <- get_available_years(data_dir, "NDVI", input$country, input$resolution)
+    res_label   <- dplyr::case_when(
+      grepl("Sentinel", input$resolution) ~ "Sentinel-2",
+      grepl("MODIS",    input$resolution) ~ "MODIS",
+      TRUE                                ~ "satellite"
+    )
+    coverage <- if (length(years_avail) > 0) {
+      sprintf("Based on %s data from %d to %d (%d years)",
+              res_label, min(years_avail), max(years_avail), length(years_avail))
+    } else {
+      "Based on available data"
+    }
+
+    is_sentinel <- grepl("Sentinel", input$resolution, ignore.case = TRUE)
+    recommendation <- if (is_sentinel) {
+      modis_years <- get_available_years(data_dir, "NDVI", input$country, "MODIS_1000")
+      if (length(modis_years) >= 2L) {
+        sprintf("Switch to MODIS for a longer-term perspective covering %d–%d.",
+                min(modis_years), max(modis_years))
+      } else NULL
+    } else NULL
+
+    div(
+      style = paste0(
+        "background:", trend_color, "22; border-left:4px solid ", trend_color,
+        "; padding:12px; margin-bottom:16px; border-radius:4px;"
+      ),
+      fluidRow(
+        column(4,
+          tags$strong("Overall trend:"), tags$br(),
+          tags$span(
+            style = paste0("font-size:1.2em; color:", trend_color, "; font-weight:bold;"),
+            tags$span(class = "ndvi-status-dot", style = paste0("background:", trend_color, ";")),
+            trend_status
+          ),
+          tags$br(),
+          tags$span(style = "font-size:0.92em; color:#333;", trend_explanation),
+          tags$br(),
+          tags$span(style = "font-size:0.85em; color:#666;", slope_label)
+        ),
+        column(8,
+          tags$strong("Data coverage:"), tags$br(),
+          tags$span(coverage),
+          if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
+        )
+      )
+    )
+  })
+
   # Clear the image when switching tabs, subtabs, or land cover class
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_ts_ready(FALSE)
@@ -1056,6 +1149,12 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$ndvi_ts_lc_class, {
+    ndvi_ts_ready(FALSE)
+    ndvi_ts_plot_obj(NULL)
+    ndvi_ts_stats(NULL)
+  }, ignoreInit = TRUE)
+
+  observeEvent(input$ndvi_ts_view, {
     ndvi_ts_ready(FALSE)
     ndvi_ts_plot_obj(NULL)
     ndvi_ts_stats(NULL)
@@ -1089,6 +1188,7 @@ server <- function(input, output, session) {
       
       lc_class <- if (!is.null(input$ndvi_ts_lc_class) && nzchar(input$ndvi_ts_lc_class))
         input$ndvi_ts_lc_class else NULL
+      ts_view <- if (!is.null(input$ndvi_ts_view)) input$ndvi_ts_view else "monthly"
 
       ndvi_result <- generate_timeseries(
         country_name     = country_name,
@@ -1099,12 +1199,14 @@ server <- function(input, output, session) {
         data_dir         = data_dir,
         return_plot      = TRUE,
         figure_filename  = NULL,
-        land_cover_class = lc_class
+        land_cover_class = lc_class,
+        view             = ts_view
       )
-      
+
       ndvi_ts_ready(TRUE)
       ndvi_ts_plot_obj(ndvi_result$plot)
       ndvi_ts_stats(ndvi_result$stats)
+      ndvi_ts_view_rv(ts_view)
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
