@@ -1365,30 +1365,55 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
     else paste0(r$recovery_months, " month", ifelse(r$recovery_months == 1L, "", "s"))
   }
 
-  # Insight text
+  # Helper: collapse tied class names into "A and B" or "A, B and C"
+  .join_classes <- function(classes) {
+    nms <- .format_lc(classes)
+    if (length(nms) == 1L) nms
+    else if (length(nms) == 2L) paste(nms, collapse = " and ")
+    else paste0(paste(nms[-length(nms)], collapse = ", "), " and ", nms[length(nms)])
+  }
+
+  # Insight text — handle ties by finding ALL classes at min/max
   insight_text <- tryCatch({
-    most_affected  <- recovery_df[which.min(recovery_df$max_deficit), ]
-    most_resilient <- recovery_df[which.min(recovery_df$resilience_score), ]
-    slowest_valid  <- recovery_df[!is.na(recovery_df$recovery_months), ]
-    slowest        <- if (nrow(slowest_valid) > 0)
-      slowest_valid[which.max(slowest_valid$recovery_months), ] else NULL
-    slow_text <- if (!is.null(slowest))
+    min_def   <- min(recovery_df$max_deficit, na.rm = TRUE)
+    affected  <- recovery_df[!is.na(recovery_df$max_deficit) &
+                               recovery_df$max_deficit == min_def, ]
+
+    min_score <- min(recovery_df$resilience_score, na.rm = TRUE)
+    resilient <- recovery_df[!is.na(recovery_df$resilience_score) &
+                               recovery_df$resilience_score == min_score, ]
+
+    slowest_valid <- recovery_df[!is.na(recovery_df$recovery_months), ]
+    slow_text <- if (nrow(slowest_valid) > 0L) {
+      max_rec_val <- max(slowest_valid$recovery_months)
+      slowest_all <- slowest_valid[slowest_valid$recovery_months == max_rec_val, ]
       sprintf(" %s took the longest to recover (%s).",
-              .format_lc(slowest$land_cover), fmt_rec(slowest)) else ""
+              .join_classes(slowest_all$land_cover),
+              fmt_rec(slowest_all[1L, ]))
+    } else ""
+
     sprintf(
       "In %s, %s showed the largest deficit (%.3f NDVI) in %s.%s %s was the most resilient class (lowest deficit %.3f NDVI, fastest recovery %s).",
-      anomaly_year, .format_lc(most_affected$land_cover), most_affected$max_deficit,
-      most_affected$deficit_month, slow_text,
-      .format_lc(most_resilient$land_cover), most_resilient$max_deficit, fmt_rec(most_resilient)
+      anomaly_year, .join_classes(affected$land_cover), min_def,
+      affected$deficit_month[1L], slow_text,
+      .join_classes(resilient$land_cover), resilient$max_deficit[1L],
+      fmt_rec(resilient[1L, ])
     )
   }, error = function(e) "Resilience summary not available.")
 
-  # Resilience Ranking Card
+  # Resilience Ranking Card — handle ties
   ranking_card <- tryCatch({
-    most_resilient  <- recovery_df[which.min(recovery_df$resilience_score), ]
-    most_vulnerable <- recovery_df[which.max(recovery_df$resilience_score), ]
-    other_rows <- recovery_df[recovery_df$land_cover != most_resilient$land_cover &
-                                recovery_df$land_cover != most_vulnerable$land_cover, ]
+    min_score <- min(recovery_df$resilience_score, na.rm = TRUE)
+    max_score <- max(recovery_df$resilience_score, na.rm = TRUE)
+    resilient_rows  <- recovery_df[!is.na(recovery_df$resilience_score) &
+                                     recovery_df$resilience_score == min_score, ]
+    vulnerable_rows <- recovery_df[!is.na(recovery_df$resilience_score) &
+                                     recovery_df$resilience_score == max_score, ]
+
+    resilient_lcs  <- resilient_rows$land_cover
+    vulnerable_lcs <- vulnerable_rows$land_cover
+    other_rows <- recovery_df[!recovery_df$land_cover %in% c(resilient_lcs, vulnerable_lcs), ]
+
     other_text <- if (nrow(other_rows) > 0L) {
       mid <- other_rows[which.min(abs(other_rows$resilience_score -
                                         stats::median(recovery_df$resilience_score))), ]
@@ -1396,15 +1421,16 @@ plot_anomaly_resilience <- function(df, anomaly_year) {
       sprintf("%s shows %s vulnerability — %.3f NDVI deficit, %s recovery.",
               .format_lc(mid$land_cover), tolower(sev$label), mid$max_deficit, fmt_rec(mid))
     } else ""
+
     list(
-      resilient    = sprintf("Most Resilient: %s — smallest deficit (%.3f NDVI), %s recovery",
-                             .format_lc(most_resilient$land_cover),
-                             most_resilient$max_deficit, fmt_rec(most_resilient)),
-      vulnerable   = sprintf("Most Vulnerable: %s — largest deficit (%.3f NDVI), %s recovery",
-                             .format_lc(most_vulnerable$land_cover),
-                             most_vulnerable$max_deficit, fmt_rec(most_vulnerable)),
-      other        = other_text,
-      flood_note   = if ("Flooded_vegetation" %in% recovery_df$land_cover)
+      resilient  = sprintf("Most Resilient: %s — smallest deficit (%.3f NDVI), %s recovery",
+                           .join_classes(resilient_lcs),
+                           resilient_rows$max_deficit[1L], fmt_rec(resilient_rows[1L, ])),
+      vulnerable = sprintf("Most Vulnerable: %s — largest deficit (%.3f NDVI), %s recovery",
+                           .join_classes(vulnerable_lcs),
+                           vulnerable_rows$max_deficit[1L], fmt_rec(vulnerable_rows[1L, ])),
+      other      = other_text,
+      flood_note = if ("Flooded_vegetation" %in% recovery_df$land_cover)
         "⚠️ Flooded vegetation's deficit and recovery time are flood-driven, not vegetation stress." else ""
     )
   }, error = function(e) NULL)
