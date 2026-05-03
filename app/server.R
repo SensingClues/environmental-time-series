@@ -850,7 +850,7 @@ server <- function(input, output, session) {
   output$ndvi_ts_callout <- renderUI({
     view <- if (!is.null(input$ndvi_ts_view)) input$ndvi_ts_view else "monthly"
     text <- if (identical(view, "annual")) {
-      "This chart shows annual average vegetation health across all available years. The blue line shows the annual mean NDVI, and the shaded band shows the typical year-to-year range (±1 SD). A dashed trend line appears when a statistically significant long-term change is detected."
+      "This chart shows annual mean NDVI per year. Grey band = typical range (middle 50% of years). Dotted lines = historical min/max. Red dashed line = statistically significant long-term trend. Orange circles = incomplete years, excluded from statistics."
     } else {
       "This chart shows average monthly vegetation health for the selected year compared to previous years. The shaded band shows the typical range. Use it to see whether this year's vegetation is better or worse than usual."
     }
