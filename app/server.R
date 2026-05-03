@@ -503,6 +503,42 @@ server <- function(input, output, session) {
     scenario_agri_result(NULL)
   }, ignoreInit = TRUE)
 
+  output$agri_callout <- renderUI({
+    cls <- if (!is.null(input$agri_class)) input$agri_class else "Crops"
+    desc <- switch(cls,
+      Crops     = "Coloured lines show crop NDVI across months for each year. Markers show detected phenological events:",
+      Rangeland = "Coloured lines show rangeland NDVI across months for each year. Markers show detected vegetation response events:",
+      paste("Coloured lines show", cls, "NDVI across months for each year. Markers show detected phenological events:")
+    )
+    gu_desc  <- switch(cls,
+      Crops     = " — when rains trigger initial crop growth",
+      Rangeland = " — when vegetation responds to onset of rainfall",
+      " — vegetation green-up onset"
+    )
+    pk_desc  <- switch(cls,
+      Crops     = " — when the crop reaches maximum health",
+      Rangeland = " — when vegetation reaches peak greenness",
+      " — peak vegetation greenness"
+    )
+    sen_desc <- switch(cls,
+      Crops     = " — when the crop matures or dries down",
+      Rangeland = " — when vegetation declines as dry season sets in",
+      " — vegetation senescence"
+    )
+    div(style = paste0("background:#f1f8e9; border-left:4px solid #558B2F;",
+                       "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+        p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;", "How to read this chart"),
+        p(style = "margin:0 0 4px 0; font-size:0.91em;", desc),
+        tags$ul(style = "margin:2px 0 6px 0; padding-left:18px; font-size:0.91em;",
+          tags$li(tags$strong("▲ Green-up"), gu_desc),
+          tags$li(tags$strong("★ Peak"),     pk_desc),
+          tags$li(tags$strong("▼ Senescence"), sen_desc)
+        ),
+        p(style = "margin:0; font-size:0.91em;",
+          "Solid markers = high confidence. Outlined markers = medium/low confidence.")
+    )
+  })
+
   observeEvent(input$generate_agri_monitoring, {
     scenario_agri_ready(FALSE)
     scenario_agri_result(NULL)

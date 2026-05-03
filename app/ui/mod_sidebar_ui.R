@@ -51,12 +51,13 @@ mod_sidebar_ui <- function(id) {
                                 "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")), # Add more countries as needed
         leafletOutput("map", height = "165px"), # Adds leaflet map for the AoI
         br(),
-        selectInput("year", "Select year", 
-                    selected = NULL,
-                    choices = NULL),
-        shinyjs::disabled(selectInput("month", "Select month", 
-                                      selected="January", 
-                                      choices = month.name[1:lubridate::month(Sys.Date())-1])),
+        conditionalPanel(
+          condition = "!(input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring')",
+          selectInput("year", "Select year", selected = NULL, choices = NULL),
+          shinyjs::disabled(selectInput("month", "Select month",
+                                        selected = "January",
+                                        choices  = month.name[1:lubridate::month(Sys.Date())-1]))
+        ),
         selectInput("resolution", "Select spatial resolution (m)", 
                     selected = "1000 (ESA Sentinel-2)", 
                     choices = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",

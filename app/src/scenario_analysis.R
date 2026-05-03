@@ -823,25 +823,44 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
   )
 
   years_available <- sort(unique(all_df$year))
+
+  # legendrank controls order: avg(1) → years(100+) → phenology(200+)
+  # Each year has its own unique legendgroup so it toggles individually.
+  # Section headers come from legendgrouptitle on the first trace of each section.
+  marker_meta <- list(
+    "Green-up"   = list(rank = 200L, group_title = "Phenology"),
+    "Peak"       = list(rank = 201L, group_title = NULL),
+    "Senescence" = list(rank = 202L, group_title = NULL)
+  )
+
+  shown_in_legend <- character(0)
   p <- plotly::plot_ly()
 
   p <- plotly::add_lines(
     p,
     x = avg_df$month, y = avg_df$avg_ndvi,
-    name = "Multi-year avg",
-    line = list(color = "#888888", dash = "dash", width = 2),
+    name        = "Multi-year avg",
+    legendrank  = 1L,
+    legendgroup = "reference", legendgrouptitle = list(text = "Reference"),
+    line        = list(color = "#888888", dash = "dash", width = 2),
     hovertemplate = paste0(selected_class, " avg: %{y:.3f}<extra></extra>")
   )
 
-  for (yr in years_available) {
+  for (i in seq_along(years_available)) {
+    yr    <- years_available[i]
     df_yr <- dplyr::arrange(all_df[all_df$year == yr, ], month)
     ph    <- pheno_df[pheno_df$year == yr, ]
 
+    # Each year gets unique legendgroup → individually toggleable.
+    # "Year" section header only on first year.
     p <- plotly::add_lines(
       p,
       x = df_yr$month, y = df_yr$mean_ndvi,
-      name = as.character(yr),
-      hovertemplate = paste0(
+      name             = as.character(yr),
+      legendrank       = 100L + i,
+      legendgroup      = paste0("yr_", yr),
+      legendgrouptitle = if (i == 1L) list(text = "Year") else NULL,
+      hovertemplate    = paste0(
         "<b>", yr, "</b><br>Month: %{x}<br>", selected_class, " NDVI: %{y:.3f}<extra></extra>"
       )
     )
@@ -884,24 +903,27 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
       )
     )
 
-    is_first_year <- (yr == years_available[1L])
     for (mk in marker_defs) {
       if (is.na(mk$month) || mk$conf == "Not detected") next
       ms <- .conf_marker_style(mk$conf, mk$base_sym)
       if (is.null(ms)) next
       ndvi_val <- df_yr$mean_ndvi[df_yr$month == mk$month]
       if (length(ndvi_val) == 0L) next
+      meta        <- marker_meta[[mk$label]]
+      first_shown <- !(mk$label %in% shown_in_legend)
       p <- plotly::add_markers(
         p, x = mk$month, y = ndvi_val[1L],
         name             = mk$label,
         legendgroup      = mk$label,
-        legendgrouptitle = if (is_first_year) list(text = "Phenology") else NULL,
-        showlegend       = is_first_year,
+        legendgrouptitle = if (first_shown) meta$group_title else NULL,
+        legendrank       = meta$rank,
+        showlegend       = first_shown,
         marker           = list(size = ms$size, color = mk$color,
                                 symbol = ms$symbol, opacity = ms$opacity),
         hovertemplate    = paste0("<b>", yr, " ", mk$label, "</b><br>",
                                   gsub("\n", "<br>", mk$tip), "<extra></extra>")
       )
+      if (first_shown) shown_in_legend <- c(shown_in_legend, mk$label)
     }
   }
 
@@ -909,7 +931,11 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
     p,
     xaxis  = list(title = "Month", tickmode = "array", tickvals = 1:12, ticktext = month.abb),
     yaxis  = list(title = paste(selected_class, "NDVI")),
-    legend = list(orientation = "h", tracegroupgap = 20)
+    legend = list(
+      orientation   = "v",
+      tracegroupgap = 10,
+      font          = list(size = 12)
+    )
   )
 
   # Season Performance insight — multi-year summary using only years with ≥6 months of data
