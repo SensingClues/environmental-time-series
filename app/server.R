@@ -475,7 +475,8 @@ server <- function(input, output, session) {
   })
   output$scenario_agri_table_output <- renderTable({
     res <- scenario_agri_result(); shiny::req(res); res$phenology_table
-  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+  }, striped = TRUE, hover = TRUE, bordered = TRUE,
+     sanitize.colnames.function = identity)
 
   output$scenario_agri_container <- renderUI({
     if (is.null(error_message_rv()) && isTRUE(scenario_agri_ready())) {
@@ -487,7 +488,10 @@ server <- function(input, output, session) {
         ),
         plotlyOutput("scenario_agri_plot_output", height = "500px"),
         br(),
-        tableOutput("scenario_agri_table_output")
+        tableOutput("scenario_agri_table_output"),
+        p(style = "color:#888; font-size:0.85em; margin-top:6px;",
+          "— = event not detected. Solid markers in the chart indicate certain detections; outlined markers indicate uncertain ones."
+        )
       )
     } else NULL
   })

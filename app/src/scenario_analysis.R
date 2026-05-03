@@ -766,23 +766,23 @@ detect_phenology <- function(df_year, profile, hist_peak_avg = NA_real_) {
     }
   }
 
-  season_length_days <- if (!is.na(green_up_month) && !is.na(senescence_month))
-    as.integer((senescence_month + 12L - green_up_month) %% 12L * 30L)
+  season_length_months <- if (!is.na(green_up_month) && !is.na(senescence_month))
+    as.integer((senescence_month + 12L - green_up_month) %% 12L)
   else NA_integer_
 
   data.frame(
-    year               = df_year$year[1L],
-    green_up           = green_up_month,
-    green_up_conf      = green_up_conf,
-    green_up_rise      = round(green_up_rise, 3),
-    peak               = peak_month,
-    peak_ndvi          = round(peak_ndvi_val, 3),
-    peak_conf          = peak_conf,
-    senescence         = senescence_month,
-    senescence_conf    = senescence_conf,
-    senescence_ndvi    = round(senescence_ndvi, 3),
-    season_length_days = season_length_days,
-    stringsAsFactors   = FALSE
+    year                 = df_year$year[1L],
+    green_up             = green_up_month,
+    green_up_conf        = green_up_conf,
+    green_up_rise        = round(green_up_rise, 3),
+    peak                 = peak_month,
+    peak_ndvi            = round(peak_ndvi_val, 3),
+    peak_conf            = peak_conf,
+    senescence           = senescence_month,
+    senescence_conf      = senescence_conf,
+    senescence_ndvi      = round(senescence_ndvi, 3),
+    season_length_months = season_length_months,
+    stringsAsFactors     = FALSE
   )
 }
 
@@ -970,38 +970,60 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
   }, error = function(e) "Season performance summary not available.")
 
   # Table
-  avg_green_up  <- round(mean(pheno_df$green_up,           na.rm = TRUE))
-  avg_peak_mo   <- round(mean(pheno_df$peak,               na.rm = TRUE))
-  avg_sen_mo    <- round(mean(pheno_df$senescence,         na.rm = TRUE))
-  avg_peak_ndvi <- round(mean(pheno_df$peak_ndvi,          na.rm = TRUE), 3)
-  avg_season    <- round(mean(pheno_df$season_length_days, na.rm = TRUE))
+  avg_green_up    <- round(mean(pheno_df$green_up,             na.rm = TRUE))
+  avg_peak_mo     <- round(mean(pheno_df$peak,                 na.rm = TRUE))
+  avg_sen_mo      <- round(mean(pheno_df$senescence,           na.rm = TRUE))
+  avg_peak_ndvi   <- round(mean(pheno_df$peak_ndvi,            na.rm = TRUE), 3)
+  avg_season      <- round(mean(pheno_df$season_length_months, na.rm = TRUE))
 
-  .fmt_event <- function(mo, conf) {
-    if (is.na(mo) || conf == "Not detected")
-      return(paste0("❌ — (", .conf_label(conf), ")"))
-    paste0(month.abb[mo], " (", .conf_label(conf), ")")
-  }
+  # Plain month abbreviation or "—"; confidence omitted from cells
+  # (confidence already encoded in chart marker style: solid = certain, outlined = uncertain)
+  .fmt_mo <- function(mo) if (is.na(mo)) "—" else month.abb[mo]
+
+  .tip <- function(text) sprintf(
+    ' <span title="%s" style="cursor:help;color:#888;font-size:0.85em;">ⓘ</span>', text
+  )
+  col_greenup <- paste0("Green-up", .tip(
+    "Month when NDVI first rises above the dry-season baseline, signalling vegetation response to rainfall."
+  ))
+  col_peak    <- paste0("Peak", .tip(
+    "Month of highest NDVI within the expected peak window."
+  ))
+  col_senes   <- paste0("Senescence", .tip(
+    "First month NDVI drops below the senescence threshold, marking crop maturity or dry-season die-back."
+  ))
+  col_season  <- paste0("Season length (months)", .tip(
+    "Months from green-up to senescence; shown only when both events are detected."
+  ))
 
   table_out <- data.frame(
-    Year        = as.character(pheno_df$year),
-    `Green-up`  = mapply(.fmt_event, pheno_df$green_up,  pheno_df$green_up_conf),
-    Peak        = mapply(.fmt_event, pheno_df$peak,       pheno_df$peak_conf),
-    Senescence  = mapply(.fmt_event, pheno_df$senescence, pheno_df$senescence_conf),
-    `Peak NDVI` = round(pheno_df$peak_ndvi, 3),
-    `Season length (days)` = ifelse(is.na(pheno_df$season_length_days), "—",
-                                    as.character(pheno_df$season_length_days)),
+    Year                     = as.character(pheno_df$year),
+    `Green-up`               = vapply(pheno_df$green_up,    .fmt_mo, character(1L)),
+    Peak                     = vapply(pheno_df$peak,         .fmt_mo, character(1L)),
+    Senescence               = vapply(pheno_df$senescence,  .fmt_mo, character(1L)),
+    `Peak NDVI`              = round(pheno_df$peak_ndvi, 3),
+    `Season length (months)` = ifelse(is.na(pheno_df$season_length_months), "—",
+                                      as.character(pheno_df$season_length_months)),
     check.names = FALSE, stringsAsFactors = FALSE
   )
+  names(table_out)[names(table_out) == "Green-up"]               <- col_greenup
+  names(table_out)[names(table_out) == "Peak"]                   <- col_peak
+  names(table_out)[names(table_out) == "Senescence"]             <- col_senes
+  names(table_out)[names(table_out) == "Season length (months)"] <- col_season
 
   avg_row <- data.frame(
-    Year        = "Average",
-    `Green-up`  = if (!is.na(avg_green_up)) month.abb[avg_green_up] else "—",
-    Peak        = if (!is.na(avg_peak_mo))  month.abb[avg_peak_mo]  else "—",
-    Senescence  = if (!is.na(avg_sen_mo))   month.abb[avg_sen_mo]   else "—",
-    `Peak NDVI` = avg_peak_ndvi,
-    `Season length (days)` = if (!is.na(avg_season)) as.character(avg_season) else "—",
+    Year                     = "Average",
+    `Green-up`               = .fmt_mo(avg_green_up),
+    Peak                     = .fmt_mo(avg_peak_mo),
+    Senescence               = .fmt_mo(avg_sen_mo),
+    `Peak NDVI`              = avg_peak_ndvi,
+    `Season length (months)` = if (!is.na(avg_season)) as.character(avg_season) else "—",
     check.names = FALSE, stringsAsFactors = FALSE
   )
+  names(avg_row)[names(avg_row) == "Green-up"]               <- col_greenup
+  names(avg_row)[names(avg_row) == "Peak"]                   <- col_peak
+  names(avg_row)[names(avg_row) == "Senescence"]             <- col_senes
+  names(avg_row)[names(avg_row) == "Season length (months)"] <- col_season
   table_out <- rbind(table_out, avg_row)
 
   list(plot = p, phenology_table = table_out,
