@@ -147,29 +147,6 @@ mod_sidebar_ui <- function(id) {
       )
     ),
 
-    # Scenario Explorer: Seasonal Vegetation Cycle
-    conditionalPanel(
-      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioSeasonalVegetationCycle'",
-      div(
-        checkboxGroupInput(
-          "scenario_classes",
-          "Show land cover classes",
-          choices = c(
-            "Crops"              = "Crops",
-            "Rangeland"          = "Rangeland",
-            "Water"              = "Water",
-            "Trees"              = "Trees",
-            "Flooded vegetation" = "Flooded_vegetation",
-            "Built area"         = "Built_Area",
-            "Bare ground"        = "Bare_ground"
-          ),
-          selected = c("Crops", "Rangeland", "Water", "Trees",
-                       "Flooded_vegetation", "Built_Area", "Bare_ground")
-        ),
-        actionButton("generate_seasonal_cycle", "Generate Figure", class = "action_button")
-      )
-    ),
-
     # Scenario Explorer: Land Cover Productivity
     conditionalPanel(
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
@@ -188,14 +165,6 @@ mod_sidebar_ui <- function(id) {
                     choices  = c("Crops", "Rangeland"),
                     selected = "Crops"),
         actionButton("generate_agri_monitoring", "Generate Figure", class = "action_button")
-      )
-    ),
-
-    # Scenario Explorer: Vegetation Trend
-    conditionalPanel(
-      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioVegetationTrend'",
-      div(
-        actionButton("generate_veg_trend", "Generate Figure", class = "action_button")
       )
     ),
 

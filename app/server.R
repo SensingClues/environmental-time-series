@@ -335,58 +335,6 @@ server <- function(input, output, session) {
     })
   })
 
-  # ---------------------------------------------------------------------------------------------------
-  # SCENARIO EXPLORER: SEASONAL VEGETATION CYCLE
-  # ---------------------------------------------------------------------------------------------------
-  scenario_seasonal_ready  <- reactiveVal(FALSE)
-  scenario_seasonal_result <- reactiveVal(NULL)
-
-  output$scenario_seasonal_cycle_plot_output <- plotly::renderPlotly({
-    res <- scenario_seasonal_result(); shiny::req(res); res$plot
-  })
-
-  output$scenario_seasonal_cycle_container <- renderUI({
-    if (is.null(error_message_rv()) && isTRUE(scenario_seasonal_ready())) {
-      res <- scenario_seasonal_result()
-      tagList(
-        div(style = "background: #E8F5E922; border-left: 4px solid #1D9E75; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
-          tags$strong("Seasonal Pattern Insight"), tags$br(),
-          tags$span(res$insight_text)
-        ),
-        plotlyOutput("scenario_seasonal_cycle_plot_output", height = "600px")
-      )
-    } else NULL
-  })
-
-  observeEvent(list(input$tabs, input$scenariosubtabs), {
-    scenario_seasonal_ready(FALSE)
-    scenario_seasonal_result(NULL)
-    error_message_rv(NULL)
-  }, ignoreInit = TRUE)
-
-  observeEvent(input$generate_seasonal_cycle, {
-    scenario_seasonal_ready(FALSE)
-    scenario_seasonal_result(NULL)
-    error_message_rv(NULL)
-
-    classes <- input$scenario_classes
-
-    tryCatch({
-      res <- plot_seasonal_cycle(df = scenario_ndvi_data(), classes = classes)
-      scenario_seasonal_result(res)
-      scenario_seasonal_ready(TRUE)
-      error_message_rv(NULL)
-    }, error = function(e) {
-      scenario_seasonal_ready(FALSE)
-      scenario_seasonal_result(NULL)
-      error_message_rv(e$message)
-      showNotification(HTML("The figure cannot be generated due to missing data.
-       Please contact us at
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
-                       type = "error", duration = 6)
-      message("Error generating Seasonal Vegetation Cycle: ", e$message)
-    })
-  })
   
   # ---------------------------------------------------------------------------------------------------
   # SCENARIO EXPLORER: LAND COVER PRODUCTIVITY
@@ -565,74 +513,6 @@ server <- function(input, output, session) {
     })
   })
 
-  # ---------------------------------------------------------------------------------------------------
-  # SCENARIO EXPLORER: VEGETATION TREND
-  # ---------------------------------------------------------------------------------------------------
-  scenario_veg_trend_ready  <- reactiveVal(FALSE)
-  scenario_veg_trend_result <- reactiveVal(NULL)
-
-  output$scenario_veg_trend_plot_output <- plotly::renderPlotly({
-    res <- scenario_veg_trend_result(); shiny::req(res); res$plot
-  })
-  output$scenario_veg_trend_table_output <- renderTable({
-    res <- scenario_veg_trend_result(); shiny::req(res); res$trend_table
-  }, striped = TRUE, hover = TRUE, bordered = TRUE)
-
-  output$scenario_veg_trend_container <- renderUI({
-    if (is.null(error_message_rv()) && isTRUE(scenario_veg_trend_ready())) {
-      res <- scenario_veg_trend_result()
-      trend_years <- sort(unique(scenario_ndvi_data()$year))
-      trend_years_label <- if (length(trend_years) > 0L) {
-        paste0(min(trend_years), "-", max(trend_years),
-               " (", length(trend_years), " year",
-               ifelse(length(trend_years) == 1L, "", "s"), ")")
-      } else {
-        "the available years"
-      }
-      tagList(
-        div(style = "background: #FFF8E122; border-left: 4px solid #F57F17; padding: 12px; margin-bottom: 6px; border-radius: 4px;",
-          tags$strong("Data Sufficiency Note"), tags$br(),
-          tags$span(paste0("Trend analysis is most reliable with 10+ years of data. Current dataset covers ",
-                           trend_years_label, ". Results should be interpreted cautiously."))
-        ),
-        div(style = "background: #E3F2FD22; border-left: 4px solid #1565C0; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
-          tags$strong("Trend Insight"), tags$br(),
-          tags$span(res$insight_text)
-        ),
-        plotlyOutput("scenario_veg_trend_plot_output", height = "500px"),
-        br(),
-        tableOutput("scenario_veg_trend_table_output")
-      )
-    } else NULL
-  })
-
-  observeEvent(list(input$tabs, input$scenariosubtabs), {
-    scenario_veg_trend_ready(FALSE)
-    scenario_veg_trend_result(NULL)
-    error_message_rv(NULL)
-  }, ignoreInit = TRUE)
-
-  observeEvent(input$generate_veg_trend, {
-    scenario_veg_trend_ready(FALSE)
-    scenario_veg_trend_result(NULL)
-    error_message_rv(NULL)
-
-    tryCatch({
-      res <- plot_vegetation_trend(df = scenario_ndvi_data())
-      scenario_veg_trend_result(res)
-      scenario_veg_trend_ready(TRUE)
-      error_message_rv(NULL)
-    }, error = function(e) {
-      scenario_veg_trend_ready(FALSE)
-      scenario_veg_trend_result(NULL)
-      error_message_rv(e$message)
-      showNotification(HTML("The figure cannot be generated due to missing data.
-       Please contact us at
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
-                       type = "error", duration = 6)
-      message("Error generating Vegetation Trend: ", e$message)
-    })
-  })
 
   # ---------------------------------------------------------------------------------------------------
   # SCENARIO EXPLORER: RAINY SEASON ONSET

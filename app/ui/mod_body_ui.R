@@ -340,20 +340,6 @@ mod_body_ui <- function(id) {
             )
           ),
           tabPanel(
-            title = "Seasonal Vegetation Cycle",
-            value = "ScenarioSeasonalVegetationCycle",
-            div(class="tab-pane-explain",
-                span("The climatological baseline — expected seasonal NDVI curve for each land cover class averaged across available years."),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
-            conditionalPanel(
-              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioSeasonalVegetationCycle'",
-              div(class="plot-container", uiOutput("scenario_seasonal_cycle_container"))
-            ),
-            mod_busy_spinner_ui("busy_spinner")
-          ),
-          tabPanel(
             title = "Land Cover Productivity",
             value = "ScenarioLandCoverProductivity",
             mod_busy_spinner_ui("busy_spinner"),
@@ -387,20 +373,6 @@ mod_body_ui <- function(id) {
                 uiOutput("agri_callout"),
                 uiOutput("scenario_agri_container")
               )
-            )
-          ),
-          tabPanel(
-            title = "Vegetation Trend",
-            value = "ScenarioVegetationTrend",
-            div(class="tab-pane-explain",
-                span("Long-term annual NDVI trend per land cover class across 2019\u20132025, with statistical significance (Seasonal Mann-Kendall test)."),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
-            mod_busy_spinner_ui("busy_spinner"),
-            conditionalPanel(
-              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioVegetationTrend'",
-              div(class="plot-container", uiOutput("scenario_veg_trend_container"))
             )
           ),
           tabPanel(
