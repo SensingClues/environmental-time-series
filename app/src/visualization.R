@@ -664,13 +664,15 @@ ndvi_anomaly_help_tooltip_text <- function() {
 }
 
 # Shiny UI: tags$h4 title above plotlyOutput.
-ndvi_anomaly_titles_ui <- function(resolution = NULL) {
+ndvi_anomaly_titles_ui <- function(resolution = NULL, land_cover_class = NULL) {
   res_suffix <- ndvi_resolution_title_suffix(resolution)
+  lc_suffix  <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    paste0(" — ", gsub("_", " ", land_cover_class)) else ""
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
       class = "ndvi-anomaly-title-h4",
-      paste0("NDVI time series", res_suffix)
+      paste0("NDVI time series", lc_suffix, res_suffix)
     )
   )
 }
@@ -752,11 +754,15 @@ ndvi_insight_main_class <- function(col) {
 }
 
 #' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
-ndvi_insight_wilcox_card_ui <- function(stats) {
+ndvi_insight_wilcox_card_ui <- function(stats, land_cover_class = NULL) {
   if (is.null(stats)) return(NULL)
   p <- stats$wilcox_p
   med <- stats$wilcox_median
-  plain_text <- "Vegetation health this year is within the expected range for this area."
+  lc_label <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    gsub("_", " ", land_cover_class) else NULL
+  subject <- if (!is.null(lc_label)) paste0(lc_label, " NDVI") else "Vegetation health"
+  area_phrase <- if (!is.null(lc_label)) paste0("for ", lc_label, " in this area") else "for this area"
+  plain_text <- paste0(subject, " this year is within the expected range ", area_phrase, ".")
   if (is.na(p)) {
     main <- "Not enough data for this summary"
     col <- "#555555"
@@ -766,12 +772,12 @@ ndvi_insight_wilcox_card_ui <- function(stats) {
     main <- "Above normal vegetation"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- "Vegetation health this year is notably better than usual."
+    plain_text <- paste0(subject, " this year is notably better than usual.")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
     main <- "Below normal vegetation"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- "Vegetation health this year is notably worse than usual - this may indicate drought, land degradation, or other stress."
+    plain_text <- paste0(subject, " this year is notably worse than usual - this may indicate drought, land degradation, or other stress.")
   } else {
     main <- "No significant difference from normal"
     col <- "#555555"
@@ -801,11 +807,13 @@ ndvi_insight_wilcox_card_ui <- function(stats) {
 }
 
 #' Shiny UI: Long-Term Trend card (Seasonal Mann–Kendall + Sen slope sign).
-ndvi_insight_smk_card_ui <- function(stats, source_label = NULL, year_range_label = NULL) {
+ndvi_insight_smk_card_ui <- function(stats, source_label = NULL, year_range_label = NULL, land_cover_class = NULL) {
   if (is.null(stats)) return(NULL)
   p <- stats$smk_p
   slope <- stats$sen_slope
   n_m <- stats$smk_n_months
+  lc_label <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    gsub("_", " ", land_cover_class) else NULL
   source_label <- if (!is.null(source_label) && nzchar(source_label)) source_label else "the selected data source"
   year_phrase <- if (!is.null(year_range_label) && nzchar(year_range_label)) {
     paste0(" over ", year_range_label)
@@ -815,7 +823,8 @@ ndvi_insight_smk_card_ui <- function(stats, source_label = NULL, year_range_labe
   modis_hint <- if (!identical(source_label, "MODIS")) " Switch to MODIS for a longer-term view." else ""
   if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
   smk_min_months <- 60L
-  plain_text <- paste0("Vegetation health has been broadly consistent", year_phrase, ".", modis_hint)
+  subject <- if (!is.null(lc_label)) paste0(lc_label, " vegetation health") else "Vegetation health"
+  plain_text <- paste0(subject, " has been broadly consistent", year_phrase, ".", modis_hint)
   if (!is.na(n_m) && n_m < smk_min_months) {
     main <- "Long-term trend not shown (insufficient series length)"
     col <- "#555555"
@@ -840,13 +849,13 @@ ndvi_insight_smk_card_ui <- function(stats, source_label = NULL, year_range_labe
     main <- "Significant increasing trend"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- paste0("Vegetation health has been improving over time", year_phrase,
+    plain_text <- paste0(subject, " has been improving over time", year_phrase,
                          " - a positive sign for this landscape.")
   } else if (p < 0.05 && slope < 0) {
     main <- "Significant decreasing trend"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- paste0("Vegetation health has been declining over time", year_phrase,
+    plain_text <- paste0(subject, " has been declining over time", year_phrase,
                          " - this may indicate long-term degradation and warrants closer monitoring.")
   } else {
     main <- "No significant long-term trend"
@@ -889,15 +898,17 @@ ndvi_monthly_year_span_label <- function(monthly_df) {
 
 #' Interactive NDVI time series vs training climatology and historic range (plotly).
 #' Titles with help icon: use ndvi_anomaly_titles_ui() in Shiny above plotlyOutput.
-plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
+plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, land_cover_class = NULL) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
 
   train_yr <- ndvi_monthly_year_span_label(train_monthly)
   test_yr <- ndvi_monthly_year_span_label(test_monthly)
-  name_ribbon <- if (nzchar(train_yr)) paste0("NDVI historic range (", train_yr, ")") else "NDVI historic range"
+  lc_label <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    paste0(" — ", gsub("_", " ", land_cover_class)) else ""
+  name_ribbon  <- if (nzchar(train_yr)) paste0("NDVI historic range (", train_yr, ")") else "NDVI historic range"
   name_current <- if (nzchar(test_yr)) paste0("Current NDVI (", test_yr, ")") else "Current NDVI"
-  name_clim <- if (nzchar(train_yr)) {
+  name_clim    <- if (nzchar(train_yr)) {
     paste0("Historical monthly average (", train_yr, ")")
   } else {
     "Historical monthly average"

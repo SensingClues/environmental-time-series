@@ -905,7 +905,7 @@ server <- function(input, output, session) {
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
       div(
         class = "image-fill top-center ndvi-ts-plot-stack",
-        ndvi_anomaly_titles_ui(input$resolution),
+        ndvi_anomaly_titles_ui(input$resolution, land_cover_class = input$ndvi_ts_lc_class),
         plotlyOutput("ndvi_ts_plot_output", height = "550px"),
         height = "auto"
       )
@@ -919,9 +919,9 @@ server <- function(input, output, session) {
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
       return(NULL)
     }
-    ndvi_insight_wilcox_card_ui(s)
+    ndvi_insight_wilcox_card_ui(s, land_cover_class = input$ndvi_ts_lc_class)
   })
-  
+
   output$smk_card <- renderUI({
     s <- ndvi_ts_stats()
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) {
@@ -929,8 +929,9 @@ server <- function(input, output, session) {
     }
     ndvi_insight_smk_card_ui(
       s,
-      source_label = ndvi_source_label(input$resolution),
-      year_range_label = ndvi_year_range_label(input$country, input$resolution)
+      source_label     = ndvi_source_label(input$resolution),
+      year_range_label = ndvi_year_range_label(input$country, input$resolution),
+      land_cover_class = input$ndvi_ts_lc_class
     )
   })
 
@@ -1046,13 +1047,19 @@ server <- function(input, output, session) {
     )
   })
 
-  # Clear the image when switching tabs or subtabs
+  # Clear the image when switching tabs, subtabs, or land cover class
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_ts_ready(FALSE)
     error_message_rv(NULL)
     ndvi_ts_plot_obj(NULL)
     ndvi_ts_stats(NULL)
   })
+
+  observeEvent(input$ndvi_ts_lc_class, {
+    ndvi_ts_ready(FALSE)
+    ndvi_ts_plot_obj(NULL)
+    ndvi_ts_stats(NULL)
+  }, ignoreInit = TRUE)
   
   # Observe the Generate Figure button
   observeEvent(input$generate_ndvi_ts_figures, {
@@ -1080,15 +1087,19 @@ server <- function(input, output, session) {
         dir.create(figures_dir, recursive = TRUE)
       }
       
+      lc_class <- if (!is.null(input$ndvi_ts_lc_class) && nzchar(input$ndvi_ts_lc_class))
+        input$ndvi_ts_lc_class else NULL
+
       ndvi_result <- generate_timeseries(
-        country_name    = country_name,
-        resolution      = resolution,
-        end_year        = end_year,
-        end_month       = end_month,
-        figures_dir     = figures_dir,
-        data_dir        = data_dir,
-        return_plot     = TRUE,
-        figure_filename = NULL
+        country_name     = country_name,
+        resolution       = resolution,
+        end_year         = end_year,
+        end_month        = end_month,
+        figures_dir      = figures_dir,
+        data_dir         = data_dir,
+        return_plot      = TRUE,
+        figure_filename  = NULL,
+        land_cover_class = lc_class
       )
       
       ndvi_ts_ready(TRUE)

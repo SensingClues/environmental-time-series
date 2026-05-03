@@ -7,7 +7,8 @@
 generate_timeseries <- function(country_name = NULL, resolution = NULL,
                                 end_year = NULL, end_month = NULL,
                                 figures_dir = NULL, data_dir = NULL,
-                                return_plot = FALSE, figure_filename = NULL
+                                return_plot = FALSE, figure_filename = NULL,
+                                land_cover_class = NULL
 ) {
   
   ### Set paths and define parameters
@@ -62,16 +63,35 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
                                     projection = "EPSG:4326", dates = train_files_df$dates,
                                     aoi_proj = aoi_proj)
   
+  ### Apply land cover mask if requested
+  use_lc <- !is.null(land_cover_class) && nzchar(land_cover_class)
+  if (use_lc) {
+    lulc_path <- file.path(data_dir, "LandUse", country_name, "S2_10m_LULC_2023")
+    lulc_files <- get_filenames(filepath = lulc_path, data_type = "LandUseVector",
+                                file_extension = ".geojson", country_name = country_name)
+    lc_file <- lulc_files[grepl(land_cover_class, lulc_files)][1]
+    if (is.na(lc_file) || !nzchar(lc_file))
+      stop("No LULC GeoJSON found for class: ", land_cover_class)
+    land_use_lc <- get_aoi_vector(aoi_files = lc_file, aoi_path = lulc_path,
+                                  projection = "EPSG:4326")
+    test_ndvi_msk  <- terra::mask(test_ndvi_msk,  land_use_lc)
+    train_ndvi_msk <- terra::mask(train_ndvi_msk, land_use_lc)
+  }
+
   ### Calculate mean NDVI for each month
-  # Extract raster layers for each date
-  # and store in dataframe
-  test_ndvi_df <- get_ndvi_df(ndvi_rast = test_ndvi_msk, dates = test_files_df$dates) 
-  train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates) 
-  
+  if (use_lc) {
+    test_ndvi_df  <- get_ndvi_global_means_df(ndvi_rast = test_ndvi_msk,  dates = test_files_df$dates)
+    train_ndvi_df <- get_ndvi_global_means_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
+  } else {
+    test_ndvi_df  <- get_ndvi_df(ndvi_rast = test_ndvi_msk,  dates = test_files_df$dates)
+    train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
+  }
+
   ## Interactive plotly: NDVI vs climatology + historic range + monthly anomalies
   ndvi_ts_plot <- plot_ndvi_anomaly(
-    train_ndvi_df = train_ndvi_df,
-    test_ndvi_df  = test_ndvi_df
+    train_ndvi_df    = train_ndvi_df,
+    test_ndvi_df     = test_ndvi_df,
+    land_cover_class = if (use_lc) land_cover_class else NULL
   )
   
   if (isTRUE(return_plot)) {

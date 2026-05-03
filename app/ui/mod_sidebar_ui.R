@@ -67,10 +67,23 @@ mod_sidebar_ui <- function(id) {
                                 "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"))
         ),
     
-    # NDVI Time Series page-specific button (specific to be able to link output generation to button press)
+    # NDVI Time Series page-specific selector and button
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
-                     div(actionButton("generate_ndvi_ts_figures", "Generate Figure", class = "action_button"))
-                     ),
+                     div(
+                       selectInput("ndvi_ts_lc_class", "Filter by land cover",
+                                   choices = c(
+                                     "Overall (all land cover)" = "",
+                                     "Crops"               = "Crops",
+                                     "Rangeland"           = "Rangeland",
+                                     "Water"               = "Water",
+                                     "Trees"               = "Trees",
+                                     "Flooded vegetation"  = "Flooded_vegetation",
+                                     "Built area"          = "Built_Area",
+                                     "Bare ground"         = "Bare_ground"
+                                   ),
+                                   selected = ""),
+                       actionButton("generate_ndvi_ts_figures", "Generate Figure", class = "action_button")
+                     )),
     
     # NDVI Land Cover Explorer page-specific selector and button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'",
