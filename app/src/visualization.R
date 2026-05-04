@@ -89,13 +89,13 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
 #' @noRd
 land_cover_class_colors <- function() {
   c(
-    Bare_ground        = "#EDE9E4",
-    Built_Area         = "#ED022A",
-    Crops              = "#FFDB5C",
-    Flooded_vegetation = "#87D19E",
-    Rangeland          = "#A7D282",
-    Trees              = "#358221",
-    Water              = "#1A5BAB"
+    Bare_ground        = "#A1887F",
+    Built_Area         = "#78909C",
+    Crops              = "#F9A825",
+    Flooded_vegetation = "#00897B",
+    Rangeland          = "#8BC34A",
+    Trees              = "#2E7D32",
+    Water              = "#1565C0"
   )
 }
 

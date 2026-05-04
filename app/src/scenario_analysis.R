@@ -132,15 +132,7 @@ load_ndvi_per_class <- function(year, region, resolution, data_dir, lulc_path) {
 # --- Sub-tab 3: Land Cover Productivity ---
 # df: pre-loaded data frame (all years, all classes) from the server shared reactive
 
-.lc_colors <- c(
-  Trees              = "#27500A",
-  Rangeland          = "#1D9E75",
-  Crops              = "#EF9F27",
-  Flooded_vegetation = "#378ADD",
-  Bare_ground        = "#888780",
-  Built_Area         = "#D85A30",
-  Water              = "#534AB7"
-)
+.lc_colors <- land_cover_class_colors()
 
 .format_lc <- function(x) gsub("_", " ", x)
 
