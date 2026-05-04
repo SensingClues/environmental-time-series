@@ -350,6 +350,16 @@ mod_body_ui <- function(id) {
             )
           ),
           tabPanel(
+            title = "Anomaly Resilience",
+            value = "ScenarioAnomalyResilience",
+            div(class="tab-pane-explain"),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
+              div(class="plot-container", uiOutput("scenario_anomaly_container"))
+            )
+          ),
+          tabPanel(
             title = "Agricultural Monitoring",
             value = "ScenarioAgriculturalMonitoring",
             mod_busy_spinner_ui("busy_spinner"),
@@ -359,16 +369,6 @@ mod_body_ui <- function(id) {
                 uiOutput("agri_callout"),
                 uiOutput("scenario_agri_container")
               )
-            )
-          ),
-          tabPanel(
-            title = "Anomaly Resilience",
-            value = "ScenarioAnomalyResilience",
-            div(class="tab-pane-explain"),
-            mod_busy_spinner_ui("busy_spinner"),
-            conditionalPanel(
-              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
-              div(class="plot-container", uiOutput("scenario_anomaly_container"))
             )
           )
         )
