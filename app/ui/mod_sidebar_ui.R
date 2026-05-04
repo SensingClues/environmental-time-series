@@ -61,7 +61,7 @@ mod_sidebar_ui <- function(id) {
         conditionalPanel(
           condition = "!(
             (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience' || input.scenariosubtabs == 'ScenarioLandCoverProductivity')) ||
-            (input.tabs == 'NDVIexplorerTab' && (input.ndvisubtabs == 'NDVItsTab' || input.ndvisubtabs == 'LCexplorerTab')) ||
+            (input.tabs == 'NDVIexplorerTab' && (input.ndvisubtabs == 'NDVItsTab' || input.ndvisubtabs == 'LCexplorerTab' || (input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'annual'))) ||
             (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries')
           )",
           shinyjs::disabled(selectInput("month", "Select month",
