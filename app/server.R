@@ -175,25 +175,13 @@ server <- function(input, output, session) {
     }
 
     year_choices <- stats::setNames(as.character(years), as.character(years))
-    drought_year <- selected_available_year(years, input$scenario_drought_year)
     anomaly_year <- selected_available_year(years, input$scenario_anomaly_year)
-
-    ref_years <- intersect(as.character(input$scenario_drought_ref_years), as.character(years))
-    if (length(ref_years) == 0L) {
-      ref_years <- as.character(years)
-    }
 
     compare_year <- input$scenario_productivity_compare_year
     if (is.null(compare_year) || !compare_year %in% as.character(years)) {
       compare_year <- ""
     }
 
-    updateSelectInput(session, "scenario_drought_year",
-                      choices = year_choices,
-                      selected = drought_year)
-    updateCheckboxGroupInput(session, "scenario_drought_ref_years",
-                             choices = year_choices,
-                             selected = ref_years)
     updateSelectInput(session, "scenario_productivity_compare_year",
                       choices = c("None" = "", year_choices),
                       selected = compare_year)
@@ -234,108 +222,6 @@ server <- function(input, output, session) {
     df
   })
 
-  # ---------------------------------------------------------------------------------------------------
-  # SCENARIO EXPLORER: DROUGHT IMPACT
-  # ---------------------------------------------------------------------------------------------------
-  scenario_drought_ready  <- reactiveVal(FALSE)
-  scenario_drought_result <- reactiveVal(NULL)
-
-  output$scenario_drought_plot_output <- plotly::renderPlotly({
-    res <- scenario_drought_result()
-    shiny::req(res)
-    res$plot
-  })
-
-  output$scenario_drought_container <- renderUI({
-    if (is.null(error_message_rv()) && isTRUE(scenario_drought_ready())) {
-      res <- scenario_drought_result()
-      shiny::req(res)
-
-      severity_color <- switch(res$severity_label,
-        "Normal"           = "#4CAF50",
-        "Mild stress"      = "#FFC107",
-        "Moderate drought" = "#FF9800",
-        "Severe drought"   = "#F44336",
-        "#9E9E9E"
-      )
-
-      tagList(
-        fluidRow(
-          column(6,
-            div(style = paste0(
-                  "background:", severity_color, "22;",
-                  "border-left: 4px solid ", severity_color, ";",
-                  "padding: 12px; border-radius: 4px; margin-bottom: 8px;"),
-              tags$strong("Drought Severity Score"),
-              tags$br(),
-              tags$span(
-                style = paste0("font-size:1.3em; color:", severity_color, "; font-weight:bold;"),
-                res$severity_label),
-              tags$br(),
-              tags$small(paste0(
-                "Mean deficit of Rangeland, Crops & Trees: ",
-                res$severity_score))
-            )
-          ),
-          column(6,
-            div(style = paste0(
-                  "background: #E3F2FD22;",
-                  "border-left: 4px solid #1565C0;",
-                  "padding: 12px; border-radius: 4px; margin-bottom: 8px;"),
-              tags$strong("Multi-class Agreement"),
-              tags$br(),
-              tags$span(
-                style = "font-size:1.3em; color:#1565C0; font-weight:bold;",
-                paste0(res$multi_class_agreement, " of ",
-                       res$n_non_flood_classes, " classes below average")),
-              tags$br(),
-              tags$small(paste0("Worst month: ", month.name[res$worst_agreement_month]))
-            )
-          )
-        ),
-        div(class = "image-fill top-center",
-            plotlyOutput("scenario_drought_plot_output", height = "700px"),
-            height = "auto")
-      )
-    } else NULL
-  })
-
-  observeEvent(list(input$tabs, input$scenariosubtabs), {
-    scenario_drought_ready(FALSE)
-    scenario_drought_result(NULL)
-    error_message_rv(NULL)
-  }, ignoreInit = TRUE)
-
-  observeEvent(input$generate_drought_impact, {
-    scenario_drought_ready(FALSE)
-    scenario_drought_result(NULL)
-    error_message_rv(NULL)
-
-    comp_year <- as.integer(input$scenario_drought_year)
-    ref_years <- as.integer(input$scenario_drought_ref_years)
-
-    tryCatch({
-      res <- plot_drought_impact(
-        df              = scenario_ndvi_data(),
-        comparison_year = comp_year,
-        reference_years = ref_years
-      )
-      scenario_drought_result(res)
-      scenario_drought_ready(TRUE)
-      error_message_rv(NULL)
-    }, error = function(e) {
-      scenario_drought_ready(FALSE)
-      scenario_drought_result(NULL)
-      error_message_rv(e$message)
-      showNotification(HTML("The figure cannot be generated due to missing data.
-       Please contact us at
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
-                       type = "error", duration = 6)
-      message("Error generating Drought Impact: ", e$message)
-    })
-  })
-
-  
   # ---------------------------------------------------------------------------------------------------
   # SCENARIO EXPLORER: LAND COVER PRODUCTIVITY
   # ---------------------------------------------------------------------------------------------------
@@ -513,68 +399,6 @@ server <- function(input, output, session) {
     })
   })
 
-
-  # ---------------------------------------------------------------------------------------------------
-  # SCENARIO EXPLORER: RAINY SEASON ONSET
-  # ---------------------------------------------------------------------------------------------------
-  scenario_onset_ready  <- reactiveVal(FALSE)
-  scenario_onset_result <- reactiveVal(NULL)
-
-  output$scenario_onset_lines_output <- plotly::renderPlotly({
-    res <- scenario_onset_result(); shiny::req(res); res$lines
-  })
-  output$scenario_onset_bar_output <- plotly::renderPlotly({
-    res <- scenario_onset_result(); shiny::req(res); res$bar
-  })
-  output$scenario_onset_table_output <- renderTable({
-    res <- scenario_onset_result(); shiny::req(res); res$onset_table
-  }, striped = TRUE, hover = TRUE, bordered = TRUE)
-
-  output$scenario_onset_container <- renderUI({
-    if (is.null(error_message_rv()) && isTRUE(scenario_onset_ready())) {
-      tagList(
-        fluidRow(
-          column(8, plotlyOutput("scenario_onset_lines_output", height = "450px")),
-          column(4, plotlyOutput("scenario_onset_bar_output",   height = "450px"))
-        ),
-        br(),
-        tableOutput("scenario_onset_table_output")
-      )
-    } else NULL
-  })
-
-  observeEvent(list(input$tabs, input$scenariosubtabs), {
-    scenario_onset_ready(FALSE)
-    scenario_onset_result(NULL)
-    error_message_rv(NULL)
-  }, ignoreInit = TRUE)
-
-  observeEvent(input$generate_rainy_onset, {
-    scenario_onset_ready(FALSE)
-    scenario_onset_result(NULL)
-    error_message_rv(NULL)
-
-    onset_class <- input$scenario_onset_class
-
-    tryCatch({
-      res <- plot_rainy_season_onset(
-        df             = scenario_ndvi_data(),
-        selected_class = onset_class
-      )
-      scenario_onset_result(res)
-      scenario_onset_ready(TRUE)
-      error_message_rv(NULL)
-    }, error = function(e) {
-      scenario_onset_ready(FALSE)
-      scenario_onset_result(NULL)
-      error_message_rv(e$message)
-      showNotification(HTML("The figure cannot be generated due to missing data.
-       Please contact us at
-       <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."),
-                       type = "error", duration = 6)
-      message("Error generating Rainy Season Onset: ", e$message)
-    })
-  })
 
   # ---------------------------------------------------------------------------------------------------
   # SCENARIO EXPLORER: ANOMALY RESILIENCE

@@ -133,21 +133,6 @@ mod_sidebar_ui <- function(id) {
                      )
     ,
     
-    # Scenario Explorer: Drought Impact
-    conditionalPanel(
-      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioDroughtImpact'",
-      div(
-        selectInput("scenario_drought_year", "Comparison year",
-                    choices = NULL, selected = NULL),
-        checkboxGroupInput(
-          "scenario_drought_ref_years", "Reference period",
-          choices  = NULL,
-          selected = NULL
-        ),
-        actionButton("generate_drought_impact", "Generate Figure", class = "action_button")
-      )
-    ),
-
     # Scenario Explorer: Land Cover Productivity
     conditionalPanel(
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
@@ -166,16 +151,6 @@ mod_sidebar_ui <- function(id) {
                     choices  = c("Crops", "Rangeland"),
                     selected = "Crops"),
         actionButton("generate_agri_monitoring", "Generate Figure", class = "action_button")
-      )
-    ),
-
-    # Scenario Explorer: Rainy Season Onset
-    conditionalPanel(
-      condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioRainySeasonOnset'",
-      div(
-        selectInput("scenario_onset_class", "Select class",
-                    choices = c("Crops", "Rangeland"), selected = "Crops"),
-        actionButton("generate_rainy_onset", "Generate Figure", class = "action_button")
       )
     ),
 

@@ -326,20 +326,6 @@ mod_body_ui <- function(id) {
           type = "tabs",
           
           tabPanel(
-            title = "Drought Impact",
-            value = "ScenarioDroughtImpact",
-            div(class="tab-pane-explain",
-                span("Compare a selected year against a historical baseline to see where and when NDVI deviates by land cover class."),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
-            mod_busy_spinner_ui("busy_spinner"),
-            conditionalPanel(
-              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioDroughtImpact'",
-              div(class="plot-container", uiOutput("scenario_drought_container"))
-            )
-          ),
-          tabPanel(
             title = "Land Cover Productivity",
             value = "ScenarioLandCoverProductivity",
             mod_busy_spinner_ui("busy_spinner"),
@@ -373,20 +359,6 @@ mod_body_ui <- function(id) {
                 uiOutput("agri_callout"),
                 uiOutput("scenario_agri_container")
               )
-            )
-          ),
-          tabPanel(
-            title = "Rainy Season Onset",
-            value = "ScenarioRainySeasonOnset",
-            div(class="tab-pane-explain",
-                span("Detects the month when the rainy season begins each year based on vegetation response, and tracks whether onset is shifting over time."),
-                br(), br(),
-                span("Use the sidepanel to generate a graph.")
-            ),
-            mod_busy_spinner_ui("busy_spinner"),
-            conditionalPanel(
-              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioRainySeasonOnset'",
-              div(class="plot-container", uiOutput("scenario_onset_container"))
             )
           ),
           tabPanel(
