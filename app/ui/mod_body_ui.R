@@ -116,6 +116,12 @@ mod_body_ui <- function(id) {
                     type = "tabs",
 
                     tabPanel(
+                      title = "Info",
+                      value = "BurnedAreaInfoTab",
+                      div(class="tab-explain",
+                      ),
+                    ),
+                    tabPanel(
                       title = "Burned Area Time Series",
                       value = "BAtimeseries",
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
