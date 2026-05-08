@@ -1824,7 +1824,6 @@ build_ba_monthly_leaflet <- function(geojson_path = NULL, data_dir = NULL,
 # Returns a list: map (leaflet), years_label (character), n_years (integer).
 build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = NULL) {
   data_path  <- file.path(data_dir, "BurnedArea", country, paste0(resolution, "m_resolution"))
-  cache_dir  <- file.path(data_dir, ".cache")
   cache_path <- file.path(cache_dir, paste0(country, "_", resolution, "_frp.rds"))
 
   aoi_files <- list.files(file.path(data_dir, "AoI"),
@@ -1875,7 +1874,9 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
     polys_rp <- sf::st_transform(polys_rp, 4326)
     polys_rp <- polys_rp[!is.na(polys_rp$return_period), ]
 
-    if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE)
+    if (!dir.exists(cache_dir)) {
+      dir.create(cache_dir, recursive = TRUE)
+    }
     saveRDS(list(data = polys_rp, n_files = n_files_now,
                  n_years = n_years, years_label = years_label), cache_path)
   }
