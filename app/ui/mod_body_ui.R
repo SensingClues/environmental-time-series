@@ -43,15 +43,17 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "NDVI Time Series",
                       value = "NDVItsTab",
-                      div(class="infobox",
-                          p("
-                           The NDVI Time Series reveals the seasonal dynamics of vegetation health within the selected region over a 12-month period. 
-                           It highlights key trends and variations, offering insights into ecological patterns and changes. 
-                           Higher NDVI values generally indicate denser, healthier vegetation, while lower values may reflect sparse growth, environmental stress, or land cover changes driven by factors such as drought, deforestation, or agricultural activity."),
-                      ),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
                                        div(
                                          class = "plot-container",
+                                         div(class="infobox",
+                                             p("
+                           The NDVI Time Series reveals the seasonal dynamics of vegetation health within the selected region over a 12-month period.
+                           It highlights key trends and variations, offering insights into ecological patterns and changes.
+                           Higher NDVI values generally indicate denser, healthier vegetation, while lower values may reflect sparse growth, environmental stress, or land cover changes driven by factors such as drought, deforestation, or agricultural activity."),
+                                         ),
+                                         # Busy Spinner always available for this tab
+                                         mod_busy_spinner_ui("busy_spinner"),
                                          span("Use the sidepanel to generate a graph."),
                                          uiOutput("ndvi_ts_plot_container"),
                                          div(
@@ -63,23 +65,22 @@ mod_body_ui <- function(id) {
                                            )
                                          )
                                        )),
-                      # Busy Spinner always available for this tab
-                      mod_busy_spinner_ui("busy_spinner"),
                     ),
 
                     tabPanel(
                       title = "NDVI Land Cover Explorer",
                       value = "LCexplorerTab",
-                      div(class="infobox",
-                          p("
-                               The NDVI Land Cover Explorer offers insights into average NDVI values for specific land cover types within the area of interest. 
-                               Users can track NDVI fluctuations throughout the year, observing peaks during growing seasons and declines during dry or dormant periods. 
-                               This visualisation is ideal for agricultural monitoring, ecosystem assessments, and climate impact studies."),
-                      ),
-                      # Busy Spinner always available for this tab
-                      mod_busy_spinner_ui("busy_spinner"),
+
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
                                        div(class="plot-container",
+                                           div(class="infobox",
+                                               p("
+                               The NDVI Land Cover Explorer offers insights into average NDVI values for specific land cover types within the area of interest.
+                               Users can track NDVI fluctuations throughout the year, observing peaks during growing seasons and declines during dry or dormant periods.
+                               This visualisation is ideal for agricultural monitoring, ecosystem assessments, and climate impact studies."),
+                                           ),
+                                           # Busy Spinner always available for this tab
+                                           mod_busy_spinner_ui("busy_spinner"),
                                            span("Use the sidepanel to generate a graph."),
                                            uiOutput("lc_plot_container"))
                       ),
@@ -88,16 +89,17 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "NDVI Delta Map",
                       value = "NDVIdeltaTab",
-                      div(class="infobox",
-                          p("
-                          The NDVI Delta Map visualises NDVI values across the selected region, with each pixel representing the value at a specific geographic location. 
-                          This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month. 
-                          The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
-                      ),
-                      # Busy Spinner always available for this tab
-                      mod_busy_spinner_ui("busy_spinner"),
+
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'", # Show this figure only when on this tab/subtab combination
                                        div(class="plot-container",
+                                           div(class="infobox",
+                                               p("
+                          The NDVI Delta Map visualises NDVI values across the selected region, with each pixel representing the value at a specific geographic location.
+                          This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month.
+                          The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
+                                           ),
+                                           # Busy Spinner always available for this tab
+                                           mod_busy_spinner_ui("busy_spinner"),
                                            span("Use the sidepanel to generate a graph."),
                                            uiOutput("dm_plot_container"))
                       ),
@@ -116,8 +118,6 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "Burned Area Time Series",
                       value = "BAtimeseries",
-                      # Busy Spinner always available for this tab
-                      mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
                                        div(class = "plot-container",
 
@@ -137,6 +137,9 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("This chart shows how much land burned each month over the year. The shaded band shows the typical range based on historical data. Use it to see whether this year's fire activity is higher or lower than usual.")
                                              ),
+                                             span("Use the sidepanel to generate a graph."),
+                                             # Busy Spinner always available for this tab
+                                             mod_busy_spinner_ui("busy_spinner"),
                                              uiOutput("ba_plot_container")
                                            ),
 
@@ -146,10 +149,11 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("This chart shows when fires were detected during the fire season, using the exact day each area burned. Peaks indicate days with the most fire activity. Compare years to see whether fire seasons are shifting earlier or later, or becoming more intense.")
                                              ),
+                                             span("Use the sidepanel to generate a graph."),
+                                             # Busy Spinner always available for this tab
+                                             mod_busy_spinner_ui("busy_spinner"),
                                              uiOutput("ba_daily_plot_container")
                                            ),
-
-                                           span("Use the sidepanel to generate a graph."),
                                        )
                       )
                     ),
@@ -157,8 +161,6 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "Burned Area Map Explorer",
                       value = "BAmapexplorer",
-                      # Busy Spinner always available for this tab
-                      mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
                                        div(class = "plot-container",
 
@@ -178,6 +180,10 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("This map shows where fires occurred in the selected month. Each red area is a patch of land where burning was detected. In the Interactive Burned Area Map, hover over an area to see the exact date it burned. Use the Download button to save the data for use in other tools.")
                                              ),
+                                             span("Use the sidepanel to generate a graph."),
+                                             # Busy Spinner always available for this tab
+                                             mod_busy_spinner_ui("busy_spinner"),
+
                                              shinyjs::disabled(
                                                downloadButton("download_ba_geojson", "Download Burned Area GeoJSON",
                                                               class = "action_button",
@@ -200,11 +206,13 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("The fire return period shows how often each area tends to burn. A short return period (e.g. 1–2 years) means the area burns almost every year. A longer return period (e.g. 8–10 years) means fires are rare. Areas that burn frequently may indicate fire-prone vegetation or land management practices.")
                                              ),
+                                             # Busy Spinner always available for this tab
+                                             mod_busy_spinner_ui("busy_spinner"),
+
                                              uiOutput("frp_year_range_text"),
                                              leafletOutput("ba_frp_leaflet", height = "450px")
                                            ),
 
-                                           span("Use the sidepanel to generate a graph."),
                                        )
                       )
                     )
