@@ -50,6 +50,7 @@ language_table <- data.frame(lang_short = languages,
 # Set input/output directories
 figures_dir <- file.path("www/figures")
 data_dir <- file.path("/home/timeseries")
+cache_dir <- file.path("www/.cache")
 
 # Set test folder structure (uncomment when working locally with a different folder structure)
 #test_dir <- file.path("www/data")

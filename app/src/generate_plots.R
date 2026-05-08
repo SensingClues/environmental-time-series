@@ -163,10 +163,8 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
   if (return_plot == TRUE) {
     # Fast path: read one file at a time, skip pixel-level raster→dataframe conversion.
     # Cache train summary (historical data changes only when new files are added).
-    cache_dir  <- file.path(data_dir, ".cache")
     cache_path <- file.path(cache_dir,
                             paste0("ba_ts_", country_name, "_", resolution, "_train.rds"))
-    dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
 
     if (file.exists(cache_path)) {
       cached <- readRDS(cache_path)
@@ -178,6 +176,10 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
         saveRDS(list(data = train_ba_summary, n_files = nrow(train_files_df)), cache_path)
       }
     } else {
+      if (!dir.exists(cache_dir)) {
+        dir.create(cache_dir, recursive = TRUE)
+      }
+
       train_raw        <- get_ba_summary_fast(train_files_df, data_path, aoi_proj)
       train_ba_summary <- get_summary_ba_df(ba_df = train_raw)
       saveRDS(list(data = train_ba_summary, n_files = nrow(train_files_df)), cache_path)
