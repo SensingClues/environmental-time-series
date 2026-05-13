@@ -1,6 +1,7 @@
 library(dplyr)
 library(future)
 library(ggplot2)
+library(htmltools)
 library(ipc)
 library(jsonlite)
 library(leaflet)
@@ -8,6 +9,7 @@ library(leaflet.extras2)
 library(lubridate)
 library(promises)
 library(raster)
+library(RColorBrewer)
 library(shiny)
 library(shinybusy)
 library(shiny.i18n) # for multilanguage
@@ -48,6 +50,7 @@ language_table <- data.frame(lang_short = languages,
 # Set input/output directories
 figures_dir <- file.path("www/figures")
 data_dir <- file.path("/home/timeseries")
+cache_dir <- file.path("www/.cache")
 
 # Set test folder structure (uncomment when working locally with a different folder structure)
 #test_dir <- file.path("www/data")

@@ -78,10 +78,20 @@ mod_sidebar_ui <- function(id) {
                      div(actionButton("generate_ndvi_delta_plot", "Generate Figures", class = "action_button"))
                      ),
     
-    # Burned Area Time Series page-specific button (specific to be able to link output generation to button press)
-    conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
+    # Burned Area Time Series — Seasonal Overview
+    conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'seasonal'",
                      div(actionButton("generate_ba_ts_figures", "Generate Figure", class = "action_button"))
-                     ),
+    ),
+
+    # Burned Area Time Series — Daily Activity
+    conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'daily'",
+                     div(
+                       uiOutput("ba_daily_year_selector"),
+                       sliderInput("ba_season_months", "Fire season (months)",
+                                   min = 1, max = 12, value = c(6, 11), step = 1),
+                       actionButton("generate_ba_daily_figures", "Generate Figure", class = "action_button")
+                     )
+    ),
     
     # Burned Area Explorer page-specific button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
