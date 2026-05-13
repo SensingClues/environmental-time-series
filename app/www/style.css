@@ -213,35 +213,13 @@ textarea::-ms-input-placeholder {
 }
 
 
-/* Niet-actieve tabs */
-.navTabs > li > a {
-  color: #6b7280;          /* bv. grijs */
-}
 
-/* Actieve tab */
-.navTabs > li.active > a,
-.navTabs > li.active > a:focus,
-.navTabs > li.active > a:hover {
-  color: #black;
-  background-color: transparent;
-}
-
-/* Hover-state als je wilt */
-.navTabs > li > a:hover {
-  color: #6b7280;
-}
-
-.tab-panes .title {color:#6b7280;
+.tab-panes .title {
+  color:#6b7280;
 }
 
 
 /* Content (right panel) */
-.content .tabsWrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
 .content {
   flex: 1;
   display: flex;
@@ -266,11 +244,28 @@ textarea::-ms-input-placeholder {
   min-height: 0;
 }
 
-/* Annotation copy above plots — same gray as inactive tab labels (#6b7280, see .nav-tabs below) */
-.content .tab-explain,
-.content .tab-pane-explain {
+.content .tab-explain {
   margin: 6px 10px;
   color: #6b7280;
+}
+
+/* Annotation copy above plots — same gray as inactive tab labels (#6b7280, see .nav-tabs below) */
+.content .infobox {
+  background:#fff3e0;
+  color: #6b7280;
+  border-left:4px solid #E25822;
+  border-radius:4px;
+  font-size:0.93em;
+}
+
+.content .infobox p {
+  padding: 6px 10px;
+  font-size:0.93em;
+}
+
+.content .nav-tabs > li.active {
+  font-weight: bold;
+  color: #fff;
 }
 
 /* Shiny tabsetPanel: inactive tab text (e.g. "NDVI Land Cover Explorer") — keep in sync with copy above */
@@ -283,8 +278,7 @@ textarea::-ms-input-placeholder {
 }
 
 .content .plot-container {
-  margin-top: 6px;
-  margin-bottom: 6px;
+  margin: 6px 10px;
 }
 
 .busy-spinner {
