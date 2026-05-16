@@ -23,45 +23,131 @@ mod_body_ui <- function(id) {
       tabPanel(
         title = "NDVI Explorer",
         value = "NDVIexplorerTab",
+        # What is NDVI? (collapsible)
+        tags$details(
+          id    = "ndviWhatIsNDVI",
+          class = "collapsible-section",
+          tags$summary(
+            class = "collapsible-header",
+            HTML('<span>What is NDVI?</span><i class="material-icons expand-icon">expand_more</i>')
+          ),
+          p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('ndviWhatIsNDVI');
+            if (el) {
+              var summary = el.querySelector('summary');
+              summary.addEventListener('click', function() {
+                setTimeout(function() {
+                  var icon = summary.querySelector('.expand-icon');
+                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                }, 100);
+              });
+            }
+          });"
+        )),
+
+        # Data source guidance (collapsible)
+        tags$details(
+          id    = "ndviDataSourceGuidance",
+          class = "collapsible-section",
+          tags$summary(
+            class = "collapsible-header",
+            HTML('<span>Which data source should I use?</span><i class="material-icons expand-icon">expand_more</i>')
+          ),
+          uiOutput("ndvi_data_source_guidance")
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('ndviDataSourceGuidance');
+            if (el) {
+              var summary = el.querySelector('summary');
+              summary.addEventListener('click', function() {
+                setTimeout(function() {
+                  var icon = summary.querySelector('.expand-icon');
+                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                }, 100);
+              });
+            }
+          });"
+        )),
+
+        # Guided workflow (collapsible)
+        tags$details(
+          id    = "ndviWorkflowGuide",
+          class = "collapsible-section",
+          tags$summary(
+            class = "collapsible-header",
+            HTML('<span>How to use this section</span><i class="material-icons expand-icon">expand_more</i>')
+          ),
+          tags$ol(
+            tags$li(
+              tags$strong(
+                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVItsTab\']\").tab(\'show\'); return false;',
+                       "NDVI Time Series")
+              ),
+              " — Start here to see the overall vegetation trend for your area. Check the Long-Term Trend card. If using Sentinel-2, consider switching to MODIS for a longer baseline."
+            ),
+            tags$li(
+              tags$strong(
+                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'LCexplorerTab\']\").tab(\'show\'); return false;',
+                       "NDVI Land Cover Explorer")
+              ),
+              " — Drill down by land cover class to identify which class (Trees, Crops, Rangeland etc.) is driving any trend you observed."
+            ),
+            tags$li(
+              tags$strong(
+                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVIdeltaTab\']\").tab(\'show\'); return false;',
+                       "NDVI Delta Map")
+              ),
+              " — Use the Annual Change view to see spatially where gains and losses are occurring within the project area."
+            )
+          )
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('ndviWorkflowGuide');
+            if (el) {
+              var summary = el.querySelector('summary');
+              summary.addEventListener('click', function() {
+                setTimeout(function() {
+                  var icon = summary.querySelector('.expand-icon');
+                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                }, 100);
+              });
+            }
+          });"
+        )),
 
         tabsetPanel(id   = "ndvisubtabs",
                     type = "tabs",
 
                     tabPanel(
-                      title = "Info",
-                      value = "NDVIInfoTab",
-                      div(class="tab-explain",
-                          span("
-            NDVI, or Normalised Difference Vegetation Index, is commonly used to track changes in vegetation, particularly in protected areas.
-            It is used to quantify vegetation greenness and is useful in understanding vegetation density and assessing changes in plant health.
-            NDVI values range from -1 to 1, with higher values indicating healthier vegetation, and lower values indicating stressed vegetation or barren areas like sand or snow."),
-                          br(),
-                          br(),
-                          span("In this section you will find the NDVI Time Series displaying average NDVI values per month, the NDVI Land Cover Explorer for detailed analysis by land cover class, and the NDVI Delta Map showing geospatial distributions of NDVI values by month.")
-                      ),
-                    ),
-                    tabPanel(
                       title = "NDVI Time Series",
                       value = "NDVItsTab",
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'", # Show this figure only when on this tab/subtab combination
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
                                        div(
                                          class = "plot-container",
-                                         div(class="infobox",
-                                             p("
-                           The NDVI Time Series reveals the seasonal dynamics of vegetation health within the selected region over a 12-month period.
-                           It highlights key trends and variations, offering insights into ecological patterns and changes.
-                           Higher NDVI values generally indicate denser, healthier vegetation, while lower values may reflect sparse growth, environmental stress, or land cover changes driven by factors such as drought, deforestation, or agricultural activity."),
+                                         style = "margin-left: 10px; margin-right: 10px;",
+                                         shinyWidgets::radioGroupButtons(
+                                           inputId  = "ndvi_ts_view",
+                                           label    = NULL,
+                                           choices  = c("Monthly view" = "monthly", "Annual view" = "annual"),
+                                           selected = "monthly",
+                                           size     = "sm",
+                                           status   = "default"
                                          ),
-                                         # Busy Spinner always available for this tab
-                                         mod_busy_spinner_ui("busy_spinner"),
-                                         span("Use the sidepanel to generate a graph."),
+                                         uiOutput("ndvi_ts_callout"),
+                                         uiOutput("ndvi_health_summary_card"),
+                                         uiOutput("ndvi_annual_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
                                          div(
                                            class = "ndvi-ts-insight-cards",
                                            style = "margin-top: 16px;",
                                            fluidRow(
-                                             column(6, uiOutput("wilcoxon_card")),
-                                             column(6, uiOutput("smk_card"))
+                                             column(12, uiOutput("wilcoxon_card")),
+                                             column(12, uiOutput("smk_card"))
                                            )
                                          )
                                        )),
@@ -70,39 +156,45 @@ mod_body_ui <- function(id) {
                     tabPanel(
                       title = "NDVI Land Cover Explorer",
                       value = "LCexplorerTab",
-
+                      # Busy Spinner always available for this tab
+                      mod_busy_spinner_ui("busy_spinner"),
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
                                        div(class="plot-container",
-                                           div(class="infobox",
-                                               p("
-                               The NDVI Land Cover Explorer offers insights into average NDVI values for specific land cover types within the area of interest.
-                               Users can track NDVI fluctuations throughout the year, observing peaks during growing seasons and declines during dry or dormant periods.
-                               This visualisation is ideal for agricultural monitoring, ecosystem assessments, and climate impact studies."),
-                                           ),
-                                           # Busy Spinner always available for this tab
-                                           mod_busy_spinner_ui("busy_spinner"),
-                                           span("Use the sidepanel to generate a graph."),
-                                           uiOutput("lc_plot_container"))
-                      ),
+                                           div(class = "ndvi-callout",
+                                               p("This chart shows vegetation health for each land cover type throughout the year. Each coloured line represents one type - click the legend to show or hide classes. Use the map on the right to see where each type is located.")),
+                                           uiOutput("lc_plot_container"))),
                     ),
 
                     tabPanel(
                       title = "NDVI Delta Map",
                       value = "NDVIdeltaTab",
-
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container",
-                                           div(class="infobox",
-                                               p("
-                          The NDVI Delta Map visualises NDVI values across the selected region, with each pixel representing the value at a specific geographic location.
-                          This allows users to identify spatial patterns, detect anomalies, and compare NDVI values within the Area of Interest (AoI). Users can also calculate Delta NDVI, the difference between current and historical NDVI values for the same month.
-                          The Delta NDVI Heatmap highlights areas where vegetation health has improved or worsened compared to past years."),
-                                           ),
-                                           # Busy Spinner always available for this tab
-                                           mod_busy_spinner_ui("busy_spinner"),
-                                           span("Use the sidepanel to generate a graph."),
-                                           uiOutput("dm_plot_container"))
-                      ),
+                      # Busy Spinner always available for this tab
+                      mod_busy_spinner_ui("busy_spinner"),
+                      conditionalPanel(
+                        condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'",
+                        div(
+                          class = "plot-container",
+                          shinyWidgets::radioGroupButtons(
+                            inputId  = "ndvi_delta_view",
+                            label    = NULL,
+                            choices  = c("Monthly view" = "monthly", "Annual change view" = "annual"),
+                            selected = "monthly",
+                            size     = "sm",
+                            status   = "default"
+                          ),
+                          conditionalPanel(
+                            condition = "input.ndvi_delta_view == 'monthly'",
+                            div(class = "ndvi-callout",
+                                p("This map shows how vegetation health has changed compared to the same month in previous years. Green dots = improvement. Red dots = decline. Use it to spot where conditions are changing within the study area."))
+                          ),
+                          conditionalPanel(
+                            condition = "input.ndvi_delta_view == 'annual'",
+                            div(class = "ndvi-callout",
+                                p("This map compares annual average vegetation health between two selected years. Green = vegetation gaining. Red = vegetation declining. Use it to identify long-term gains and losses across the landscape."))
+                          ),
+                          uiOutput("dm_plot_container")
+                        )
+                      )
                     ),
         )
       ),
@@ -222,6 +314,65 @@ mod_body_ui <- function(id) {
                                        )
                       )
                     )
+        )
+      )
+      ,
+      
+      # Scenario Explorer
+      tabPanel(
+        title = "Scenario Explorer",
+        value = "ScenarioExplorerTab",
+        
+        tabsetPanel(
+          id   = "scenariosubtabs",
+          type = "tabs",
+          
+          tabPanel(
+            title = "Land Cover Productivity",
+            value = "ScenarioLandCoverProductivity",
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
+              div(class="plot-container",
+                div(style = paste0(
+                      "background:#f1f8e9; border-left:4px solid #558B2F;",
+                      "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                    p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;",
+                      "How to read this chart"),
+                    tags$ul(style = "margin:0; padding-left:18px; font-size:0.91em;",
+                      tags$li(tags$strong("Left bar chart"), " — which land cover class was most productive this year. Higher bars = healthier vegetation."),
+                      tags$li(tags$strong("Right scatter plot"), " — productivity (horizontal) vs year-to-year stability (vertical). Classes in the top-right are both productive AND stable — ideal."),
+                      tags$li(tags$strong("Table"), " — exact numbers. Check the Interpretation column for what each class's data means.")
+                    ),
+                    p(style = "margin:8px 0 0 0; font-size:0.91em;",
+                      HTML("⚠️ <strong>Note:</strong> Flooded vegetation's variability is driven by water levels, not vegetation stress — interpret it differently."))
+                ),
+                uiOutput("scenario_productivity_container")
+              )
+            )
+          ),
+          tabPanel(
+            title = "Anomaly Resilience",
+            value = "ScenarioAnomalyResilience",
+            div(class="tab-pane-explain"),
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
+              div(class="plot-container", uiOutput("scenario_anomaly_container"))
+            )
+          ),
+          tabPanel(
+            title = "Agricultural Monitoring",
+            value = "ScenarioAgriculturalMonitoring",
+            mod_busy_spinner_ui("busy_spinner"),
+            conditionalPanel(
+              condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring'",
+              div(class="plot-container",
+                uiOutput("agri_callout"),
+                uiOutput("scenario_agri_container")
+              )
+            )
+          )
         )
       )
     )

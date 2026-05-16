@@ -7,78 +7,104 @@
 generate_timeseries <- function(country_name = NULL, resolution = NULL,
                                 end_year = NULL, end_month = NULL,
                                 figures_dir = NULL, data_dir = NULL,
-                                return_plot = FALSE, figure_filename = NULL
+                                return_plot = FALSE, figure_filename = NULL,
+                                land_cover_class = NULL,
+                                view = "monthly"
 ) {
-  
-  ### Set paths and define parameters
-  
-  data_type <- "NDVI"
-  
-  # Input NVDI basemaps stored in country folder. 
-  data_path <- file.path(data_dir, paste0(data_type, "/", 
-                                          country_name, "/", 
-                                          resolution, "m_resolution/"))
-  # Area of Interest (AoI) files in AoI folder
-  aoi_path <- file.path(data_dir, "AoI")
-  
-  ## define end and start date for test data
-  end_date <- as.Date(paste(end_year, end_month, 1, sep="-"))
-  start_date <- as.Date(paste(end_year, 1, 1, sep="-"))
-  
-  ### Create lists with relevant filenames.
-  # NDVI filenames
-  ndvi_files <- get_filenames(filepath = data_path, data_type = data_type, 
+
+  data_type  <- "NDVI"
+  data_path  <- file.path(data_dir, paste0(data_type, "/", country_name, "/", resolution, "m_resolution/"))
+  aoi_path   <- file.path(data_dir, "AoI")
+
+  ndvi_files <- get_filenames(filepath = data_path, data_type = data_type,
                               file_extension = ".tif", country_name = country_name)
-  
-  # AoI filenames
-  aoi_files <- get_filenames(filepath = aoi_path, data_type = "AoI", 
-                             file_extension = ".geojson", country_name = country_name)
-  
-  ### Subselect filenames according to date
-  # get NDVI filenames dataframe (includes date info)
+  aoi_files  <- get_filenames(filepath = aoi_path, data_type = "AoI",
+                              file_extension = ".geojson", country_name = country_name)
+
   files_df <- get_filename_df(ndvi_files = ndvi_files)
-  
-  # Given date selected, split file into test data and train data
-  # test filenames
-  test_files_df <- filter(files_df, between(dates, start_date, end_date))
-  
-  # get train filenames (train interval: prior to test interval start)
+  aoi_proj <- get_aoi_vector(aoi_files = aoi_files, aoi_path = aoi_path, projection = "EPSG:4326")
+
+  ### Setup land cover mask (before annual/monthly branch)
+  use_lc      <- !is.null(land_cover_class) && nzchar(land_cover_class)
+  land_use_lc <- NULL
+  if (use_lc) {
+    lulc_path  <- file.path(data_dir, "LandUse", country_name, "S2_10m_LULC_2023")
+    lulc_files <- get_filenames(filepath = lulc_path, data_type = "LandUseVector",
+                                file_extension = ".geojson", country_name = country_name)
+    lc_file    <- lulc_files[grepl(land_cover_class, lulc_files)][1]
+    if (is.na(lc_file) || !nzchar(lc_file))
+      stop("No LULC GeoJSON found for class: ", land_cover_class)
+    land_use_lc <- get_aoi_vector(aoi_files = lc_file, aoi_path = lulc_path, projection = "EPSG:4326")
+  }
+
+  ### Annual view: load each year independently, compute annual means
+  if (identical(view, "annual")) {
+    all_years <- sort(unique(files_df$year))
+
+    # Count unique months per year to detect incomplete years
+    months_per_year <- tapply(files_df$month, files_df$year,
+                              function(m) length(unique(m)))
+
+    rows_list <- lapply(all_years, function(yr) {
+      yr_files <- files_df[files_df$year == yr, ]
+      yr_rast  <- get_ndvi_raster(ndvi_files = yr_files$filenames, data_path = data_path,
+                                  projection = "EPSG:4326", dates = yr_files$dates,
+                                  aoi_proj = aoi_proj)
+      if (use_lc) yr_rast <- terra::mask(yr_rast, land_use_lc)
+      layer_means <- terra::global(yr_rast, "mean", na.rm = TRUE)$mean
+      n_mo <- as.integer(months_per_year[as.character(yr)])
+      data.frame(year = yr, mean_ndvi = mean(layer_means, na.rm = TRUE), n_months = n_mo)
+    })
+    annual_df             <- do.call(rbind, rows_list)
+    annual_df$is_complete <- annual_df$n_months == 12L
+    annual_stats <- compute_ndvi_annual_stats(annual_df)
+    annual_stats$view <- "annual"
+    annual_plot  <- plot_ndvi_annual(annual_df, land_cover_class = if (use_lc) land_cover_class else NULL)
+    return(list(plot = annual_plot, stats = annual_stats, view = "annual"))
+  }
+
+  ### Monthly view (original logic)
+  end_date   <- as.Date(paste(end_year, end_month, 1, sep = "-"))
+  start_date <- as.Date(paste(end_year, 1, 1, sep = "-"))
+
+  test_files_df  <- filter(files_df, between(dates, start_date, end_date))
   months_in_test <- c(test_files_df$month)
   year_in_test   <- test_files_df$year
-  train_files_df <- files_df %>% 
+  train_files_df <- files_df %>%
     dplyr::filter(month %in% months_in_test & year < year_in_test)
-  #train_files_df <- files_df[(files_df$dates< start_date),]
-  
-  ### Load raster and vector objects - Aoi, train data and test data
-  # load input Area of Interest (AoI) to later mask data
-  aoi_proj <- get_aoi_vector(aoi_files = aoi_files, aoi_path = aoi_path,
-                             projection = "EPSG:4326")
-  
-  test_ndvi_msk <- get_ndvi_raster(ndvi_files = test_files_df$filenames, data_path = data_path,
-                                   projection = "EPSG:4326", dates = test_files_df$dates,
-                                   aoi_proj = aoi_proj)
-  
+
+  test_ndvi_msk  <- get_ndvi_raster(ndvi_files = test_files_df$filenames,  data_path = data_path,
+                                    projection = "EPSG:4326", dates = test_files_df$dates,
+                                    aoi_proj = aoi_proj)
   train_ndvi_msk <- get_ndvi_raster(ndvi_files = train_files_df$filenames, data_path = data_path,
                                     projection = "EPSG:4326", dates = train_files_df$dates,
                                     aoi_proj = aoi_proj)
-  
-  ### Calculate mean NDVI for each month
-  # Extract raster layers for each date
-  # and store in dataframe
-  test_ndvi_df <- get_ndvi_df(ndvi_rast = test_ndvi_msk, dates = test_files_df$dates) 
-  train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates) 
-  
-  ## Interactive plotly: NDVI vs climatology + historic range + monthly anomalies
+
+  if (use_lc) {
+    test_ndvi_msk  <- terra::mask(test_ndvi_msk,  land_use_lc)
+    train_ndvi_msk <- terra::mask(train_ndvi_msk, land_use_lc)
+  }
+
+  if (use_lc) {
+    test_ndvi_df  <- get_ndvi_global_means_df(ndvi_rast = test_ndvi_msk,  dates = test_files_df$dates)
+    train_ndvi_df <- get_ndvi_global_means_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
+  } else {
+    test_ndvi_df  <- get_ndvi_df(ndvi_rast = test_ndvi_msk,  dates = test_files_df$dates)
+    train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
+  }
+
   ndvi_ts_plot <- plot_ndvi_anomaly(
-    train_ndvi_df = train_ndvi_df,
-    test_ndvi_df  = test_ndvi_df
+    train_ndvi_df    = train_ndvi_df,
+    test_ndvi_df     = test_ndvi_df,
+    land_cover_class = if (use_lc) land_cover_class else NULL
   )
-  
+
   if (isTRUE(return_plot)) {
     stats <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
-    return(list(plot = ndvi_ts_plot, stats = stats))
+    stats$view <- "monthly"
+    return(list(plot = ndvi_ts_plot, stats = stats, view = "monthly"))
   }
-  
+
   invisible(NULL)
 }
 

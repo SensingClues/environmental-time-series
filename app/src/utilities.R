@@ -95,6 +95,64 @@ get_filenames <- function(filepath = NULL, data_type = "NDVI",
   return(out_files)
 }
 
+get_data_path <- function(data_dir = NULL, data_type = "NDVI",
+                          country_name = NULL, resolution = NULL) {
+  file.path(data_dir, data_type, country_name, paste0(resolution, "m_resolution"))
+}
+
+get_available_dates <- function(data_dir = NULL, data_type = "NDVI",
+                                country_name = NULL, resolution = NULL) {
+  data_path <- get_data_path(data_dir, data_type, country_name, resolution)
+  if (!dir.exists(data_path)) {
+    return(data.frame(year = integer(0), month = integer(0), dates = as.Date(character(0))))
+  }
+
+  files <- tryCatch(
+    get_filenames(
+      filepath = data_path,
+      data_type = data_type,
+      file_extension = ".tif",
+      country_name = country_name
+    ),
+    error = function(e) character(0)
+  )
+  if (length(files) == 0L) {
+    return(data.frame(year = integer(0), month = integer(0), dates = as.Date(character(0))))
+  }
+
+  files_df <- tryCatch(
+    if (identical(data_type, "BurnedArea")) {
+      get_ba_filename_df(files)
+    } else {
+      get_filename_df(files)
+    },
+    error = function(e) NULL
+  )
+  if (is.null(files_df) || nrow(files_df) == 0L) {
+    return(data.frame(year = integer(0), month = integer(0), dates = as.Date(character(0))))
+  }
+
+  files_df %>%
+    dplyr::distinct(year, month, dates) %>%
+    dplyr::arrange(year, month)
+}
+
+get_available_years <- function(data_dir = NULL, data_type = "NDVI",
+                                country_name = NULL, resolution = NULL,
+                                decreasing = FALSE) {
+  years <- sort(unique(get_available_dates(data_dir, data_type, country_name, resolution)$year))
+  if (isTRUE(decreasing)) rev(years) else years
+}
+
+get_available_month_names <- function(data_dir = NULL, data_type = "NDVI",
+                                      country_name = NULL, resolution = NULL,
+                                      year = NULL) {
+  dates_df <- get_available_dates(data_dir, data_type, country_name, resolution)
+  year <- suppressWarnings(as.integer(year))
+  months <- sort(unique(dates_df$month[dates_df$year == year]))
+  month.name[months]
+}
+
 ## get list of NDVI filenames in folder
 get_ndvi_filenames <- function(data_path = NULL, file_extension = ".tif", country_name = NULL) {
   

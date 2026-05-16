@@ -281,6 +281,28 @@ textarea::-ms-input-placeholder {
   margin: 6px 10px;
 }
 
+.ndvi-callout {
+  background: #E8F5E9;
+  border-left: 4px solid #1D9E75;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin: 0 0 14px 0;
+}
+.ndvi-callout p {
+  margin: 0;
+  font-size: 0.93em;
+  line-height: 1.45;
+  color: #333;
+}
+.ndvi-error-message {
+  background: #E8F5E9;
+  border-left: 4px solid #1D9E75;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  color: #333;
+}
+
 .busy-spinner {
   position: relative;
   top: 45%; 
@@ -638,6 +660,19 @@ table.lc-landcover-tooltip-table thead tr {
   font-size: 13px;
   color: #666;
   margin-top: 10px;
+}
+.ndvi-insight-card__plain {
+  color: #333;
+  line-height: 1.4;
+  margin-top: 6px;
+}
+.ndvi-status-dot {
+  display: inline-block;
+  width: 0.72em;
+  height: 0.72em;
+  border-radius: 50%;
+  margin-right: 0.4em;
+  vertical-align: baseline;
 }
 
 .ndvi-ts-plot-stack {
