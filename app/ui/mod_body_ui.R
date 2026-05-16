@@ -208,12 +208,6 @@ mod_body_ui <- function(id) {
                     type = "tabs",
 
                     tabPanel(
-                      title = "Info",
-                      value = "BurnedAreaInfoTab",
-                      div(class="tab-explain",
-                      ),
-                    ),
-                    tabPanel(
                       title = "Burned Area Time Series",
                       value = "BAtimeseries",
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
@@ -235,7 +229,7 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("This chart shows how much land burned each month over the year. The shaded band shows the typical range based on historical data. Use it to see whether this year's fire activity is higher or lower than usual.")
                                              ),
-                                             span("Use the sidepanel to generate a graph."),
+
                                              # Busy Spinner always available for this tab
                                              mod_busy_spinner_ui("busy_spinner"),
                                              uiOutput("ba_plot_container")
@@ -247,7 +241,7 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("This chart shows when fires were detected during the fire season, using the exact day each area burned. Peaks indicate days with the most fire activity. Compare years to see whether fire seasons are shifting earlier or later, or becoming more intense.")
                                              ),
-                                             span("Use the sidepanel to generate a graph."),
+
                                              # Busy Spinner always available for this tab
                                              mod_busy_spinner_ui("busy_spinner"),
                                              uiOutput("ba_daily_plot_container")
@@ -278,7 +272,7 @@ mod_body_ui <- function(id) {
                                              div(class="infobox",
                                                  p("This map shows where fires occurred in the selected month. Each red area is a patch of land where burning was detected. In the Interactive Burned Area Map, hover over an area to see the exact date it burned. Use the Download button to save the data for use in other tools.")
                                              ),
-                                             span("Use the sidepanel to generate a graph."),
+
                                              # Busy Spinner always available for this tab
                                              mod_busy_spinner_ui("busy_spinner"),
 
