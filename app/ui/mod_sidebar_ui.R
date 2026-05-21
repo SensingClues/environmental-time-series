@@ -73,7 +73,7 @@ mod_sidebar_ui <- function(id) {
                     choices = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
                                 "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"))
         ),
-    
+
     # NDVI Time Series page-specific selector and button
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
                      div(
@@ -89,20 +89,21 @@ mod_sidebar_ui <- function(id) {
                                      "Bare ground"         = "Bare_ground"
                                    ),
                                    selected = ""),
+                       conditionalPanel(condition = "input.ndvi_ts_view == 'monthly'",
+                                        #Add toggle for seasonality
+                                        div(checkboxInput(
+                                          inputId = "remove_seasonality",
+                                          label   = "Remove seasonality from baseline",
+                                          value   = FALSE  # off by default
+                                        ))),
                        actionButton("generate_ndvi_ts_figures", "Generate Figure", class = "action_button")
                      )),
-    #Add toggle for seasonality
-    checkboxInput(
-      inputId = "remove_seasonality",
-      label   = "Remove seasonality from baseline",
-      value   = FALSE  # off by default
-    ),
-    
+
     # NDVI Land Cover Explorer page-specific selector and button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'",
                      div(actionButton("generate_lc_figures", "Generate Figure", class = "action_button"))
-                     ),
-    
+    ),
+
     # NDVI Delta Map — Monthly view button
     conditionalPanel(
       condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'monthly'",
@@ -117,7 +118,7 @@ mod_sidebar_ui <- function(id) {
         actionButton("generate_ndvi_annual_change", "Generate Figure", class = "action_button")
       )
     ),
-    
+
     # Burned Area Time Series — Seasonal Overview
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'seasonal'",
                      div(actionButton("generate_ba_ts_figures", "Generate Figure", class = "action_button"))
@@ -132,11 +133,11 @@ mod_sidebar_ui <- function(id) {
                        actionButton("generate_ba_daily_figures", "Generate Figure", class = "action_button")
                      )
     ),
-    
+
     # Burned Area Explorer page-specific button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
                      div(actionButton("generate_ba_map_figures", "Generate Figure", class = "action_button"))
-                     )
+    )
     ,
 
     # Scenario Explorer: Land Cover Productivity

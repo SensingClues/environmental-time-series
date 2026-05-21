@@ -93,13 +93,6 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
     train_ndvi_df <- get_ndvi_df(ndvi_rast = train_ndvi_msk, dates = train_files_df$dates)
   }
 
-  ndvi_ts_plot <- plot_ndvi_anomaly(
-    train_ndvi_df    = train_ndvi_df,
-    test_ndvi_df     = test_ndvi_df,
-    land_cover_class = if (use_lc) land_cover_class else NULL
-  )
-
-  #remove seasonality
   # Only remove seasonality if toggle is on
   if (apply_seasadj == TRUE) {
     # Step 1 - Summarise to monthly means first
@@ -111,6 +104,12 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
     train_monthly <- remove_seasonality(train_monthly, value_col = "mean_val", freq = 12)
     train_ndvi_df <- train_monthly
   }
+
+ ndvi_ts_plot <- plot_ndvi_anomaly(
+    train_ndvi_df    = train_ndvi_df,
+    test_ndvi_df     = test_ndvi_df,
+    land_cover_class = if (use_lc) land_cover_class else NULL
+  )
 
   if (isTRUE(return_plot)) {
     stats <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
