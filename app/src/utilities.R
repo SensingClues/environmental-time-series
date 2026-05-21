@@ -541,5 +541,14 @@ get_ba_filename_df <- function(ba_files = NULL) {
   files_df$year <- as.integer(files_df$year)
   files_df$month <- as.integer(files_df$month)
   
+  #remove seasonality
+  remove_seasonality <- function(train_ndvi_summary, value_col = "NDVI", freq = 12) {
+    # freq = 12 for monthly NDVI, 16 for 16-day MODIS, etc.
+    ts_obj <- ts(train_ndvi_summary[[value_col]], frequency = freq)
+    decomposed <- stl(ts_obj, s.window = "periodic")
+    train_ndvi_summary$seasonally_adjusted <- as.numeric(seasadj(decomposed))
+    return(train_ndvi_summary)
+  }
+  
   return(files_df)
 }

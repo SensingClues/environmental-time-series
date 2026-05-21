@@ -91,6 +91,12 @@ mod_sidebar_ui <- function(id) {
                                    selected = ""),
                        actionButton("generate_ndvi_ts_figures", "Generate Figure", class = "action_button")
                      )),
+    #Add toggle for seasonality
+    checkboxInput(
+      inputId = "remove_seasonality",
+      label   = "Remove seasonality from baseline",
+      value   = FALSE  # off by default
+    ),
     
     # NDVI Land Cover Explorer page-specific selector and button (specific to be able to link output generation to button press)
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'",
@@ -132,7 +138,7 @@ mod_sidebar_ui <- function(id) {
                      div(actionButton("generate_ba_map_figures", "Generate Figure", class = "action_button"))
                      )
     ,
-    
+
     # Scenario Explorer: Land Cover Productivity
     conditionalPanel(
       condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",

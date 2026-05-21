@@ -6,7 +6,7 @@
 # Function to create NDVI timeseries plot
 generate_timeseries <- function(country_name = NULL, resolution = NULL,
                                 end_year = NULL, end_month = NULL,
-                                figures_dir = NULL, data_dir = NULL,
+                                figures_dir = NULL, data_dir = NULL, apply_seasadj = FALSE,
                                 return_plot = FALSE, figure_filename = NULL,
                                 land_cover_class = NULL,
                                 view = "monthly"
@@ -100,13 +100,17 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
   )
 
   #remove seasonality
-  # Step 1 - Summarise to monthly means first
-  train_monthly <- train_ndvi_df %>%
-    group_by(YearMonth) %>%
-    summarise(mean_val = mean(NDVI, na.rm = TRUE)) %>%
-    arrange(YearMonth)
-  # Step 2 - Apply remove_seasonality on the summarised data
-  train_monthly <- remove_seasonality(train_monthly, value_col = "mean_val", freq = 12)
+  # Only remove seasonality if toggle is on
+  if (apply_seasadj == TRUE) {
+    # Step 1 - Summarise to monthly means first
+    train_monthly <- train_ndvi_df %>%
+      group_by(YearMonth) %>%
+      summarise(mean_val = mean(NDVI, na.rm = TRUE)) %>%
+      arrange(YearMonth)
+    # Step 2 - Apply remove_seasonality on the summarised data
+    train_monthly <- remove_seasonality(train_monthly, value_col = "mean_val", freq = 12)
+    train_ndvi_df <- train_monthly
+  }
 
   if (isTRUE(return_plot)) {
     stats <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)

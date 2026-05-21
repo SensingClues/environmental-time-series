@@ -40,7 +40,7 @@ server <- function(input, output, session) {
     choice_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
                                             "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
                         BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL"),
-                        ScenarioExplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
+                        ScenarioExplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain",
                                                 "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")),
     selected_set = list(NDVIexplorerTab = "Zambia_Mponda", 
                         BAexplorerTab = "Zambia_WL",
@@ -132,7 +132,7 @@ server <- function(input, output, session) {
     if (is.null(message) || !nzchar(message)) return(NULL)
     div(class = "ndvi-error-message", message)
   }
-  
+
   # Observe selected tab and update choices according to the one selected
   observeEvent(input$tabs, { 
     updateSelectInput(session, "country",
@@ -189,7 +189,7 @@ server <- function(input, output, session) {
                       choices = year_choices,
                       selected = anomaly_year)
   }, ignoreInit = FALSE)
-  
+
   # Enable/disable "Month" selector based on the tab
   observeEvent(c(input$tabs, input$basubtabs, input$ndvisubtabs), {
     if (input$tabs == "NDVIexplorerTab" & input$ndvisubtabs == "NDVIdeltaTab") {
@@ -596,13 +596,13 @@ server <- function(input, output, session) {
   ndvi_ts_plot_obj <- reactiveVal(NULL)
   ndvi_ts_stats    <- reactiveVal(NULL)
   ndvi_ts_view_rv  <- reactiveVal("monthly")
-  
+
   output$ndvi_ts_plot_output <- plotly::renderPlotly({
     p <- ndvi_ts_plot_obj()
     shiny::req(p)
     p
   })
-  
+
   # Render a container for the plot or error message
   output$ndvi_ts_plot_container <- renderUI({
     error_msg <- error_message_rv()
@@ -619,7 +619,7 @@ server <- function(input, output, session) {
       ndvi_error_ui(error_msg)
     }
   })
-  
+
   output$wilcoxon_card <- renderUI({
     s <- ndvi_ts_stats()
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
@@ -889,7 +889,7 @@ server <- function(input, output, session) {
       if (!dir.exists(figures_dir)) {
         dir.create(figures_dir, recursive = TRUE)
       }
-      
+
       lc_class <- if (!is.null(input$ndvi_ts_lc_class) && nzchar(input$ndvi_ts_lc_class))
         input$ndvi_ts_lc_class else NULL
       ts_view <- if (!is.null(input$ndvi_ts_view)) input$ndvi_ts_view else "monthly"
@@ -899,6 +899,7 @@ server <- function(input, output, session) {
         resolution       = resolution,
         end_year         = end_year,
         end_month        = end_month,
+        apply_seasadj = input$remove_seasonality,
         figures_dir      = figures_dir,
         data_dir         = data_dir,
         return_plot      = TRUE,
@@ -945,7 +946,7 @@ server <- function(input, output, session) {
   lc_lc_highlight <- reactiveVal(NULL)
   lc_plot_year <- reactiveVal(NULL)
   lc_map_bbox_by_stem <- reactiveVal(NULL)
-  
+
   output$lc_ndvi_plot_output <- plotly::renderPlotly({
     p <- lc_ts_plot_obj()
     shiny::req(p)
@@ -954,7 +955,7 @@ server <- function(input, output, session) {
     p <- plotly::event_register(p, "plotly_legendclick")
     p
   })
-  
+
   # Render a container for the plot or error message
   output$lc_plot_container <- renderUI({
     error_msg <- error_message_rv()
@@ -973,7 +974,7 @@ server <- function(input, output, session) {
       ndvi_error_ui(error_msg)
     }
   })
-  
+
   # Shared logic for plotly_click and plotly_legendclick: highlight, optional geo fitBounds
   lc_handle_ndvi_plotly_selection <- function(ed) {
     shiny::req(ndvi_lc_ready())
@@ -1024,21 +1025,21 @@ server <- function(input, output, session) {
       }
     }
   }
-  
+
   # Plotly chart or map click: highlight toggle + pan map to selected class
   observeEvent(plotly::event_data("plotly_click", source = "lc_ndvi_plot_output"), {
     ed <- plotly::event_data("plotly_click", source = "lc_ndvi_plot_output")
     shiny::req(ed)
     lc_handle_ndvi_plotly_selection(ed)
   }, ignoreInit = TRUE, ignoreNULL = TRUE)
-  
+
   # Plotly legend (line names): same behavior when legend fires events
   observeEvent(plotly::event_data("plotly_legendclick", source = "lc_ndvi_plot_output"), {
     ed <- plotly::event_data("plotly_legendclick", source = "lc_ndvi_plot_output")
     shiny::req(ed)
     lc_handle_ndvi_plotly_selection(ed)
   }, ignoreInit = TRUE, ignoreNULL = TRUE)
-  
+
   # Clear the image when switching tabs or subtabs
   observeEvent(list(input$tabs, input$ndvisubtabs), {
     ndvi_lc_ready(FALSE)
@@ -1060,7 +1061,7 @@ server <- function(input, output, session) {
     lc_lc_highlight(NULL)
     lc_plot_year(NULL)
     lc_map_bbox_by_stem(NULL)
-    
+
     # Get user inputs
     country_name <- input$country
     resolution <- input$resolution
@@ -1080,7 +1081,7 @@ server <- function(input, output, session) {
       if (!dir.exists(figures_dir)) {
         dir.create(figures_dir, recursive = TRUE)
       }
-      
+
       lc_result <- generate_timeseries_landcover(
         country_name = country_name,
         resolution   = resolution,
@@ -1104,7 +1105,7 @@ server <- function(input, output, session) {
       
       ndvi_lc_ready(TRUE)
       error_message_rv(NULL)
-      
+
     }, error = function(e) {
       ndvi_lc_ready(FALSE)
       # Improvement 9: Use friendly error message with dynamic values
@@ -1113,7 +1114,7 @@ server <- function(input, output, session) {
       lc_lc_highlight(NULL)
       lc_plot_year(NULL)
       lc_map_bbox_by_stem(NULL)
-      
+
       showNotification(HTML("The figure cannot be generated due to missing data. 
        Please contact us at 
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
@@ -1299,7 +1300,7 @@ server <- function(input, output, session) {
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
                        type = "error", 
                        duration = 6)
-      
+
       message("Error generating static NDVI map: ", e$message)
     })
 
@@ -1338,7 +1339,7 @@ server <- function(input, output, session) {
        <a href='mailto:helpdesk@sensingclues.org'>helpdesk@sensingclues.org</a> for assistance."), 
                        type = "error", 
                        duration = 6)
-      
+
       message("Error generating delta NDVI map: ", e$message)
     })
     message("=========== End of NDVI Delta Plot Generation =============")
@@ -1486,7 +1487,7 @@ server <- function(input, output, session) {
     selected_end <- available_year_end("BurnedArea", country_name, resolution, input$year)
     end_month <- selected_end$end_month
     end_year  <- selected_end$end_year
-    
+
     tryCatch({
       ba_plot <- generate_ba_timeseries(
         country_name    = country_name,
