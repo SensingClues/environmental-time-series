@@ -30,7 +30,7 @@ mod_body_ui <- function(id) {
               class = "collapsible-section",
               tags$summary(
                 class = "collapsible-header",
-                HTML("<span style='text-decoration: underlined;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
+                HTML("<span style='text-decoration: underline;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
               ),
               tags$strong(HTML("<span>What is NDVI?</span>")),
               p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
