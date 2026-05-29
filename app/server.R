@@ -646,26 +646,26 @@ server <- function(input, output, session) {
       style = "width:100%; border-collapse:collapse; font-size:0.93em;",
       tags$thead(
         tags$tr(
-          tags$th(style = "padding:6px 8px; background:#f5f5f5; border:1px solid #ddd;", "Goal"),
-          tags$th(style = "padding:6px 8px; background:#f5f5f5; border:1px solid #ddd;", "Recommended settings")
+          tags$th(class = "source-callout row-odd", "Goal"),
+          tags$th(class = "source-callout row-odd", "Recommended settings")
         )
       ),
       tags$tbody(
         tags$tr(
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", paste0("Long-term trend analysis (", mod_range, ")")),
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", "MODIS, 1000m, maximum year range")
+          tags$td(class="source-callout row-even", paste0("Long-term trend analysis (", mod_range, ")")),
+          tags$td(class="source-callout row-even", "MODIS, 1000m, maximum year range")
         ),
         tags$tr(
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", paste0("Recent vegetation monitoring (", s2_range, ")")),
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", "Sentinel-2, 100m or 1000m")
+          tags$td(class = "source-callout row-odd", paste0("Recent vegetation monitoring (", s2_range, ")")),
+          tags$td(class = "source-callout row-odd", "Sentinel-2, 100m or 1000m")
         ),
         tags$tr(
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", "Intervention monitoring (plot scale)"),
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd;", "Sentinel-2, 100m, narrow time window")
+          tags$td(class="source-callout row-even", "Intervention monitoring (plot scale)"),
+          tags$td(class="source-callout row-even", "Sentinel-2, 100m, narrow time window")
         ),
         tags$tr(
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", "Fire and burn area analysis"),
-          tags$td(style = "padding:6px 8px; border:1px solid #ddd; background:#fafafa;", "MODIS, 500m, Burned Area Explorer")
+          tags$td(class = "source-callout row-odd", "Fire and burn area analysis"),
+          tags$td(class = "source-callout row-odd", "MODIS, 500m, Burned Area Explorer")
         )
       )
     )

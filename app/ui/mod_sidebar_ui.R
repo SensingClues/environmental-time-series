@@ -11,7 +11,7 @@ mod_sidebar_ui <- function(id) {
     # COLLAPSIBLE ABOUT SECTION
     tags$details(id = "aboutCollapse",
                  class = "collapsible-section",
-                 tags$summary(class = "collapsible-header",
+                 tags$summary(class = "collapsible-header about-header",
                               HTML(sprintf('<span>%s</span><i class="material-icons expand-icon">expand_more</i>',
                                            i18n$t("labels.aboutTitle")))),
                  p(i18n$t("labels.aboutETSAText")), 

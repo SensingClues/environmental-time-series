@@ -23,102 +23,58 @@ mod_body_ui <- function(id) {
       tabPanel(
         title = "NDVI Explorer",
         value = "NDVIexplorerTab",
-        # What is NDVI? (collapsible)
-        tags$details(
-          id    = "ndviWhatIsNDVI",
-          class = "collapsible-section",
-          tags$summary(
-            class = "collapsible-header",
-            HTML('<span>What is NDVI?</span><i class="material-icons expand-icon">expand_more</i>')
-          ),
-          p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
-        ),
-        tags$script(HTML(
-          "document.addEventListener('DOMContentLoaded', function() {
-            var el = document.getElementById('ndviWhatIsNDVI');
-            if (el) {
-              var summary = el.querySelector('summary');
-              summary.addEventListener('click', function() {
-                setTimeout(function() {
-                  var icon = summary.querySelector('.expand-icon');
-                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
-                }, 100);
-              });
-            }
-          });"
-        )),
-
-        # Data source guidance (collapsible)
-        tags$details(
-          id    = "ndviDataSourceGuidance",
-          class = "collapsible-section",
-          tags$summary(
-            class = "collapsible-header",
-            HTML('<span>Which data source should I use?</span><i class="material-icons expand-icon">expand_more</i>')
-          ),
-          uiOutput("ndvi_data_source_guidance")
-        ),
-        tags$script(HTML(
-          "document.addEventListener('DOMContentLoaded', function() {
-            var el = document.getElementById('ndviDataSourceGuidance');
-            if (el) {
-              var summary = el.querySelector('summary');
-              summary.addEventListener('click', function() {
-                setTimeout(function() {
-                  var icon = summary.querySelector('.expand-icon');
-                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
-                }, 100);
-              });
-            }
-          });"
-        )),
-
-        # Guided workflow (collapsible)
-        tags$details(
-          id    = "ndviWorkflowGuide",
-          class = "collapsible-section",
-          tags$summary(
-            class = "collapsible-header",
-            HTML('<span>How to use this section</span><i class="material-icons expand-icon">expand_more</i>')
-          ),
-          tags$ol(
-            tags$li(
-              tags$strong(
-                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVItsTab\']\").tab(\'show\'); return false;',
-                       "NDVI Time Series")
+        # ndviInfoSection (collapsible)
+        div(class="tab-explain",
+            tags$details(
+              id    = "ndviInfoSection",
+              class = "collapsible-section",
+              tags$summary(
+                class = "collapsible-header",
+                HTML("<span style='text-decoration: underline;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
               ),
-              " — Start here to see the overall vegetation trend for your area. Check the Long-Term Trend card. If using Sentinel-2, consider switching to MODIS for a longer baseline."
+              tags$strong(HTML("<span>What is NDVI?</span>")),
+              p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
+              tags$strong('Which data source should I use?'),
+              uiOutput("ndvi_data_source_guidance"),
+              tags$strong('How to use this section'),
+              tags$ol(
+                tags$li(
+                  tags$strong(
+                    tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVItsTab\']\").tab(\'show\'); return false;',
+                           "NDVI Time Series")
+                  ),
+                  " — Start here to see the overall vegetation trend for your area. Check the Long-Term Trend card. If using Sentinel-2, consider switching to MODIS for a longer baseline."
+                ),
+                tags$li(
+                  tags$strong(
+                    tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'LCexplorerTab\']\").tab(\'show\'); return false;',
+                           "NDVI Land Cover Explorer")
+                  ),
+                  " — Drill down by land cover class to identify which class (Trees, Crops, Rangeland etc.) is driving any trend you observed."
+                ),
+                tags$li(
+                  tags$strong(
+                    tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVIdeltaTab\']\").tab(\'show\'); return false;',
+                           "NDVI Delta Map")
+                  ),
+                  " — Use the Annual Change view to see spatially where gains and losses are occurring within the project area."
+                )
+              )
             ),
-            tags$li(
-              tags$strong(
-                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'LCexplorerTab\']\").tab(\'show\'); return false;',
-                       "NDVI Land Cover Explorer")
-              ),
-              " — Drill down by land cover class to identify which class (Trees, Crops, Rangeland etc.) is driving any trend you observed."
-            ),
-            tags$li(
-              tags$strong(
-                tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVIdeltaTab\']\").tab(\'show\'); return false;',
-                       "NDVI Delta Map")
-              ),
-              " — Use the Annual Change view to see spatially where gains and losses are occurring within the project area."
-            )
-          )
-        ),
-        tags$script(HTML(
-          "document.addEventListener('DOMContentLoaded', function() {
-            var el = document.getElementById('ndviWorkflowGuide');
-            if (el) {
-              var summary = el.querySelector('summary');
-              summary.addEventListener('click', function() {
-                setTimeout(function() {
-                  var icon = summary.querySelector('.expand-icon');
-                  icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
-                }, 100);
-              });
-            }
-          });"
-        )),
+            tags$script(HTML(
+              "document.addEventListener('DOMContentLoaded', function() {
+                var el = document.getElementById('ndviInfoSection');
+                if (el) {
+                  var summary = el.querySelector('summary');
+                  summary.addEventListener('click', function() {
+                    setTimeout(function() {
+                      var icon = summary.querySelector('.expand-icon');
+                      icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
+                    }, 100);
+                  });
+                }
+              });"
+            ))),
 
         tabsetPanel(id   = "ndvisubtabs",
                     type = "tabs",
@@ -311,16 +267,16 @@ mod_body_ui <- function(id) {
         )
       )
       ,
-      
+
       # Scenario Explorer
       tabPanel(
         title = "Scenario Explorer",
         value = "ScenarioExplorerTab",
-        
+
         tabsetPanel(
           id   = "scenariosubtabs",
           type = "tabs",
-          
+
           tabPanel(
             title = "Land Cover Productivity",
             value = "ScenarioLandCoverProductivity",
@@ -328,20 +284,20 @@ mod_body_ui <- function(id) {
             conditionalPanel(
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioLandCoverProductivity'",
               div(class="plot-container",
-                div(style = paste0(
-                      "background:#f1f8e9; border-left:4px solid #558B2F;",
-                      "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
-                    p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;",
-                      "How to read this chart"),
-                    tags$ul(style = "margin:0; padding-left:18px; font-size:0.91em;",
-                      tags$li(tags$strong("Left bar chart"), " — which land cover class was most productive this year. Higher bars = healthier vegetation."),
-                      tags$li(tags$strong("Right scatter plot"), " — productivity (horizontal) vs year-to-year stability (vertical). Classes in the top-right are both productive AND stable — ideal."),
-                      tags$li(tags$strong("Table"), " — exact numbers. Check the Interpretation column for what each class's data means.")
-                    ),
-                    p(style = "margin:8px 0 0 0; font-size:0.91em;",
-                      HTML("⚠️ <strong>Note:</strong> Flooded vegetation's variability is driven by water levels, not vegetation stress — interpret it differently."))
-                ),
-                uiOutput("scenario_productivity_container")
+                  div(style = paste0(
+                    "background:#f1f8e9; border-left:4px solid #558B2F;",
+                    "border-radius:4px; padding:12px 16px; margin-bottom:14px;"),
+                      p(style = "margin:0 0 6px 0; font-weight:600; font-size:0.93em;",
+                        "How to read this chart"),
+                      tags$ul(style = "margin:0; padding-left:18px; font-size:0.91em;",
+                              tags$li(tags$strong("Left bar chart"), " — which land cover class was most productive this year. Higher bars = healthier vegetation."),
+                              tags$li(tags$strong("Right scatter plot"), " — productivity (horizontal) vs year-to-year stability (vertical). Classes in the top-right are both productive AND stable — ideal."),
+                              tags$li(tags$strong("Table"), " — exact numbers. Check the Interpretation column for what each class's data means.")
+                      ),
+                      p(style = "margin:8px 0 0 0; font-size:0.91em;",
+                        HTML("⚠️ <strong>Note:</strong> Flooded vegetation's variability is driven by water levels, not vegetation stress — interpret it differently."))
+                  ),
+                  uiOutput("scenario_productivity_container")
               )
             )
           ),
@@ -362,8 +318,8 @@ mod_body_ui <- function(id) {
             conditionalPanel(
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAgriculturalMonitoring'",
               div(class="plot-container",
-                uiOutput("agri_callout"),
-                uiOutput("scenario_agri_container")
+                  uiOutput("agri_callout"),
+                  uiOutput("scenario_agri_container")
               )
             )
           )

@@ -3,9 +3,8 @@
    ============================ */
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
+
 html {
   min-height: 100%;
   height: auto;
@@ -134,20 +133,24 @@ body {
 display: none;
 }
 
+.about-header {
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
 .readmore {
   font-weight: normal !important;
   font-size: inherit !important;
   color: #004d40 !important;
   text-decoration: underline !important;
 }
+
 .collapsible-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 5px;
 }
 
 .collapsible-header .expand-icon {
@@ -246,7 +249,11 @@ textarea::-ms-input-placeholder {
 
 .content .tab-explain {
   margin: 6px 10px;
-  color: #6b7280;
+  padding: 6px;
+  color: #555;
+  background:#fafafa;
+  border-left:4px solid #a0a0a0;
+  border-radius:4px;
 }
 
 /* Annotation copy above plots — same gray as inactive tab labels (#6b7280, see .nav-tabs below) */
@@ -301,6 +308,16 @@ textarea::-ms-input-placeholder {
   padding: 12px 16px;
   margin: 12px 0;
   color: #333;
+}
+.source-callout.row-odd, .source-callout.row-even {
+  padding:6px 8px;
+  border:1px solid #ddd;
+}
+.source-callout.row-odd {
+  background: #fafafa;
+}
+.source-callout.row-even {
+  background: #fff;
 }
 
 .busy-spinner {
