@@ -2339,9 +2339,8 @@ plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
 # Compute per-pixel annual mean NDVI delta between two years
 compute_annual_ndvi_change <- function(year_a, year_b, country_name, resolution, data_dir) {
   data_path <- file.path(data_dir, "NDVI", country_name, paste0(resolution, "m_resolution"))
-  aoi_country <- sub("_.*", "", country_name)
-  aoi_path    <- file.path(data_dir, "AoI")
-  aoi_files   <- get_filenames(aoi_path, "AoI", ".geojson", aoi_country)
+  aoi_path  <- file.path(data_dir, "AoI")
+  aoi_files <- get_filenames(aoi_path, "AoI", ".geojson", country_name)
   aoi_proj    <- get_aoi_vector(aoi_files[[1]], aoi_path, "EPSG:4326")
 
   ndvi_files <- get_filenames(data_path, "NDVI", ".tif", country_name)

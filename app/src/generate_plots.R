@@ -572,8 +572,114 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                             "Flooded_vegetation", "Built_Area", "Bare_ground"
                                           )
 ) {
-  
+  # HOT PATH: API call (not yet implemented)
+  # api_data <- try_api_call(...)
+  # if (!is.null(api_data)) return(api_data)
+
+  # WARM PATH: read pre-processed Parquet files if available
+  pq_lc     <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_by_class"))
+  pq_bl     <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_baselines"))
+  pq_bl_cls <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_baselines_by_class"))
+
+  if (!is.null(pq_lc) && !is.null(pq_bl) && !is.null(pq_bl_cls)) {
+    pq_lc     <- pq_lc    [pq_lc$aoi      == country_name, ]
+    pq_bl     <- pq_bl    [pq_bl$aoi      == country_name, ]
+    pq_bl_cls <- pq_bl_cls[pq_bl_cls$aoi  == country_name, ]
+    pq_lc$year  <- as.integer(pq_lc$year)
+    pq_lc$month <- as.integer(pq_lc$month)
+
+    # Months present in the test year up to end_month — mirrors cold-path months_in_test
+    test_months_pq <- sort(unique(
+      pq_lc$month[pq_lc$year == as.integer(end_year) & pq_lc$month <= as.integer(end_month)]
+    ))
+
+    if (length(test_months_pq) > 0) {
+
+      # AoI-wide historical ribbon  →  train_ndvi_summary_aoi shape: Month, mean_val, lower_ci, upper_ci
+      bl_rows <- pq_bl[pq_bl$month %in% test_months_pq, ]
+      train_ndvi_summary_aoi_pq <- data.frame(
+        Month    = sprintf("%02d", as.integer(bl_rows$month)),
+        mean_val = bl_rows$climatology,
+        lower_ci = bl_rows$ts_lower,
+        upper_ci = bl_rows$ts_upper,
+        stringsAsFactors = FALSE
+      )
+
+      # Per-class summaries  →  land_cover_summaries shape: Month, mean_val, lower_ci, upper_ci, land_cover, period
+      lc_list_pq <- lapply(land_cover_classes, function(lc) {
+        # Test: current year, up to end_month
+        test_d <- pq_lc[pq_lc$land_cover == lc &
+                          pq_lc$year == as.integer(end_year) &
+                          pq_lc$month %in% test_months_pq, ]
+        if (nrow(test_d) == 0) return(NULL)
+        test_s <- data.frame(
+          Month    = sprintf("%02d", as.integer(test_d$month)),
+          mean_val = test_d$mean_ndvi,
+          lower_ci = NA_real_,
+          upper_ci = NA_real_,
+          stringsAsFactors = FALSE
+        )
+
+        # Train: pre-computed historical baseline per class
+        train_d <- pq_bl_cls[pq_bl_cls$land_cover == lc &
+                                pq_bl_cls$month %in% test_months_pq, ]
+        if (nrow(train_d) == 0) return(NULL)
+        train_s <- data.frame(
+          Month    = sprintf("%02d", as.integer(train_d$month)),
+          mean_val = train_d$lc_mean,
+          lower_ci = train_d$lc_lower_ci,
+          upper_ci = train_d$lc_upper_ci,
+          stringsAsFactors = FALSE
+        )
+
+        dplyr::bind_rows(
+          dplyr::mutate(train_s, land_cover = lc, period = "train"),
+          dplyr::mutate(test_s,  land_cover = lc, period = "test")
+        )
+      })
+      land_cover_summaries_pq <- dplyr::bind_rows(Filter(Negate(is.null), lc_list_pq))
+
+      if (nrow(land_cover_summaries_pq) > 0 && nrow(train_ndvi_summary_aoi_pq) > 0) {
+        cat("[LC Explorer] Warm path: reading Parquet\n")
+        Sys.setlocale("LC_TIME", "C")
+        name_ribbon_pq <- paste0(
+          "Historical range (until ",
+          format(as.Date(paste(end_year, "01", "01", sep = "-")), "%b %Y"),
+          ")"
+        )
+        use_map_pq <- !is.null(lulc_map_folder_path) && nzchar(lulc_map_folder_path) &&
+          dir.exists(lulc_map_folder_path)
+
+        if (isTRUE(use_map_pq)) {
+          aoi_path_pq <- file.path(data_dir, "AoI/")
+          aoi_sf_pq   <- get_aoi_vector(
+            aoi_files  = get_filenames(aoi_path_pq, "AoI", ".geojson", country_name),
+            aoi_path   = aoi_path_pq,
+            projection = "EPSG:4326"
+          )
+          combo_pq <- plot_ndvi_landcover_with_map(
+            train_ndvi_summary_aoi = train_ndvi_summary_aoi_pq,
+            land_cover_summaries   = land_cover_summaries_pq,
+            name_ribbon            = name_ribbon_pq,
+            lulc_map_folder        = lulc_map_folder_path,
+            aoi_sf                 = aoi_sf_pq
+          )
+          if (isTRUE(return_plot)) return(list(plot = combo_pq$plot, bbox_by_stem = combo_pq$bbox_by_stem))
+        } else {
+          p_pq <- plot_ndvi_landcover_multiline(
+            train_ndvi_summary_aoi = train_ndvi_summary_aoi_pq,
+            land_cover_summaries   = land_cover_summaries_pq,
+            name_ribbon            = name_ribbon_pq
+          )
+          if (isTRUE(return_plot)) return(list(plot = p_pq, bbox_by_stem = NULL))
+        }
+        return(invisible(NULL))
+      }
+    }
+  }
+  # COLD PATH (unchanged)
   data_type <- "NDVI"
+  cat("[LC Explorer] Cold path: computing from TIF\n")
   Sys.setlocale("LC_TIME", "C") # Otherwise creates language inconsistencies, at least locally
   
   data_path <- file.path(data_dir, paste0(data_type, "/",
