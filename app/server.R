@@ -211,15 +211,49 @@ server <- function(input, output, session) {
     req(input$country, input$resolution)
     country_name <- input$country
     resolution   <- input$resolution
+
+    # HOT PATH stub
+    # api_data <- try_api_call(...)
+    # if (!is.null(api_data)) return(api_data)
+
+    # WARM PATH: read pre-processed ndvi_monthly_by_class.parquet
+    pq_path <- get_parquet_path(country_name, resolution, "ndvi_monthly_by_class")
+    pq      <- try_read_parquet(pq_path)
+    if (!is.null(pq)) {
+      df <- pq[pq$aoi == country_name, c("year", "month", "land_cover", "mean_ndvi")]
+      if (nrow(df) > 0) {
+        # Only use parquet if it covers ALL years available from TIF files.
+        # The anomaly/productivity selectors are populated from TIF years; if a
+        # selected year is absent from the parquet the plot functions throw errors.
+        tif_years <- tryCatch(
+          .scenario_avail_years(data_dir, country_name, resolution),
+          error = function(e) integer(0)
+        )
+        pq_years <- unique(as.integer(df$year))
+        if (length(tif_years) > 0 && all(tif_years %in% pq_years)) {
+          df$year  <- as.integer(df$year)
+          df$month <- as.integer(df$month)
+          df <- .drop_empty_lc_classes(df)
+          message("=== scenario_ndvi_data: warm path (parquet), rows=", nrow(df))
+          attr(df, "data_source") <- "parquet"
+          return(df)
+        }
+        message("=== scenario_ndvi_data: parquet missing TIF years (",
+                paste(setdiff(tif_years, pq_years), collapse = ", "),
+                "), falling to cold path")
+      }
+    }
+
+    # COLD PATH (unchanged)
     land_use_src <- "S2_10m_LULC_2023"
     lulc_dir     <- file.path(data_dir, "LandUse", country_name, land_use_src)
-    message("=== scenario_ndvi_data: loading country=", country_name, " resolution=", resolution)
+    message("=== scenario_ndvi_data: cold path, country=", country_name, " resolution=", resolution)
     message("    lulc_dir exists: ", dir.exists(lulc_dir), " | path: ", lulc_dir)
     avail_years  <- .scenario_avail_years(data_dir, country_name, resolution)
     message("    avail_years: ", paste(avail_years, collapse = ", "))
     df <- .load_all_years(avail_years, country_name, resolution, data_dir, lulc_dir)
     message("    loaded rows: ", if (is.null(df)) "NULL" else nrow(df))
-    df
+    .drop_empty_lc_classes(df)
   })
 
   # ---------------------------------------------------------------------------------------------------
@@ -278,8 +312,10 @@ server <- function(input, output, session) {
     cmp_year    <- input$scenario_productivity_compare_year
 
     tryCatch({
+      scenario_df <- scenario_ndvi_data()
+      data_source_rv(if (!is.null(attr(scenario_df, "data_source"))) attr(scenario_df, "data_source") else "tif")
       res <- plot_productivity_comparison(
-        df           = scenario_ndvi_data(),
+        df           = scenario_df,
         selected_year = sel_year,
         compare_year  = if (nzchar(cmp_year)) cmp_year else NULL
       )
@@ -383,7 +419,9 @@ server <- function(input, output, session) {
     error_message_rv(NULL)
 
     tryCatch({
-      res <- plot_agricultural_monitoring(df = scenario_ndvi_data(), selected_class = input$agri_class)
+      scenario_df <- scenario_ndvi_data()
+      data_source_rv(if (!is.null(attr(scenario_df, "data_source"))) attr(scenario_df, "data_source") else "tif")
+      res <- plot_agricultural_monitoring(df = scenario_df, selected_class = input$agri_class)
       scenario_agri_result(res)
       scenario_agri_ready(TRUE)
       error_message_rv(NULL)
@@ -490,8 +528,10 @@ server <- function(input, output, session) {
     anom_year <- as.integer(input$scenario_anomaly_year)
 
     tryCatch({
+      scenario_df <- scenario_ndvi_data()
+      data_source_rv(if (!is.null(attr(scenario_df, "data_source"))) attr(scenario_df, "data_source") else "tif")
       res <- plot_anomaly_resilience(
-        df           = scenario_ndvi_data(),
+        df           = scenario_df,
         anomaly_year = anom_year
       )
       scenario_anomaly_result(res)
@@ -512,6 +552,35 @@ server <- function(input, output, session) {
   # Set Reactive values for AoI shape and error message
   aoi_shape_rv <- reactiveVal(NULL)
   error_message_rv <- reactiveVal(NULL)
+  data_source_rv <- reactiveVal("tif")
+
+  # Each chart area gets its own output ID so they can update independently.
+  # All read from the same data_source_rv() but must have unique HTML IDs.
+  .ds_label_ids <- c(
+    "ds_label_ndvi_ts", "ds_label_lc",
+    "ds_label_ba_seasonal", "ds_label_ba_daily",
+    "ds_label_productivity", "ds_label_anomaly", "ds_label_agri"
+  )
+  for (.lid in .ds_label_ids) {
+    local({
+      lid <- .lid
+      output[[lid]] <- renderText({
+        switch(data_source_rv(),
+          "parquet" = "Data: pre-processed (fast)",
+          "tif"     = "Data: computed from raw files",
+          "api"     = "Data: live API",
+          ""
+        )
+      })
+    })
+  }
+
+  # Reset label on every tab / sub-tab navigation.
+  observeEvent(
+    list(input$tabs, input$ndvisubtabs, input$basubtabs, input$scenariosubtabs),
+    { data_source_rv("tif") },
+    ignoreInit = TRUE
+  )
   
   # Update month selector based on the months available for the selected year.
   observeEvent(list(input$tabs, input$country, input$resolution, input$year), {
@@ -911,6 +980,7 @@ server <- function(input, output, session) {
       ndvi_ts_plot_obj(ndvi_result$plot)
       ndvi_ts_stats(ndvi_result$stats)
       ndvi_ts_view_rv(ts_view)
+      data_source_rv(if (!is.null(ndvi_result$data_source)) ndvi_result$data_source else "tif")
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
@@ -1421,6 +1491,37 @@ server <- function(input, output, session) {
     season_months  <- seq(input$ba_season_months[1], input$ba_season_months[2])
     res_m          <- as.numeric(gsub("[^0-9]", "", resolution))
     pixel_area_km2 <- (res_m / 1000)^2
+
+    # HOT PATH stub
+    # api_data <- try_api_call(...)
+
+    # WARM PATH: read pre-processed ba_daily.parquet
+    tryCatch({
+      pq_daily <- try_read_parquet(
+        get_parquet_path(country_name, resolution, "ba_daily", sensor_override = "burned_area")
+      )
+      if (!is.null(pq_daily)) {
+        pq_daily <- pq_daily[pq_daily$aoi == country_name & pq_daily$year %in% selected_years, ]
+        pq_daily$date  <- as.Date(pq_daily$date)
+        pq_daily$month <- as.integer(format(pq_daily$date, "%m"))
+        pq_daily <- pq_daily[pq_daily$month %in% season_months, ]
+        all_daily <- if (nrow(pq_daily) > 0) {
+          data.frame(
+            date = pq_daily$date,
+            km2  = pq_daily$burned_km2,
+            year = as.character(pq_daily$year),
+            stringsAsFactors = FALSE
+          )
+        } else NULL
+        ba_daily_plot_obj(plot_ba_daily_activity(all_daily, as.character(selected_years)))
+        error_message_rv(NULL)
+        data_source_rv("parquet")
+        message("=========== End of Daily Burn Activity Generation (parquet) =============")
+        return()
+      }
+    }, error = function(e) {
+      warning("BA daily warm path failed, falling through to cold path: ", e$message)
+    })
 
     data_path <- file.path(data_dir, "BurnedArea", country_name, paste0(resolution, "m_resolution"))
 

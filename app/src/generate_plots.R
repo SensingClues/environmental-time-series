@@ -11,7 +11,65 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
                                 land_cover_class = NULL,
                                 view = "monthly"
 ) {
+  use_lc_requested <- !is.null(land_cover_class) && nzchar(land_cover_class)
 
+  # HOT PATH stub
+  # api_data <- try_api_call(...)
+  # if (!is.null(api_data)) return(api_data)
+
+  # WARM PATH: annual view
+  if (identical(view, "annual") && !use_lc_requested) {
+    pq_ann <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_annual"))
+    if (!is.null(pq_ann)) {
+      annual_df <- pq_ann[pq_ann$aoi == country_name,
+                          c("year", "mean_ndvi", "n_months", "is_complete")]
+      if (nrow(annual_df) > 0) {
+        annual_df$is_complete <- as.logical(annual_df$is_complete)
+        annual_plot  <- plot_ndvi_annual(annual_df, land_cover_class = NULL)
+        annual_stats <- compute_ndvi_annual_stats(annual_df)
+        annual_stats$view <- "annual"
+        return(list(plot = annual_plot, stats = annual_stats, view = "annual", data_source = "parquet"))
+      }
+    }
+  }
+
+  # WARM PATH: monthly view (overall AoI only — no per-class data in ndvi_monthly)
+  if (identical(view, "monthly") && !use_lc_requested) {
+    pq_path <- get_parquet_path(country_name, resolution, "ndvi_monthly")
+    pq      <- try_read_parquet(pq_path)
+    if (!is.null(pq)) {
+      pq <- pq[pq$aoi == country_name, ]
+      if (nrow(pq) > 0) {
+        pq$YearMonth <- as.Date(paste(pq$year, sprintf("%02d", pq$month), "01", sep = "-"))
+        pq$Year      <- as.character(pq$year)
+        pq$Month     <- sprintf("%02d", pq$month)
+        pq$NDVI      <- pq$mean_ndvi
+
+        end_date_pq   <- as.Date(paste(end_year, sprintf("%02d", end_month), "01", sep = "-"))
+        start_date_pq <- as.Date(paste(end_year, "01", "01", sep = "-"))
+        months_in_test_pq <- pq$month[pq$YearMonth >= start_date_pq & pq$YearMonth <= end_date_pq]
+
+        test_ndvi_df  <- pq[pq$YearMonth >= start_date_pq & pq$YearMonth <= end_date_pq,
+                            c("YearMonth", "NDVI", "Year", "Month")]
+        train_ndvi_df <- pq[pq$year < end_year & pq$month %in% months_in_test_pq,
+                            c("YearMonth", "NDVI", "Year", "Month")]
+
+        if (nrow(test_ndvi_df) > 0 && nrow(train_ndvi_df) > 0) {
+          ndvi_ts_plot <- plot_ndvi_anomaly(train_ndvi_df = train_ndvi_df,
+                                            test_ndvi_df  = test_ndvi_df,
+                                            land_cover_class = NULL)
+          if (isTRUE(return_plot)) {
+            stats      <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
+            stats$view <- "monthly"
+            return(list(plot = ndvi_ts_plot, stats = stats, view = "monthly", data_source = "parquet"))
+          }
+          return(invisible(NULL))
+        }
+      }
+    }
+  }
+
+  # COLD PATH (unchanged)
   data_type  <- "NDVI"
   data_path  <- file.path(data_dir, paste0(data_type, "/", country_name, "/", resolution, "m_resolution/"))
   aoi_path   <- file.path(data_dir, "AoI")
@@ -114,9 +172,48 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
                                    figures_dir = NULL, data_dir = NULL,
                                    return_plot = FALSE, figure_filename = NULL
 ) {
-  
+  # HOT PATH stub
+  # api_data <- try_api_call(...)
+  # if (!is.null(api_data)) return(api_data)
+
+  # WARM PATH: read pre-processed ba_monthly.parquet
+  if (isTRUE(return_plot)) {
+    pq_ba <- try_read_parquet(
+      get_parquet_path(country_name, resolution, "ba_monthly", sensor_override = "burned_area")
+    )
+    if (!is.null(pq_ba)) {
+      pq_ba <- pq_ba[pq_ba$aoi == country_name, ]
+      if (nrow(pq_ba) > 0) {
+        train_ba <- unique(pq_ba[, c("month", "ba_mean", "ba_lower_ci", "ba_upper_ci")])
+        train_ba <- data.frame(
+          Month    = sprintf("%02d", train_ba$month),
+          mean_val = train_ba$ba_mean,
+          lower_ci = pmax(train_ba$ba_lower_ci, 0),
+          upper_ci = train_ba$ba_upper_ci,
+          stringsAsFactors = FALSE
+        )
+        test_raw <- pq_ba[pq_ba$year == end_year & pq_ba$month <= end_month, ]
+        if (nrow(test_raw) > 0) {
+          test_ba <- data.frame(
+            Month    = sprintf("%02d", test_raw$month),
+            mean_val = test_raw$burned_km2,
+            lower_ci = test_raw$burned_km2,
+            upper_ci = test_raw$burned_km2,
+            stringsAsFactors = FALSE
+          )
+          return(plot_ba_timeseries_plotly(
+            train_data = train_ba,
+            test_data  = test_ba,
+            test_year  = end_year
+          ))
+        }
+      }
+    }
+  }
+
+  # COLD PATH (unchanged)
   ### Set paths and define parameters
-  
+
   # figure path
   figure_path <- file.path(figures_dir, figure_filename)
   

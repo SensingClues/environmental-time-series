@@ -3,6 +3,82 @@
 # UTILITY FUNCTIONS
 # -----------------------------------------------------------------------------
 
+#' Map app resolution key to pipeline sensor and resolution number
+#'
+#' The app uses resolution keys like "Sentinel_1000", "MODIS_1000", "100" etc.
+#' The pipeline stores Parquet files by sensor name and numeric resolution.
+#' This function bridges the two naming conventions.
+#'
+#' @param resolution_key Character. One of the values from resolutionchoices_rv.
+#' @return Named list with 'sensor' (character) and 'resolution' (integer),
+#'         or NULL if the key is not recognised.
+get_sensor_resolution <- function(resolution_key) {
+  mapping <- list(
+    "100"          = list(sensor = "sentinel2", resolution = 100L),
+    "Sentinel_1000"= list(sensor = "sentinel2", resolution = 1000L),
+    "250"          = list(sensor = "modis",     resolution = 250L),
+    "500"          = list(sensor = "modis",     resolution = 500L),
+    "MODIS_1000"   = list(sensor = "modis",     resolution = 1000L)
+  )
+  mapping[[resolution_key]]
+}
+
+#' Build the full path to a pre-processed Parquet file
+#'
+#' @param aoi Character. AoI name matching folder name, e.g. "Zambia_Mponda".
+#' @param resolution_key Character. App resolution key, e.g. "Sentinel_1000".
+#' @param table_name Character. Parquet table name without extension,
+#'        e.g. "ndvi_monthly", "ndvi_monthly_by_class", "ba_monthly".
+#' @param sensor_override Character or NULL. If not NULL, use this sensor
+#'        instead of deriving from resolution_key. Used for burned_area.
+#' @return Full file path as character, or NULL if resolution_key not recognised.
+get_parquet_path <- function(aoi, resolution_key, table_name,
+                             sensor_override = NULL) {
+  if (!is.null(sensor_override)) {
+    sensor <- sensor_override
+    resolution <- as.integer(sub("[^0-9]", "", resolution_key))
+  } else {
+    sr <- get_sensor_resolution(resolution_key)
+    if (is.null(sr)) return(NULL)
+    sensor <- sr$sensor
+    resolution <- sr$resolution
+  }
+
+  file.path(
+    "www/data/processed",
+    aoi,
+    sensor,
+    paste0(resolution, "m"),
+    paste0(table_name, ".parquet")
+  )
+}
+
+#' Try to read a Parquet file, return NULL if it doesn't exist
+#'
+#' @param path Character. Full path from get_parquet_path().
+#' @return data.frame from arrow::read_parquet(), or NULL if file not found.
+try_read_parquet <- function(path) {
+  if (is.null(path) || !file.exists(path)) return(NULL)
+  tryCatch(
+    arrow::read_parquet(path),
+    error = function(e) {
+      warning(paste("Failed to read Parquet:", path, "-", e$message))
+      NULL
+    }
+  )
+}
+
+# Remove land_cover classes that have NO valid (non-NA) mean_ndvi across all
+# rows.  At coarse resolutions tiny classes (e.g. Flooded_vegetation < 0.1 km²)
+# contain no raster pixels, producing all-NA mean_ndvi.  plot_anomaly_resilience
+# crashes when which.min() receives an all-NA vector, so we drop these classes
+# before the data reaches any plot function.
+.drop_empty_lc_classes <- function(df) {
+  if (is.null(df) || nrow(df) == 0) return(df)
+  valid_lc <- unique(df$land_cover[!is.na(df$mean_ndvi)])
+  df[df$land_cover %in% valid_lc, , drop = FALSE]
+}
+
 # get system language from locale (Windows)
 get_sys_language <- function(OS) {
   default_locale <- Sys.getlocale("LC_CTYPE")

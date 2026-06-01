@@ -22,6 +22,7 @@ library(tidyr)
 library(trend)
 library(plotly)
 library(htmlwidgets)
+library(arrow)
 
 # load functions specific for this app
 source("src/utilities.R")

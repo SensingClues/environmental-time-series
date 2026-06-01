@@ -99,6 +99,10 @@ mod_body_ui <- function(id) {
                                          uiOutput("ndvi_health_summary_card"),
                                          uiOutput("ndvi_annual_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
+                                         tags$p(
+                                           style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                           textOutput("ds_label_ndvi_ts", inline = TRUE)
+                                         ),
                                          div(
                                            class = "ndvi-ts-insight-cards",
                                            style = "margin-top: 16px;",
@@ -118,7 +122,11 @@ mod_body_ui <- function(id) {
                                            div(class = "ndvi-callout",
                                                p("This chart shows vegetation health for each land cover type throughout the year. Each coloured line represents one type - click the legend to show or hide classes. Use the map on the right to see where each type is located.")),
                                            mod_busy_spinner_ui("busy_spinner"),
-                                           uiOutput("lc_plot_container"))
+                                           uiOutput("lc_plot_container"),
+                                           tags$p(
+                                             style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                             textOutput("ds_label_lc", inline = TRUE)
+                                           ))
                       ),
                     ),
 
@@ -187,7 +195,11 @@ mod_body_ui <- function(id) {
                                              ),
 
                                              mod_busy_spinner_ui("busy_spinner"),
-                                             uiOutput("ba_plot_container")
+                                             uiOutput("ba_plot_container"),
+                                             tags$p(
+                                               style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                               textOutput("ds_label_ba_seasonal", inline = TRUE)
+                                             )
                                            ),
 
                                            # === DAILY ACTIVITY ===
@@ -198,7 +210,11 @@ mod_body_ui <- function(id) {
                                              ),
 
                                              mod_busy_spinner_ui("busy_spinner"),
-                                             uiOutput("ba_daily_plot_container")
+                                             uiOutput("ba_daily_plot_container"),
+                                             tags$p(
+                                               style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                               textOutput("ds_label_ba_daily", inline = TRUE)
+                                             )
                                            ),
                                        )
                       )
@@ -295,7 +311,11 @@ mod_body_ui <- function(id) {
                         HTML("⚠️ <strong>Note:</strong> Flooded vegetation's variability is driven by water levels, not vegetation stress — interpret it differently."))
                   ),
                   mod_busy_spinner_ui("busy_spinner"),
-                  uiOutput("scenario_productivity_container")
+                  uiOutput("scenario_productivity_container"),
+                  tags$p(
+                    style = "font-size:0.8em; color:#888; margin-top:4px;",
+                    textOutput("ds_label_productivity", inline = TRUE)
+                  )
               )
             )
           ),
@@ -307,7 +327,11 @@ mod_body_ui <- function(id) {
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
               div(class="plot-container",
                   mod_busy_spinner_ui("busy_spinner"),
-                  uiOutput("scenario_anomaly_container")
+                  uiOutput("scenario_anomaly_container"),
+                  tags$p(
+                    style = "font-size:0.8em; color:#888; margin-top:4px;",
+                    textOutput("ds_label_anomaly", inline = TRUE)
+                  )
               )
             )
           ),
@@ -319,7 +343,11 @@ mod_body_ui <- function(id) {
               div(class="plot-container",
                   uiOutput("agri_callout"),
                   mod_busy_spinner_ui("busy_spinner"),
-                  uiOutput("scenario_agri_container")
+                  uiOutput("scenario_agri_container"),
+                  tags$p(
+                    style = "font-size:0.8em; color:#888; margin-top:4px;",
+                    textOutput("ds_label_agri", inline = TRUE)
+                  )
               )
             )
           )
