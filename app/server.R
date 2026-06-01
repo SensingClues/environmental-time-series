@@ -39,7 +39,7 @@ server <- function(input, output, session) {
   countrychoices_rv <- reactiveValues(
     choice_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
                                             "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
-                        BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL"),
+                        BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL", "Mponda, Zambia" = "Zambia_Mponda"),
                         ScenarioExplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
                                                 "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")),
     selected_set = list(NDVIexplorerTab = "Zambia_Mponda", 
