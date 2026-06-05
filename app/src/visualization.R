@@ -2206,6 +2206,59 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
   aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
   aoi_bounds <- sf::st_bbox(aoi_shape)
 
+  # HOT PATH: pre-computed FRP polygons + year-range metadata from the API. The
+  # GeoJSON carries return period in `frp_years`; the year range comes from the
+  # response metadata. Returns early; the TIF computation below is the fallback
+  # and runs unchanged when the API is unavailable.
+  frp_api <- try_api_geometry(
+    endpoint        = "/api/v1/geometry/fire-return-period",
+    params          = list(aoi = country),
+    return_metadata = TRUE
+  )
+  if (!is.null(frp_api) && inherits(frp_api$geometry, "sf") &&
+      "frp_years" %in% names(frp_api$geometry) && nrow(frp_api$geometry) > 0 &&
+      !is.null(frp_api$metadata$n_years)) {
+    frp_sf <- sf::st_transform(frp_api$geometry, 4326)
+    frp_sf$return_period <- frp_sf$frp_years
+    years_label <- paste(frp_api$metadata$year_start, "to", frp_api$metadata$year_end)
+    n_years     <- frp_api$metadata$n_years
+
+    pal <- leaflet::colorNumeric(
+      palette  = rev(RColorBrewer::brewer.pal(9, "YlOrRd")),
+      domain   = c(1, max(frp_sf$return_period, na.rm = TRUE)),
+      na.color = "transparent"
+    )
+    rp_vals <- round(frp_sf$return_period, 1)
+    m <- leaflet() %>%
+      addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+      addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+      addPolygons(
+        data         = frp_sf,
+        fillColor    = ~pal(return_period), fillOpacity = 0.8,
+        color        = NA, weight = 0,
+        label        = lapply(paste0(
+          "<b>Burns approximately every ", rp_vals, " year",
+          ifelse(rp_vals == 1, "", "s"), "</b>"
+        ), htmltools::HTML),
+        labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+        group        = "Fire Return Period"
+      ) %>%
+      addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                  opacity = 0.9, fillOpacity = 0, group = "Study Area") %>%
+      fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]]) %>%
+      addLegend("bottomright", pal = pal, values = frp_sf$return_period,
+                title   = "Fire Return Period<br>(years)", opacity = 0.85,
+                labFormat = labelFormat(suffix = " yrs", digits = 1)) %>%
+      addLayersControl(
+        baseGroups    = c("Street Map", "Satellite"),
+        overlayGroups = c("Study Area", "Fire Return Period"),
+        options       = layersControlOptions(collapsed = FALSE),
+        position      = "topleft"
+      )
+
+    return(list(map = m, years_label = years_label, n_years = n_years))
+  }
+
   ba_files <- list.files(data_path, pattern = "\\.tif$", full.names = TRUE)
   if (length(ba_files) == 0) {
     stop("No burned area data found for this area and resolution. Please try a different selection.")

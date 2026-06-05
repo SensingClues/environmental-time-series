@@ -118,15 +118,20 @@ api_is_available <- function() {
 
 #' Try to fetch geometry from the FastAPI hot path
 #'
-#' Added for Phase 1 but not yet wired into the geometry load sites — those
-#' still read GeoJSON files directly. `sf::st_read()` can parse a GeoJSON string
-#' returned by the API directly, not just a file path.
+#' `sf::st_read()` can parse a GeoJSON string returned by the API directly, not
+#' just a file path. When `return_metadata = TRUE` the FeatureCollection's
+#' top-level `metadata` object (e.g. the FRP year range) is returned alongside
+#' the parsed geometry.
 #'
 #' @param endpoint Character. e.g. "/api/v1/geometry/landcover"
 #' @param params Named list. Query parameters.
+#' @param return_metadata Logical. If TRUE, return a list with `geometry` (sf)
+#'        and `metadata` (parsed FeatureCollection metadata). Default FALSE.
 #' @param timeout_secs Numeric.
-#' @return sf object if successful, NULL if API unavailable.
+#' @return sf object (or list with geometry + metadata) on success; NULL if the
+#'         API is unavailable.
 try_api_geometry <- function(endpoint, params,
+                             return_metadata = FALSE,
                              timeout_secs = API_TIMEOUT_SECS) {
   tryCatch({
     url <- paste0(API_BASE_URL, endpoint)
@@ -136,8 +141,19 @@ try_api_geometry <- function(endpoint, params,
       httr::timeout(timeout_secs)
     )
     if (httr::status_code(response) != 200) return(NULL)
-    geojson_text <- httr::content(response, "text", encoding = "UTF-8")
-    sf::st_read(geojson_text, quiet = TRUE)
+
+    content_text <- httr::content(response, "text", encoding = "UTF-8")
+    sf_obj <- sf::st_read(content_text, quiet = TRUE)
+
+    if (return_metadata) {
+      parsed <- jsonlite::fromJSON(content_text, flatten = FALSE)
+      list(
+        geometry = sf_obj,
+        metadata = parsed$metadata
+      )
+    } else {
+      sf_obj
+    }
   }, error = function(e) NULL)
 }
 
