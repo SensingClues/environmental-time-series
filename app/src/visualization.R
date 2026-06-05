@@ -388,6 +388,11 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   ord <- order(landuse_types)
   geojson_files <- geojson_files[ord]
   landuse_types <- landuse_types[ord]
+  # AoI name for the geometry hot path; folder is .../LandUse/{aoi}/S2_10m_LULC_2023.
+  # Probe once so a down API costs a single 1s health check, not one 2s timeout
+  # per class across the loops below.
+  aoi_name <- basename(dirname(folder_path))
+  lc_api_up <- api_is_available()
   pal_named <- land_cover_class_colors()
   bbox_by_stem <- vector("list", length(landuse_types))
   names(bbox_by_stem) <- landuse_types
@@ -421,14 +426,19 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   }
   if (is.na(total_study_area_ha) || total_study_area_ha <= 0) {
     total_study_area_ha <- sum(vapply(geojson_files, function(fp) {
-      g <- sf::st_read(fp, quiet = TRUE)
+      g <- read_landcover_geometry(
+        fp, aoi_name, geojson_stem_to_class_key(tools::file_path_sans_ext(basename(fp))),
+        api_available = lc_api_up
+      )
       g <- sf::st_transform(g, crs = 4326)
       sum(as.numeric(sf::st_area(g)), na.rm = TRUE) / 10000
     }, numeric(1)), na.rm = TRUE)
   }
   for (i in seq_along(geojson_files)) {
     stem <- landuse_types[i]
-    geojson_data <- sf::st_read(geojson_files[i], quiet = TRUE)
+    geojson_data <- read_landcover_geometry(geojson_files[i], aoi_name,
+                                            geojson_stem_to_class_key(stem),
+                                            api_available = lc_api_up)
     geojson_data <- lc_simplify_wgs84_for_plot(sf::st_transform(geojson_data, crs = 4326))
     bbox_by_stem[[stem]] <- sf::st_bbox(geojson_data)
     lab_short <- geojson_stem_to_class_key(stem)
@@ -1832,10 +1842,18 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   geojson_files <- geojson_files[ord]
   landuse_types <- landuse_types[ord]
   
+  # AoI name for the geometry hot path; folder is .../LandUse/{aoi}/S2_10m_LULC_2023.
+  # Probe the API once (avoids a per-class 2s timeout when it is down).
+  aoi_name <- basename(dirname(folder_path))
+  lc_api_up <- api_is_available()
+
   # Pre-calculate total study area (Improvement 7: for percentage in tooltip)
   total_study_area_ha <- 0
   for (file in geojson_files) {
-    gj <- sf::st_read(file, quiet = TRUE)
+    gj <- read_landcover_geometry(
+      file, aoi_name, geojson_stem_to_class_key(tools::file_path_sans_ext(basename(file))),
+      api_available = lc_api_up
+    )
     gj <- sf::st_transform(gj, crs = 4326)
     total_study_area_ha <- total_study_area_ha + sum(as.numeric(sf::st_area(gj)) / 10000)
   }
@@ -1862,9 +1880,11 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     file <- geojson_files[i]
     landuse_type <- landuse_types[i]
     
-    # Read the GeoJSON file
-    geojson_data <- sf::st_read(file, quiet = TRUE)
-    
+    # Read the GeoJSON file (API hot path, file fallback)
+    geojson_data <- read_landcover_geometry(file, aoi_name,
+                                            geojson_stem_to_class_key(landuse_type),
+                                            api_available = lc_api_up)
+
     # Transform the GeoJSON data to WGS 84 (EPSG:4326)
     geojson_data <- sf::st_transform(geojson_data, crs = 4326)
     bbox_by_stem[[landuse_type]] <- sf::st_bbox(geojson_data)
@@ -2039,9 +2059,9 @@ plot_ba_geojson_from_a_folder <- function(input_file_path, data_dir = data_dir, 
   if (length(aoi_files) == 0) {
     stop("No Area of Interest file found for the selected country.")
   }
-  aoi_shape <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]))
+  aoi_shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
   aoi_shape <- sf::st_transform(aoi_shape, crs = 4326)
-  
+
   # Create a leaflet map with the specified basemap
   map <- leaflet() %>%
     addProviderTiles(providers[[basemap]]) %>%
@@ -2109,7 +2129,7 @@ build_ba_monthly_leaflet <- function(geojson_path = NULL, data_dir = NULL,
   aoi_files <- list.files(file.path(data_dir, "AoI"),
                           pattern = paste0("AoI.*", country, ".*\\.geojson$"))
   if (length(aoi_files) == 0) stop("No Area of Interest file found for the selected country.")
-  aoi_shape  <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]), quiet = TRUE)
+  aoi_shape  <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
   aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
   aoi_bounds <- sf::st_bbox(aoi_shape)
 
@@ -2182,7 +2202,7 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
   aoi_files <- list.files(file.path(data_dir, "AoI"),
                           pattern = paste0("AoI.*", country, ".*\\.geojson$"))
   if (length(aoi_files) == 0) stop("No Area of Interest file found for the selected country.")
-  aoi_shape  <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]), quiet = TRUE)
+  aoi_shape  <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
   aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
   aoi_bounds <- sf::st_bbox(aoi_shape)
 

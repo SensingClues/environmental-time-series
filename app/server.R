@@ -660,7 +660,7 @@ server <- function(input, output, session) {
       if (length(aoi_files) == 0) {
         stop("No Area of Interest file found for the selected country.")
       }
-      shape <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]))
+      shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), input$country)
       shape <- sf::st_transform(shape, crs = 4326)
       
       aoi_shape_rv(shape) # Update the reactive value with the loaded shape

@@ -141,6 +141,50 @@ try_api_geometry <- function(endpoint, params,
   }, error = function(e) NULL)
 }
 
+#' Load an AoI boundary polygon: API hot path, GeoJSON file fallback.
+#'
+#' The API serves geometry in EPSG:4326; callers still re-project afterwards,
+#' which is a harmless no-op on hot-path data. Falls back silently to the file.
+#'
+#' @param file Character. Fallback GeoJSON path (already resolved by the caller).
+#' @param aoi  Character. AoI name, e.g. "Zambia_Mponda".
+#' @return sf object (API or file). Errors only if BOTH the API and file fail.
+read_aoi_geometry <- function(file, aoi) {
+  if (!is.null(aoi) && nzchar(aoi)) {
+    sf_obj <- try_api_geometry("/api/v1/geometry/aoi", list(aoi = aoi))
+    if (!is.null(sf_obj)) return(sf_obj)
+  }
+  sf::st_read(file, quiet = TRUE)
+}
+
+#' Load land-cover class polygons: API hot path, GeoJSON file fallback.
+#'
+#' Uses simplified geometry from the API (≈84% smaller, ~0.3% area drift,
+#' invisible to users). The hot path only runs when the AoI and class are known;
+#' otherwise it reads the file directly.
+#'
+#' @param file Character. Fallback per-class GeoJSON path.
+#' @param aoi  Character. AoI name, e.g. "Zambia_Mponda".
+#' @param land_cover_class Character. e.g. "Crops" (NA / "" skips the hot path).
+#' @param api_available Logical. When FALSE, skip the API entirely and read the
+#'        file. Callers looping over many classes should pass a single
+#'        `api_is_available()` result so a down API costs one probe, not one
+#'        2-second timeout per class.
+#' @return sf object (API or file).
+read_landcover_geometry <- function(file, aoi, land_cover_class,
+                                    api_available = TRUE) {
+  if (isTRUE(api_available) && !is.null(aoi) && nzchar(aoi) &&
+      !is.null(land_cover_class) && !is.na(land_cover_class) &&
+      nzchar(land_cover_class)) {
+    sf_obj <- try_api_geometry(
+      "/api/v1/geometry/landcover",
+      list(aoi = aoi, land_cover_class = land_cover_class, simplified = TRUE)
+    )
+    if (!is.null(sf_obj)) return(sf_obj)
+  }
+  sf::st_read(file, quiet = TRUE)
+}
+
 # Remove land_cover classes that have NO valid (non-NA) mean_ndvi across all
 # rows.  At coarse resolutions tiny classes (e.g. Flooded_vegetation < 0.1 km²)
 # contain no raster pixels, producing all-NA mean_ndvi.  plot_anomaly_resilience

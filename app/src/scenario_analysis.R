@@ -51,9 +51,12 @@ load_ndvi_per_class <- function(year, region, resolution, data_dir, lulc_path) {
     lc_geojson_by_class[[lc]] <- candidates[[1]]
   }
 
+  # Probe the API once; skip per-class hot-path attempts if it is down.
+  lc_api_up <- api_is_available()
   vectors_by_class <- list()
   for (lc in land_cover_classes) {
-    v_sf <- sf::st_read(lc_geojson_by_class[[lc]], quiet = TRUE)
+    v_sf <- read_landcover_geometry(lc_geojson_by_class[[lc]], region, lc,
+                                    api_available = lc_api_up)
     v_sf <- sf::st_transform(v_sf, crs = 4326)
     vectors_by_class[[lc]] <- terra::vect(v_sf)
   }
