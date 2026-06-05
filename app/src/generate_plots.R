@@ -13,11 +13,11 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
 ) {
   use_lc_requested <- !is.null(land_cover_class) && nzchar(land_cover_class)
 
-  # HOT PATH stub
-  # api_data <- try_api_call(...)
-  # if (!is.null(api_data)) return(api_data)
+  # Sensor/resolution mapping shared by the hot-path API calls below.
+  sr <- get_sensor_resolution(resolution)
 
-  # WARM PATH: annual view
+  # WARM PATH: annual view (no hot path — the /ndvi/timeseries endpoint returns
+  # monthly rows, not the ndvi_annual schema with n_months/is_complete).
   if (identical(view, "annual") && !use_lc_requested) {
     pq_ann <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_annual"))
     if (!is.null(pq_ann)) {
@@ -35,10 +35,22 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
 
   # WARM PATH: monthly view (overall AoI only — no per-class data in ndvi_monthly)
   if (identical(view, "monthly") && !use_lc_requested) {
-    pq_path <- get_parquet_path(country_name, resolution, "ndvi_monthly")
-    pq      <- try_read_parquet(pq_path)
+    # HOT PATH: try the API first; the /timeseries table returns all years with
+    # the ndvi_monthly schema (year, month, mean_ndvi). Falls back silently.
+    ds <- "api"
+    pq <- if (!is.null(sr)) try_api_call(
+      endpoint = "/api/v1/ndvi/timeseries",
+      params   = list(aoi = country_name, sensor = sr$sensor, resolution = sr$resolution)
+    ) else NULL
+    if (is.null(pq)) {
+      ds      <- "parquet"
+      pq_path <- get_parquet_path(country_name, resolution, "ndvi_monthly")
+      pq      <- try_read_parquet(pq_path)
+    }
     if (!is.null(pq)) {
-      pq <- pq[pq$aoi == country_name, ]
+      # API responses carry no `aoi` column (already filtered server-side); the
+      # Parquet file does, so only filter when the column is present.
+      if ("aoi" %in% names(pq)) pq <- pq[pq$aoi == country_name, ]
       if (nrow(pq) > 0) {
         pq$YearMonth <- as.Date(paste(pq$year, sprintf("%02d", pq$month), "01", sep = "-"))
         pq$Year      <- as.character(pq$year)
@@ -61,7 +73,7 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
           if (isTRUE(return_plot)) {
             stats      <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
             stats$view <- "monthly"
-            return(list(plot = ndvi_ts_plot, stats = stats, view = "monthly", data_source = "parquet"))
+            return(list(plot = ndvi_ts_plot, stats = stats, view = "monthly", data_source = ds))
           }
           return(invisible(NULL))
         }
@@ -172,17 +184,23 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
                                    figures_dir = NULL, data_dir = NULL,
                                    return_plot = FALSE, figure_filename = NULL
 ) {
-  # HOT PATH stub
-  # api_data <- try_api_call(...)
-  # if (!is.null(api_data)) return(api_data)
-
-  # WARM PATH: read pre-processed ba_monthly.parquet
+  # HOT PATH + WARM PATH: API first, then pre-processed ba_monthly.parquet.
+  # Both share the ba_monthly schema so the transform below is reused unchanged.
   if (isTRUE(return_plot)) {
-    pq_ba <- try_read_parquet(
-      get_parquet_path(country_name, resolution, "ba_monthly", sensor_override = "burned_area")
+    ds    <- "api"
+    pq_ba <- try_api_call(
+      endpoint = "/api/v1/burned-area/summary",
+      params   = list(aoi = country_name)
     )
+    if (is.null(pq_ba)) {
+      ds    <- "parquet"
+      pq_ba <- try_read_parquet(
+        get_parquet_path(country_name, resolution, "ba_monthly", sensor_override = "burned_area")
+      )
+    }
     if (!is.null(pq_ba)) {
-      pq_ba <- pq_ba[pq_ba$aoi == country_name, ]
+      # API summary has no `aoi` column (already filtered); Parquet does.
+      if ("aoi" %in% names(pq_ba)) pq_ba <- pq_ba[pq_ba$aoi == country_name, ]
       if (nrow(pq_ba) > 0) {
         train_ba <- unique(pq_ba[, c("month", "ba_mean", "ba_lower_ci", "ba_upper_ci")])
         train_ba <- data.frame(
@@ -201,10 +219,13 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
             upper_ci = test_raw$burned_km2,
             stringsAsFactors = FALSE
           )
-          return(plot_ba_timeseries_plotly(
-            train_data = train_ba,
-            test_data  = test_ba,
-            test_year  = end_year
+          return(list(
+            plot = plot_ba_timeseries_plotly(
+              train_data = train_ba,
+              test_data  = test_ba,
+              test_year  = end_year
+            ),
+            data_source = ds
           ))
         }
       }
@@ -285,10 +306,13 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
     test_raw        <- get_ba_summary_fast(test_files_df, data_path, aoi_proj)
     test_ba_summary <- get_summary_ba_df(ba_df = test_raw)
 
-    return(plot_ba_timeseries_plotly(
-      train_data = train_ba_summary,
-      test_data  = test_ba_summary,
-      test_year  = end_year
+    return(list(
+      plot = plot_ba_timeseries_plotly(
+        train_data = train_ba_summary,
+        test_data  = test_ba_summary,
+        test_year  = end_year
+      ),
+      data_source = "tif"
     ))
   }
 
@@ -572,17 +596,28 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                             "Flooded_vegetation", "Built_Area", "Bare_ground"
                                           )
 ) {
-  # HOT PATH: API call (not yet implemented)
-  # api_data <- try_api_call(...)
-  # if (!is.null(api_data)) return(api_data)
+  # HOT PATH (per-class NDVI only): the API supplies the ndvi_monthly_by_class
+  # table; the two baseline tables have no endpoint and are still read from
+  # Parquet. Tag "api" only when the per-class frame came from the API.
+  sr_lc <- get_sensor_resolution(resolution)
+  ds    <- "api"
+  pq_lc <- if (!is.null(sr_lc)) try_api_call(
+    endpoint = "/api/v1/ndvi/by-landcover",
+    params   = list(aoi = country_name, sensor = sr_lc$sensor,
+                    resolution = sr_lc$resolution, year = end_year)
+  ) else NULL
+  if (is.null(pq_lc)) {
+    ds    <- "parquet"
+    pq_lc <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_by_class"))
+  }
 
-  # WARM PATH: read pre-processed Parquet files if available
-  pq_lc     <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_by_class"))
+  # WARM PATH: read pre-processed baseline Parquet files if available
   pq_bl     <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_baselines"))
   pq_bl_cls <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_baselines_by_class"))
 
   if (!is.null(pq_lc) && !is.null(pq_bl) && !is.null(pq_bl_cls)) {
-    pq_lc     <- pq_lc    [pq_lc$aoi      == country_name, ]
+    # API per-class frame has no `aoi` column; the Parquet ones do.
+    if ("aoi" %in% names(pq_lc)) pq_lc <- pq_lc[pq_lc$aoi == country_name, ]
     pq_bl     <- pq_bl    [pq_bl$aoi      == country_name, ]
     pq_bl_cls <- pq_bl_cls[pq_bl_cls$aoi  == country_name, ]
     pq_lc$year  <- as.integer(pq_lc$year)
@@ -664,14 +699,14 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
             lulc_map_folder        = lulc_map_folder_path,
             aoi_sf                 = aoi_sf_pq
           )
-          if (isTRUE(return_plot)) return(list(plot = combo_pq$plot, bbox_by_stem = combo_pq$bbox_by_stem))
+          if (isTRUE(return_plot)) return(list(plot = combo_pq$plot, bbox_by_stem = combo_pq$bbox_by_stem, data_source = ds))
         } else {
           p_pq <- plot_ndvi_landcover_multiline(
             train_ndvi_summary_aoi = train_ndvi_summary_aoi_pq,
             land_cover_summaries   = land_cover_summaries_pq,
             name_ribbon            = name_ribbon_pq
           )
-          if (isTRUE(return_plot)) return(list(plot = p_pq, bbox_by_stem = NULL))
+          if (isTRUE(return_plot)) return(list(plot = p_pq, bbox_by_stem = NULL, data_source = ds))
         }
         return(invisible(NULL))
       }

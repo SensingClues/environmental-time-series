@@ -68,6 +68,79 @@ try_read_parquet <- function(path) {
   )
 }
 
+#' Try to fetch data from the FastAPI hot path
+#'
+#' @param endpoint Character. API endpoint path, e.g. "/api/v1/ndvi/timeseries"
+#' @param params Named list. Query parameters.
+#' @param timeout_secs Numeric. Seconds before giving up and falling through.
+#' @return data.frame if successful, NULL if API unavailable or returns error.
+try_api_call <- function(endpoint, params, timeout_secs = API_TIMEOUT_SECS) {
+  # Add format=table to all data requests so response matches Parquet schema
+  params$format <- "table"
+
+  tryCatch({
+    url <- paste0(API_BASE_URL, endpoint)
+    response <- httr::GET(
+      url,
+      query = params,
+      httr::timeout(timeout_secs)
+    )
+
+    if (httr::status_code(response) != 200) return(NULL)
+
+    content <- httr::content(response, "text", encoding = "UTF-8")
+    parsed <- jsonlite::fromJSON(content, flatten = FALSE)
+
+    if (is.null(parsed$data) || length(parsed$data) == 0) return(NULL)
+
+    as.data.frame(parsed$data)
+
+  }, error = function(e) {
+    # Silent fallback — do not show error to user
+    # Common causes: API not running, network timeout, invalid response
+    NULL
+  })
+}
+
+#' Check if the API is reachable
+#'
+#' @return TRUE if /health responds within timeout, FALSE otherwise
+api_is_available <- function() {
+  result <- tryCatch({
+    response <- httr::GET(
+      paste0(API_BASE_URL, "/api/v1/health"),
+      httr::timeout(1)  # shorter timeout for health check
+    )
+    httr::status_code(response) == 200
+  }, error = function(e) FALSE)
+  result
+}
+
+#' Try to fetch geometry from the FastAPI hot path
+#'
+#' Added for Phase 1 but not yet wired into the geometry load sites — those
+#' still read GeoJSON files directly. `sf::st_read()` can parse a GeoJSON string
+#' returned by the API directly, not just a file path.
+#'
+#' @param endpoint Character. e.g. "/api/v1/geometry/landcover"
+#' @param params Named list. Query parameters.
+#' @param timeout_secs Numeric.
+#' @return sf object if successful, NULL if API unavailable.
+try_api_geometry <- function(endpoint, params,
+                             timeout_secs = API_TIMEOUT_SECS) {
+  tryCatch({
+    url <- paste0(API_BASE_URL, endpoint)
+    response <- httr::GET(
+      url,
+      query = params,
+      httr::timeout(timeout_secs)
+    )
+    if (httr::status_code(response) != 200) return(NULL)
+    geojson_text <- httr::content(response, "text", encoding = "UTF-8")
+    sf::st_read(geojson_text, quiet = TRUE)
+  }, error = function(e) NULL)
+}
+
 # Remove land_cover classes that have NO valid (non-NA) mean_ndvi across all
 # rows.  At coarse resolutions tiny classes (e.g. Flooded_vegetation < 0.1 km²)
 # contain no raster pixels, producing all-NA mean_ndvi.  plot_anomaly_resilience

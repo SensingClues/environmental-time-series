@@ -214,9 +214,46 @@ server <- function(input, output, session) {
     country_name <- input$country
     resolution   <- input$resolution
 
-    # HOT PATH stub
-    # api_data <- try_api_call(...)
-    # if (!is.null(api_data)) return(api_data)
+    # HOT PATH: the /ndvi/by-landcover endpoint is single-year, but the scenario
+    # plots need every available year. Fetch one year at a time and bind. Only
+    # use the API result if EVERY expected year came back (same coverage guard as
+    # the warm path below); otherwise fall through silently. The first call fails
+    # fast when the API is down (connection refused), so fallback stays quick.
+    sr <- get_sensor_resolution(resolution)
+    api_years <- tryCatch(
+      .scenario_avail_years(data_dir, country_name, resolution),
+      error = function(e) integer(0)
+    )
+    if (!is.null(sr) && length(api_years) > 0) {
+      # Stop at the first failed year so a down API costs one timeout, not one
+      # per year. Need every year for the scenario plots, so any miss = fall back.
+      api_parts <- vector("list", length(api_years))
+      api_ok    <- TRUE
+      for (i in seq_along(api_years)) {
+        d <- try_api_call(
+          endpoint = "/api/v1/ndvi/by-landcover",
+          params   = list(aoi = country_name, sensor = sr$sensor,
+                          resolution = sr$resolution, year = api_years[i])
+        )
+        if (is.null(d) || !all(c("year", "month", "land_cover", "mean_ndvi") %in% names(d))) {
+          api_ok <- FALSE
+          break
+        }
+        api_parts[[i]] <- d[, c("year", "month", "land_cover", "mean_ndvi")]
+      }
+      if (api_ok) {
+        df <- do.call(rbind, api_parts)
+        df$year  <- as.integer(df$year)
+        df$month <- as.integer(df$month)
+        df <- .drop_empty_lc_classes(df)
+        if (nrow(df) > 0) {
+          message("=== scenario_ndvi_data: hot path (API), years=", length(api_years),
+                  " rows=", nrow(df))
+          attr(df, "data_source") <- "api"
+          return(df)
+        }
+      }
+    }
 
     # WARM PATH: read pre-processed ndvi_monthly_by_class.parquet
     pq_path <- get_parquet_path(country_name, resolution, "ndvi_monthly_by_class")
@@ -570,7 +607,7 @@ server <- function(input, output, session) {
         switch(data_source_rv(),
           "parquet" = "Data: pre-processed (fast)",
           "tif"     = "Data: computed from raw files",
-          "api"     = "Data: live API",
+          "api"     = "Data: live API (fast)",
           ""
         )
       })
@@ -1167,6 +1204,7 @@ server <- function(input, output, session) {
       lc_ts_plot_obj(lc_result$plot)
       lc_map_bbox_by_stem(lc_result$bbox_by_stem)
       lc_plot_year(end_year)
+      data_source_rv(if (!is.null(lc_result$data_source)) lc_result$data_source else "tif")
       
       htmlwidgets::saveWidget(
         lc_result$plot,
@@ -1494,8 +1532,41 @@ server <- function(input, output, session) {
     res_m          <- as.numeric(gsub("[^0-9]", "", resolution))
     pixel_area_km2 <- (res_m / 1000)^2
 
-    # HOT PATH stub
-    # api_data <- try_api_call(...)
+    # HOT PATH: the /burned-area/daily endpoint takes a single year (int), so
+    # fetch each selected year separately and bind. Stop at the first failed year
+    # (a down API then costs one timeout, not one per year); any miss = fall back.
+    api_parts <- vector("list", length(selected_years))
+    api_ok    <- length(selected_years) > 0
+    for (i in seq_along(selected_years)) {
+      d <- try_api_call(
+        endpoint = "/api/v1/burned-area/daily",
+        params   = list(aoi = country_name, year = selected_years[i])
+      )
+      if (is.null(d) || !all(c("date", "burned_km2", "year") %in% names(d))) {
+        api_ok <- FALSE
+        break
+      }
+      api_parts[[i]] <- d
+    }
+    if (api_ok) {
+      api_daily <- do.call(rbind, api_parts)
+      api_daily$date  <- as.Date(api_daily$date)
+      api_daily$month <- as.integer(format(api_daily$date, "%m"))
+      api_daily <- api_daily[api_daily$month %in% season_months, ]
+      all_daily <- if (nrow(api_daily) > 0) {
+        data.frame(
+          date = api_daily$date,
+          km2  = api_daily$burned_km2,
+          year = as.character(api_daily$year),
+          stringsAsFactors = FALSE
+        )
+      } else NULL
+      ba_daily_plot_obj(plot_ba_daily_activity(all_daily, as.character(selected_years)))
+      error_message_rv(NULL)
+      data_source_rv("api")
+      message("=========== End of Daily Burn Activity Generation (API) =============")
+      return()
+    }
 
     # WARM PATH: read pre-processed ba_daily.parquet
     tryCatch({
@@ -1591,7 +1662,7 @@ server <- function(input, output, session) {
     end_year  <- selected_end$end_year
     
     tryCatch({
-      ba_plot <- generate_ba_timeseries(
+      ba_result <- generate_ba_timeseries(
         country_name    = country_name,
         resolution      = resolution,
         end_year        = end_year,
@@ -1601,7 +1672,8 @@ server <- function(input, output, session) {
         return_plot     = TRUE,
         figure_filename = NULL
       )
-      ba_ts_plot_obj(ba_plot)
+      ba_ts_plot_obj(ba_result$plot)
+      data_source_rv(if (!is.null(ba_result$data_source)) ba_result$data_source else "tif")
       ba_ts_ready(TRUE)
       error_message_rv(NULL)
     }, error = function(e) {
