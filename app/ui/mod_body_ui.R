@@ -156,7 +156,11 @@ mod_body_ui <- function(id) {
                                 p("This map compares annual average vegetation health between two selected years. Green = vegetation gaining. Red = vegetation declining. Use it to identify long-term gains and losses across the landscape."))
                           ),
                           mod_busy_spinner_ui("busy_spinner"),
-                          uiOutput("dm_plot_container")
+                          uiOutput("dm_plot_container"),
+                          tags$p(
+                            style = "font-size:0.8em; color:#888; margin-top:4px;",
+                            textOutput("ds_label_ndvi_delta", inline = TRUE)
+                          )
                         )
                       )
                     ),
@@ -273,6 +277,12 @@ mod_body_ui <- function(id) {
                                              # Busy Spinner always available for this tab
                                              mod_busy_spinner_ui("busy_spinner"),
                                              leafletOutput("ba_frp_leaflet", height = "450px")
+                                           ),
+
+                                           # Data-source label (shared across Monthly + FRP views)
+                                           tags$p(
+                                             style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                             textOutput("ds_label_ba_map", inline = TRUE)
                                            ),
 
                                        )

@@ -2262,7 +2262,7 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
         position      = "topleft"
       )
 
-    return(list(map = m, years_label = years_label, n_years = n_years))
+    return(list(map = m, years_label = years_label, n_years = n_years, data_source = "api"))
   }
 
   ba_files <- list.files(data_path, pattern = "\\.tif$", full.names = TRUE)
@@ -2349,7 +2349,7 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
       position      = "topleft"
     )
 
-  list(map = m, years_label = years_label, n_years = n_years)
+  list(map = m, years_label = years_label, n_years = n_years, data_source = "tif")
 }
 
 # Function to plot delta NDVI on a Leaflet map

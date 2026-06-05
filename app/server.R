@@ -414,6 +414,7 @@ server <- function(input, output, session) {
   observeEvent(input$agri_class, {
     scenario_agri_ready(FALSE)
     scenario_agri_result(NULL)
+    data_source_rv("none")
   }, ignoreInit = TRUE)
 
   output$agri_callout <- renderUI({
@@ -591,13 +592,14 @@ server <- function(input, output, session) {
   # Set Reactive values for AoI shape and error message
   aoi_shape_rv <- reactiveVal(NULL)
   error_message_rv <- reactiveVal(NULL)
-  data_source_rv <- reactiveVal("tif")
+  # "none" => no plot generated yet, so the label renders blank (switch default).
+  data_source_rv <- reactiveVal("none")
 
   # Each chart area gets its own output ID so they can update independently.
   # All read from the same data_source_rv() but must have unique HTML IDs.
   .ds_label_ids <- c(
-    "ds_label_ndvi_ts", "ds_label_lc",
-    "ds_label_ba_seasonal", "ds_label_ba_daily",
+    "ds_label_ndvi_ts", "ds_label_lc", "ds_label_ndvi_delta",
+    "ds_label_ba_seasonal", "ds_label_ba_daily", "ds_label_ba_map",
     "ds_label_productivity", "ds_label_anomaly", "ds_label_agri"
   )
   for (.lid in .ds_label_ids) {
@@ -614,10 +616,10 @@ server <- function(input, output, session) {
     })
   }
 
-  # Reset label on every tab / sub-tab navigation.
+  # Blank the label on every tab / sub-tab navigation (no plot shown yet).
   observeEvent(
     list(input$tabs, input$ndvisubtabs, input$basubtabs, input$scenariosubtabs),
-    { data_source_rv("tif") },
+    { data_source_rv("none") },
     ignoreInit = TRUE
   )
   
@@ -964,12 +966,14 @@ server <- function(input, output, session) {
     ndvi_ts_ready(FALSE)
     ndvi_ts_plot_obj(NULL)
     ndvi_ts_stats(NULL)
+    data_source_rv("none")
   }, ignoreInit = TRUE)
 
   observeEvent(input$ndvi_ts_view, {
     ndvi_ts_ready(FALSE)
     ndvi_ts_plot_obj(NULL)
     ndvi_ts_stats(NULL)
+    data_source_rv("none")
   }, ignoreInit = TRUE)
   
   # Observe the Generate Figure button
@@ -1284,6 +1288,7 @@ server <- function(input, output, session) {
       res <- compute_annual_ndvi_change(year_a, year_b, country_name, resolution, data_dir)
       ndvi_annual_result(res)
       ndvi_annual_ready(TRUE)
+      data_source_rv("tif")  # annual change is computed from raw TIF rasters
       error_message_rv(NULL)
     }, error = function(e) {
       ndvi_annual_ready(FALSE)
@@ -1432,6 +1437,7 @@ server <- function(input, output, session) {
       })
       
       ndvi_dm_ready(TRUE) # Mark UI as ready when both figures are rendered successfully (renderUI will now return the container)
+      data_source_rv("tif")  # delta maps are computed from raw TIF rasters
       error_message_rv(NULL) # Clear any previous error messages
       
     }, error = function(e) {
@@ -1794,6 +1800,7 @@ server <- function(input, output, session) {
 
       shinyjs::show("monthly_leaflet_wrap")
       ba_map_ready(TRUE)
+      data_source_rv("tif")  # static burned-area map is computed from raw TIF rasters
       error_message_rv(NULL)
     }, error = function(e) {
       ba_map_ready(FALSE)
@@ -1826,6 +1833,12 @@ server <- function(input, output, session) {
         }
       )
     })
+  })
+
+  # Fire Return Period uses the geometry hot path: reflect its source in the label.
+  observeEvent(frp_result(), {
+    r <- frp_result()
+    if (!is.null(r)) data_source_rv(if (!is.null(r$data_source)) r$data_source else "tif")
   })
 
   output$ba_frp_leaflet <- renderLeaflet({
