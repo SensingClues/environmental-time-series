@@ -312,6 +312,12 @@ lc_simplify_wgs84_for_plot <- function(x, dTolerance_m = 75, dTolerance_deg = 0.
     sf::st_simplify(g, dTolerance = dtol, preserveTopology = TRUE),
     error = function(e) g
   )
+  # Simplifying an already-simplified or very small polygon can collapse it into
+  # an empty geometry or a GEOMETRYCOLLECTION, which plotly::add_sf cannot draw
+  # ("not implemented for objects of class sfc_GEOMETRYCOLLECTION"). Keep the
+  # original geometry for any feature that degenerated this way.
+  bad <- sf::st_is_empty(sg) | sf::st_geometry_type(sg) == "GEOMETRYCOLLECTION"
+  if (any(bad)) sg[bad] <- g[bad]
   sf::st_set_geometry(x, sg)
 }
 
