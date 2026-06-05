@@ -1878,5 +1878,175 @@ server <- function(input, output, session) {
       file.copy(path, file, overwrite = TRUE)
     }
   )
-    
+
+  # ===================================================================================================
+  # AI ASSISTANT (standalone chat tab — Part 3, text only)
+  # ===================================================================================================
+
+  # --- Global app-context tracker: lets the agent know what the user last viewed,
+  #     even though the chat lives on its own tab. Updated as the user changes filters.
+  current_context <- reactiveValues(
+    tab        = "NDVIexplorerTab",
+    aoi        = "Zambia_Mponda",
+    sensor     = "sentinel2",
+    resolution = 1000,
+    year       = NULL
+  )
+  observeEvent(input$country,    { current_context$aoi <- input$country })
+  observeEvent(input$resolution, {
+    sr <- get_sensor_resolution(input$resolution)
+    if (!is.null(sr)) {
+      current_context$sensor     <- sr$sensor
+      current_context$resolution <- sr$resolution
+    }
+  })
+  observeEvent(input$year, { current_context$year <- input$year })
+  observeEvent(input$tabs, { current_context$tab  <- input$tabs })
+
+  # --- Per-session conversation state (never stored server-side) ---
+  session_history  <- reactiveVal(list())   # list of list(role=, content=)
+  pending_question <- reactiveVal(NULL)      # set while the agent is processing
+
+  # --- Provider / server-key discovery (GET /agent/providers) ---
+  providers_info <- reactive({
+    tryCatch({
+      resp <- httr::GET(paste0(API_BASE_URL, "/agent/providers"), httr::timeout(5))
+      if (httr::status_code(resp) != 200) return(NULL)
+      jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"),
+                         simplifyVector = FALSE)
+    }, error = function(e) NULL)
+  })
+
+  output$server_key_configured <- reactive({
+    pi   <- providers_info()
+    prov <- if (!is.null(input$llm_provider)) input$llm_provider else "anthropic"
+    !is.null(pi) && isTRUE(pi[[prov]]$server_key_configured)
+  })
+  outputOptions(output, "server_key_configured", suspendWhenHidden = FALSE)
+
+  # If the selected provider has no server key but another one does, switch to it
+  # (so "set OPENAI_API_KEY on the server" shows "ready" without manual selection).
+  observeEvent(providers_info(), {
+    pi <- providers_info()
+    if (is.null(pi)) return()
+    prov <- if (!is.null(input$llm_provider)) input$llm_provider else "anthropic"
+    if (!isTRUE(pi[[prov]]$server_key_configured)) {
+      configured <- names(pi)[vapply(pi, function(x) isTRUE(x$server_key_configured), logical(1))]
+      if (length(configured) > 0) {
+        updateSelectInput(session, "llm_provider", selected = configured[[1]])
+      }
+    }
+  })
+
+  # --- Context summary shown on the AI tab ---
+  output$context_summary <- renderText({
+    yr <- if (is.null(current_context$year) || is.na(current_context$year)) "—" else current_context$year
+    paste0(
+      current_context$aoi, "\n",
+      current_context$sensor, " ", current_context$resolution, "m\n",
+      "Year: ", yr
+    )
+  })
+
+  # --- Conversation display: chat bubbles (user right, agent left) ---
+  output$conversation_display <- renderUI({
+    msgs <- session_history()
+    pend <- pending_question()
+    if (length(msgs) == 0 && is.null(pend)) {
+      return(div(class = "ai-chat",
+                 div(class = "ai-empty",
+                     "Ask a question about vegetation, fire, or land cover to get started.")))
+    }
+    bubbles <- lapply(msgs, function(m) {
+      role <- if (identical(m$role, "user")) "user" else "agent"
+      div(class = paste("ai-row", role),
+          div(class = paste("ai-bubble", role), m$content))
+    })
+    if (!is.null(pend)) {
+      bubbles <- c(bubbles, list(
+        div(class = "ai-row user",  div(class = "ai-bubble user", pend)),
+        div(class = "ai-row agent", div(class = "ai-bubble agent", "…thinking"))
+      ))
+    }
+    div(class = "ai-chat", bubbles)
+  })
+
+  # --- Send a question to /agent/chat (async so the spinner shows + app stays responsive) ---
+  observeEvent(input$send_question, {
+    q <- trimws(input$user_question)
+    if (nchar(q) == 0) return()
+
+    hist <- session_history()
+    app_context <- list(
+      tab        = current_context$tab,
+      aoi        = current_context$aoi,
+      sensor     = current_context$sensor,
+      resolution = current_context$resolution,
+      year       = current_context$year
+    )
+    body_list <- list(
+      question    = q,
+      history     = hist,
+      app_context = app_context,
+      provider    = if (!is.null(input$llm_provider)) input$llm_provider else "anthropic"
+    )
+    if (!is.null(input$user_api_key) && nzchar(input$user_api_key)) {
+      body_list$user_api_key <- input$user_api_key
+    }
+    body_json <- jsonlite::toJSON(body_list, auto_unbox = TRUE, null = "null")
+
+    pending_question(q)
+    shinyjs::disable("send_question")
+    updateTextAreaInput(session, "user_question", value = "")
+
+    fallback <- "Sorry, I couldn't process that. Please try again."
+
+    promises::finally(
+      promises::catch(
+        promises::then(
+          promises::future_promise({
+            resp <- httr::POST(
+              paste0(API_BASE_URL, "/agent/chat"),
+              body = body_json,
+              httr::content_type_json(),
+              httr::timeout(90)
+            )
+            list(status = httr::status_code(resp),
+                 text   = httr::content(resp, "text", encoding = "UTF-8"))
+          }),
+          onFulfilled = function(res) {
+            answer <- fallback
+            if (isTRUE(res$status == 200)) {
+              parsed <- tryCatch(jsonlite::fromJSON(res$text, simplifyVector = FALSE),
+                                 error = function(e) NULL)
+              if (!is.null(parsed) && !is.null(parsed$response) && nzchar(parsed$response)) {
+                answer <- parsed$response
+              }
+            }
+            session_history(c(session_history(), list(
+              list(role = "user",      content = q),
+              list(role = "assistant", content = answer)
+            )))
+          }
+        ),
+        onRejected = function(e) {
+          session_history(c(session_history(), list(
+            list(role = "user",      content = q),
+            list(role = "assistant", content = fallback)
+          )))
+        }
+      ),
+      onFinally = function() {
+        pending_question(NULL)
+        shinyjs::enable("send_question")
+      }
+    )
+  })
+
+  # --- Clear the conversation ---
+  observeEvent(input$clear_history, {
+    session_history(list())
+    pending_question(NULL)
+  })
+
 } # END SERVER
