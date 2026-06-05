@@ -23,6 +23,7 @@ library(trend)
 library(plotly)
 library(htmlwidgets)
 library(arrow)
+library(httr)
 
 # load functions specific for this app
 source("src/utilities.R")
@@ -56,6 +57,12 @@ cache_dir <- file.path("www/.cache")
 # Set test folder structure (uncomment when working locally with a different folder structure)
 #test_dir <- file.path("www/data")
 #data_dir <- test_dir
+
+# --- API (hot path) configuration --------------------------------------------
+# Set NDVI_API_URL to point at the FastAPI server. Defaults to localhost so the
+# hot path is attempted by default; on timeout the app falls back to Parquet.
+API_BASE_URL     <- Sys.getenv("NDVI_API_URL", unset = "http://localhost:8000")
+API_TIMEOUT_SECS <- 2   # hard requirement — do not increase
 
 # --- Multilingual setup -------------------------------------------------------
 i18n <- Translator$new(translation_json_path = "translations.json")
