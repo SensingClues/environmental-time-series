@@ -2530,3 +2530,255 @@ plot_annual_ndvi_leaflet <- function(result) {
       opacity  = 0.8
     )
 }
+
+# =============================================================================
+# GRID HOT PATH — per-pixel grid endpoints (annual/monthly NDVI delta, BA maps)
+# =============================================================================
+
+#' HOT PATH for the annual NDVI Delta Map: fetch two annual-mean NDVI grids from
+#' the API and compute the per-pixel delta. Returns a list shaped exactly like
+#' compute_annual_ndvi_change() so plot_annual_ndvi_leaflet() + the summary card
+#' work unchanged. NULL if the API is unavailable (short-circuits after year_a).
+compute_ndvi_delta_hot <- function(aoi, sensor, resolution, year_a, year_b) {
+  grid_a_raw <- try_api_grid_call(
+    "/api/v1/ndvi/annual-grid",
+    list(aoi = aoi, sensor = sensor, resolution = resolution, year = year_a)
+  )
+  if (is.null(grid_a_raw)) return(NULL)  # short-circuit: don't try year_b
+  grid_b_raw <- try_api_grid_call(
+    "/api/v1/ndvi/annual-grid",
+    list(aoi = aoi, sensor = sensor, resolution = resolution, year = year_b)
+  )
+  if (is.null(grid_b_raw)) return(NULL)
+
+  grid_a <- parse_grid_response(grid_a_raw)
+  grid_b <- parse_grid_response(grid_b_raw)
+  if (nrow(grid_a) == 0L || nrow(grid_b) == 0L) return(NULL)
+
+  merged <- merge(grid_a, grid_b, by = c("lat", "lon"), suffixes = c("_a", "_b"))
+  if (nrow(merged) == 0L) return(NULL)
+  merged$delta <- merged$value_b - merged$value_a
+
+  # Pixel area (km^2) from the grid resolution in metres.
+  res_m <- suppressWarnings(as.numeric(grid_a_raw$metadata$resolution))
+  if (is.na(res_m) || res_m <= 0) res_m <- suppressWarnings(as.numeric(resolution))
+  px_km2 <- if (is.na(res_m) || res_m <= 0) NA_real_ else (res_m / 1000)^2
+
+  pos_km2   <- round(sum(merged$delta > 0, na.rm = TRUE) * px_km2, 1)
+  neg_km2   <- round(sum(merged$delta < 0, na.rm = TRUE) * px_km2, 1)
+  total_km2 <- round(nrow(merged) * px_km2, 1)
+
+  delta_df <- data.frame(
+    x = merged$lon, y = merged$lat,
+    ndvi_a = merged$value_a, ndvi_b = merged$value_b, delta = merged$delta
+  )
+  list(delta_df = delta_df, pos_km2 = pos_km2, neg_km2 = neg_km2,
+       total_km2 = total_km2, year_a = year_a, year_b = year_b,
+       country_name = aoi)
+}
+
+#' Render a monthly NDVI anomaly grid (selected month vs same-month historical
+#' baseline) as a diverging-colour Leaflet. `anomaly_df` has lat, lon, value
+#' (NDVI delta from baseline).
+plot_monthly_anomaly_leaflet <- function(anomaly_df, year, month, baseline_years = NULL) {
+  month_label <- month.name[as.integer(month)]
+  quants  <- stats::quantile(anomaly_df$value, c(0.02, 0.98), na.rm = TRUE)
+  max_abs <- max(abs(quants), na.rm = TRUE)
+  if (!is.finite(max_abs) || max_abs == 0) max_abs <- 0.1
+
+  pal <- leaflet::colorNumeric(
+    palette = c("#8B0000", "#CC3300", "#FFFFFF", "#66BB6A", "#1B5E20"),
+    domain  = c(-max_abs, max_abs), na.color = "transparent"
+  )
+  n_base <- length(baseline_years)
+  base_txt <- if (n_base > 0) paste0(" vs ", n_base, "-year baseline") else ""
+
+  leaflet::leaflet(anomaly_df) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~lon, lat = ~lat, radius = 3, stroke = FALSE, fillOpacity = 0.8,
+      fillColor = ~pal(scales::squish(value, c(-max_abs, max_abs))),
+      popup = ~paste0("<b>NDVI anomaly:</b> ", round(value, 3))
+    ) %>%
+    leaflet::addLegend(
+      position = "bottomright",
+      colors   = c(pal(-max_abs), pal(0), pal(max_abs)),
+      labels   = c("Less green than usual", "Typical", "Greener than usual"),
+      title    = paste0(month_label, " ", year, " NDVI anomaly", base_txt),
+      opacity  = 0.8
+    )
+}
+
+#' HOT PATH interactive Leaflet for the BA monthly map, built from a burned-area
+#' monthly grid (value = BurnDate; >0 means burned). Mirrors the look of
+#' build_ba_monthly_leaflet() but renders pixels as markers from the grid.
+build_ba_monthly_leaflet_grid <- function(ba_df, aoi_shape, year, month_num,
+                                          burned_km2 = NULL) {
+  aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
+  aoi_bounds <- sf::st_bbox(aoi_shape)
+  month_label <- format(as.Date(paste0(year, "-", sprintf("%02d", month_num), "-01")), "%B %Y")
+
+  m <- leaflet() %>%
+    addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+    addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+    addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                opacity = 0.9, fillOpacity = 0, label = "Study area boundary",
+                group = "Study Area") %>%
+    fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]])
+
+  burned <- ba_df[!is.na(ba_df$value) & ba_df$value > 0, , drop = FALSE]
+  if (nrow(burned) > 0) {
+    burned$burn_date <- format(as.Date(burned$value - 1, origin = paste0(year, "-01-01")), "%B %d, %Y")
+    km2_txt <- if (!is.null(burned_km2)) paste0(" (", round(burned_km2, 1), " km2 burned)") else ""
+    m <- m %>%
+      addCircleMarkers(
+        data = burned, lng = ~lon, lat = ~lat,
+        radius = 3, stroke = FALSE, fillOpacity = 0.75, fillColor = "#E25822",
+        label = ~lapply(paste0("<b>Burned on:</b> ", burn_date), htmltools::HTML),
+        labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+        group = "Burned Area"
+      ) %>%
+      addLegend("bottomright", colors = "#E25822",
+                labels = paste0("Burned Area", km2_txt),
+                title = month_label, opacity = 0.85)
+  } else {
+    m <- m %>% addControl(
+      html = paste0('<div style="background:white;padding:10px 14px;border-radius:4px;',
+                    'border:1px solid #ddd;font-size:13px;color:#555;">',
+                    'No burned area detected in ', month_label, ' for this area.</div>'),
+      position = "topright")
+  }
+  m %>% addLayersControl(
+    baseGroups    = c("Street Map", "Satellite"),
+    overlayGroups = c("Study Area", "Burned Area"),
+    options       = layersControlOptions(collapsed = FALSE), position = "topleft")
+}
+
+#' HOT PATH Leaflet for the NEW BA annual view, built from a burned-area annual
+#' grid (value = burn frequency: 0 none, 1 once, 2+ multiple).
+build_ba_annual_leaflet <- function(ba_df, aoi_shape, year, total_burned_km2 = NULL) {
+  aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
+  aoi_bounds <- sf::st_bbox(aoi_shape)
+
+  m <- leaflet() %>%
+    addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+    addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+    addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                opacity = 0.9, fillOpacity = 0, label = "Study area boundary",
+                group = "Study Area") %>%
+    fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]])
+
+  burned <- ba_df[!is.na(ba_df$value) & ba_df$value > 0, , drop = FALSE]
+  if (nrow(burned) > 0) {
+    burned$col <- ifelse(burned$value >= 2, "#7F0000", "#E25822")
+    burned$lab <- ifelse(burned$value >= 2,
+                         paste0("Burned ", burned$value, " times in ", year),
+                         paste0("Burned once in ", year))
+    m <- m %>%
+      addCircleMarkers(
+        data = burned, lng = ~lon, lat = ~lat,
+        radius = 3, stroke = FALSE, fillOpacity = 0.75, fillColor = ~col,
+        label = ~lapply(lab, htmltools::HTML),
+        labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+        group = "Burned Area"
+      ) %>%
+      addLegend("bottomright", colors = c("#E25822", "#7F0000"),
+                labels = c("Burned once", "Burned 2+ times"),
+                title = paste0("Annual burns ", year), opacity = 0.85)
+  } else {
+    m <- m %>% addControl(
+      html = paste0('<div style="background:white;padding:10px 14px;border-radius:4px;',
+                    'border:1px solid #ddd;font-size:13px;color:#555;">',
+                    'No burned area detected in ', year, ' for this area.</div>'),
+      position = "topright")
+  }
+  m %>% addLayersControl(
+    baseGroups    = c("Street Map", "Satellite"),
+    overlayGroups = c("Study Area", "Burned Area"),
+    options       = layersControlOptions(collapsed = FALSE), position = "topleft")
+}
+
+#' HOT PATH for the NDVI facet PNG: fetch one monthly-grid per year for the last
+#' 4 years (selected month), assemble the data frame plot_ndvi_maps() expects,
+#' and save the PNG via the UNMODIFIED plot_ndvi_maps(). Returns TRUE on success,
+#' NULL on failure (short-circuits if the first/most-recent-year call fails).
+generate_2Dmap_hot <- function(country_name, sensor, resolution, map_year, map_month,
+                               figures_dir, figure_filename) {
+  map_year  <- as.integer(map_year)
+  map_month <- as.integer(map_month)
+  mm        <- sprintf("%02d", map_month)
+  years_desc <- map_year:(map_year - 3)  # most recent first
+
+  parts <- list()
+  for (i in seq_along(years_desc)) {
+    yr <- years_desc[i]
+    g <- try_api_grid_call(
+      "/api/v1/ndvi/monthly-grid",
+      list(aoi = country_name, sensor = sensor, resolution = resolution,
+           year = yr, month = map_month)
+    )
+    if (is.null(g)) {
+      if (i == 1L) return(NULL)  # short-circuit: API down on the first call
+      next                       # older year simply has no data for this month
+    }
+    df <- parse_grid_response(g)
+    if (nrow(df) == 0L) next
+    parts[[length(parts) + 1L]] <- data.frame(
+      x = df$lon, y = df$lat, NDVI = df$value,
+      Year = as.character(yr), Month = mm, YearMonth = paste(yr, mm),
+      stringsAsFactors = FALSE
+    )
+  }
+  if (length(parts) == 0L) return(NULL)
+
+  data <- do.call(rbind, parts)
+  plot_ndvi_maps(data = data, month_to_plot = mm,
+                 ncol = length(parts),
+                 save_path = figures_dir, filename = figure_filename)
+  TRUE
+}
+
+#' HOT PATH for the burned-area facet PNG: fetch one burned-area monthly-grid per
+#' year for the last 4 years (selected month), assemble the data frame
+#' plot_ba_maps() expects (BurnedArea 0/1; per-year BurnedArea_Size from
+#' metadata$burned_km2; Percentage_Burned from aoi_area_km2), and save the PNG via
+#' the UNMODIFIED plot_ba_maps(). Returns TRUE on success, NULL on failure.
+generate_ba_2Dmap_hot <- function(country_name, map_year, map_month, figures_dir,
+                                  figure_filename, aoi_area_km2 = NULL) {
+  map_year  <- as.integer(map_year)
+  map_month <- as.integer(map_month)
+  mm        <- sprintf("%02d", map_month)
+  years_desc <- map_year:(map_year - 3)
+
+  parts <- list()
+  for (i in seq_along(years_desc)) {
+    yr <- years_desc[i]
+    g <- try_api_grid_call(
+      "/api/v1/burned-area/monthly-grid",
+      list(aoi = country_name, year = yr, month = map_month)
+    )
+    if (is.null(g)) {
+      if (i == 1L) return(NULL)  # short-circuit: API down on the first call
+      next
+    }
+    df <- parse_grid_response(g)
+    if (nrow(df) == 0L) next
+    burned_km2 <- suppressWarnings(as.numeric(g$metadata$burned_km2))
+    if (length(burned_km2) == 0L) burned_km2 <- NA_real_
+    pct <- if (!is.null(aoi_area_km2) && !is.na(aoi_area_km2) && aoi_area_km2 > 0 &&
+               !is.na(burned_km2)) burned_km2 / aoi_area_km2 * 100 else 0
+    parts[[length(parts) + 1L]] <- data.frame(
+      x = df$lon, y = df$lat,
+      BurnedArea = as.integer(df$value > 0),
+      Month = mm, Year = as.character(yr), YearMonth = paste(yr, mm),
+      BurnedArea_Size = burned_km2, Percentage_Burned = pct,
+      stringsAsFactors = FALSE
+    )
+  }
+  if (length(parts) == 0L) return(NULL)
+
+  data <- do.call(rbind, parts)
+  plot_ba_maps(data = data, month_to_plot = mm, n_years = 4,
+               save_path = figures_dir, filename = figure_filename)
+  TRUE
+}

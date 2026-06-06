@@ -1285,6 +1285,20 @@ server <- function(input, output, session) {
     }
 
     tryCatch({
+      # HOT PATH: per-pixel annual grids from the API; falls through to cold TIF.
+      sr <- get_sensor_resolution(resolution)
+      res <- if (!is.null(sr)) {
+        compute_ndvi_delta_hot(country_name, sr$sensor, sr$resolution, year_a, year_b)
+      } else NULL
+      if (!is.null(res)) {
+        ndvi_annual_result(res)
+        ndvi_annual_ready(TRUE)
+        data_source_rv("api")
+        error_message_rv(NULL)
+        return()
+      }
+
+      # COLD PATH: compute annual means from raw TIF rasters (unchanged)
       res <- compute_annual_ndvi_change(year_a, year_b, country_name, resolution, data_dir)
       ndvi_annual_result(res)
       ndvi_annual_ready(TRUE)
@@ -1389,17 +1403,28 @@ server <- function(input, output, session) {
     figure_path <- file.path(figures_dir, figure_filename)
     
     tryCatch({
-      if (!file.exists(figure_path)) {
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
+      if (!dir.exists(figures_dir)) {
+        dir.create(figures_dir, recursive = TRUE)
+      }
+      # HOT PATH: build the NDVI facet PNG from per-year monthly grids; falls
+      # through to the cold TIF facet when the API is unavailable.
+      sr_hist <- get_sensor_resolution(resolution)
+      hist_hot <- if (!is.null(sr_hist)) tryCatch(
+        generate_2Dmap_hot(country_name, sr_hist$sensor, sr_hist$resolution,
+                           map_year, map_month, figures_dir, figure_filename),
+        error = function(e) NULL) else NULL
+      if (is.null(hist_hot)) {
+        if (!file.exists(figure_path)) {
+          generate_2Dmap(country_name, resolution, map_year, map_month, figures_dir, data_dir, FALSE, FALSE, figure_filename)
         }
-        generate_2Dmap(country_name, resolution, map_year, map_month, figures_dir, data_dir, FALSE, FALSE, figure_filename)
+      } else {
+        data_source_rv("api")
       }
       output$ndvi_histmap_output <- renderImage({
-        list(src = figure_path, 
+        list(src = figure_path,
              alt = "NDVI 2D map")
       }, deleteFile = FALSE)
-    
+
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_dm_ready(FALSE)
@@ -1423,6 +1448,33 @@ server <- function(input, output, session) {
     figure_path_dm <- file.path(figures_dir, figure_filename_dm)
 
     tryCatch({
+      # HOT PATH: monthly NDVI anomaly grid (selected month vs same-month
+      # historical baseline) rendered as a live Leaflet. Falls through silently
+      # to the cold saved-HTML iframe below when the API is unavailable.
+      sr_dm <- get_sensor_resolution(resolution)
+      anomaly_raw <- if (!is.null(sr_dm)) try_api_grid_call(
+        "/api/v1/ndvi/monthly-anomaly-grid",
+        list(aoi = country_name, sensor = sr_dm$sensor,
+             resolution = sr_dm$resolution, year = map_year, month = map_month)
+      ) else NULL
+
+      if (!is.null(anomaly_raw)) {
+        anomaly_df <- parse_grid_response(anomaly_raw)
+        output$ndvi_monthly_anomaly_leaflet <- renderLeaflet(
+          plot_monthly_anomaly_leaflet(anomaly_df, map_year, map_month,
+                                       anomaly_raw$metadata$baseline_years)
+        )
+        output$ndvi_delta_map_output <- renderUI({
+          leafletOutput("ndvi_monthly_anomaly_leaflet", height = "500px")
+        })
+        ndvi_dm_ready(TRUE)
+        data_source_rv("api")
+        error_message_rv(NULL)
+        message("=========== End of NDVI Delta Plot Generation (API) =============")
+        return()
+      }
+
+      # COLD PATH: saved delta-map HTML in an iframe (unchanged)
       if (!file.exists(figure_path_dm)) {
         if (!dir.exists(figures_dir)) {
           dir.create(figures_dir, recursive = TRUE)
@@ -1430,16 +1482,16 @@ server <- function(input, output, session) {
         generate_2Dmap(country_name, resolution, map_year, map_month, figures_dir, data_dir, TRUE, FALSE, figure_filename_dm)
       }
       output$ndvi_delta_map_output <- renderUI({
-        tags$iframe(src = paste0("figures/", figure_filename_dm), 
-                    width = "100%", 
-                    height = "500px", 
+        tags$iframe(src = paste0("figures/", figure_filename_dm),
+                    width = "100%",
+                    height = "500px",
                     frameborder = 0)
       })
-      
+
       ndvi_dm_ready(TRUE) # Mark UI as ready when both figures are rendered successfully (renderUI will now return the container)
       data_source_rv("tif")  # delta maps are computed from raw TIF rasters
       error_message_rv(NULL) # Clear any previous error messages
-      
+
     }, error = function(e) {
       # Clear server outputs so nothing can re-appear
       ndvi_dm_ready(FALSE)
@@ -1721,6 +1773,19 @@ server <- function(input, output, session) {
     shinyjs::hide("monthly_leaflet_wrap")
   })
   
+  # Session cache for AoI area (km2) from the API — fetched once per AoI and
+  # reused for the BA facet's percentage-of-study-area labels.
+  .aoi_area_cache <- new.env(parent = emptyenv())
+  ba_aoi_area_km2 <- function(aoi) {
+    key <- as.character(aoi)
+    if (is.null(.aoi_area_cache[[key]])) {
+      a <- get_aoi_area_km2(aoi)
+      assign(key, if (is.null(a)) NA_real_ else a, envir = .aoi_area_cache)
+    }
+    val <- .aoi_area_cache[[key]]
+    if (is.na(val)) NULL else val
+  }
+
   # Observe the Generate Figure button
   observeEvent(input$generate_ba_map_figures, {
     message("=========== Starting Burned Area Map Generation =============")
@@ -1741,31 +1806,36 @@ server <- function(input, output, session) {
     figure_path_bam <- file.path(figures_dir, figure_filename_bam)
     
     tryCatch({
-      if (!file.exists(figure_path_bam)) {
-        if (!dir.exists(figures_dir)) {
-          dir.create(figures_dir, recursive = TRUE)
-        }
-        # Generate figure and create GeoJSON file, store path
-        generate_ba_2Dmap(country_name, resolution, map_year, map_month, figures_dir, data_dir, FALSE, FALSE, figure_filename_bam)
-        geojson_export_path <- generate_ba_export(country_name, resolution, map_year, map_month, figures_dir, data_dir, figure_filename_bam)
-        
-        # Update reactive values for the download button
-        geojson_export_path_rv(geojson_export_path)
-        map_generated(TRUE)
+      if (!dir.exists(figures_dir)) {
+        dir.create(figures_dir, recursive = TRUE)
       }
+      # HOT PATH: build the BA facet PNG from per-year monthly grids; falls
+      # through to the cold TIF facet when the API is unavailable.
+      ba_hot <- tryCatch(
+        generate_ba_2Dmap_hot(country_name, map_year, map_month, figures_dir,
+                              figure_filename_bam, ba_aoi_area_km2(country_name)),
+        error = function(e) NULL)
+      if (is.null(ba_hot) && !file.exists(figure_path_bam)) {
+        generate_ba_2Dmap(country_name, resolution, map_year, map_month, figures_dir, data_dir, FALSE, FALSE, figure_filename_bam)
+      }
+
+      # GeoJSON export stays on the COLD path (needed by the download button).
+      geojson_export_path <- file.path(figures_dir, paste0(tools::file_path_sans_ext(figure_filename_bam), ".geojson"))
+      if (!file.exists(geojson_export_path)) {
+        geojson_export_path <- generate_ba_export(country_name, resolution, map_year, map_month, figures_dir, data_dir, figure_filename_bam)
+      }
+      geojson_export_path_rv(geojson_export_path)
+      map_generated(TRUE)
+
       output$ba_map_output <- renderImage({
         list(src = figure_path_bam,
              width = "100%",
              alt = "Burned Area 2D map")
       }, deleteFile = FALSE)
-      
-      # Create GeoJSON export path (same logic as in the function) and update reactive values
-      geojson_export_path <- file.path(figures_dir, paste0(tools::file_path_sans_ext(figure_filename_bam), ".geojson"))
-      geojson_export_path_rv(geojson_export_path)
-      
+
       map_generated(TRUE) # Mark map generated as TRUE to enable the GeoJSON download button
       error_message_rv(NULL) # Clear any previous error messages
-      
+
     }, error = function(e) {
       ba_map_ready(FALSE)
       error_message_rv(e$message)
@@ -1780,27 +1850,50 @@ server <- function(input, output, session) {
     
     #### BA interactive Leaflet map (monthly footprint)
     tryCatch({
-      # Capture current values for the renderer (avoids reactive dependency)
+      # HOT PATH: build the interactive leaflet from the burned-area monthly grid
+      # (pixels as markers). Falls through to the GeoJSON-based leaflet when the
+      # API is unavailable. The static PNG + GeoJSON download stay on cold path.
+      ba_grid_raw <- try_api_grid_call(
+        "/api/v1/burned-area/monthly-grid",
+        list(aoi = country_name, year = map_year, month = map_month)
+      )
+      ba_leaflet_source <- "tif"
+
       local({
         captured_geojson <- geojson_export_path_rv()
         captured_year    <- map_year
         captured_month   <- map_month
         captured_country <- country_name
+        captured_grid    <- ba_grid_raw
 
-        output$ba_monthly_leaflet <- renderLeaflet({
-          build_ba_monthly_leaflet(
-            geojson_path = captured_geojson,
-            data_dir     = data_dir,
-            country      = captured_country,
-            year         = captured_year,
-            month_num    = captured_month
-          )
-        })
+        if (!is.null(captured_grid)) {
+          ba_leaflet_source <<- "api"
+          ba_df       <- parse_grid_response(captured_grid)
+          burned_km2  <- captured_grid$metadata$burned_km2
+          aoi_files   <- list.files(file.path(data_dir, "AoI"),
+                                    pattern = paste0("AoI.*", captured_country, ".*\\.geojson$"))
+          aoi_shape   <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), captured_country)
+          output$ba_monthly_leaflet <- renderLeaflet({
+            build_ba_monthly_leaflet_grid(ba_df, aoi_shape, captured_year,
+                                          captured_month, burned_km2)
+          })
+        } else {
+          output$ba_monthly_leaflet <- renderLeaflet({
+            build_ba_monthly_leaflet(
+              geojson_path = captured_geojson,
+              data_dir     = data_dir,
+              country      = captured_country,
+              year         = captured_year,
+              month_num    = captured_month
+            )
+          })
+        }
       })
 
       shinyjs::show("monthly_leaflet_wrap")
       ba_map_ready(TRUE)
-      data_source_rv("tif")  # static burned-area map is computed from raw TIF rasters
+      # "api" when the interactive map came from the grid, else cold TIF/GeoJSON.
+      data_source_rv(ba_leaflet_source)
       error_message_rv(NULL)
     }, error = function(e) {
       ba_map_ready(FALSE)
@@ -1855,11 +1948,56 @@ server <- function(input, output, session) {
              " (", result$n_years, " year", ifelse(result$n_years == 1, "", "s"), ")"))
   })
 
+  # ------- BA Annual View reactive + outputs (NEW — hot path only) ----------
+
+  # Per-pixel annual burn frequency from the API; NULL when the API is down.
+  ba_annual_result <- reactive({
+    req(input$ba_map_view == "annual")
+    req(input$country, input$year)
+    try_api_grid_call(
+      "/api/v1/burned-area/annual-grid",
+      list(aoi = input$country, year = input$year)
+    )
+  })
+
+  observeEvent(ba_annual_result(), {
+    if (!is.null(ba_annual_result())) data_source_rv("api")
+  })
+
+  output$ba_annual_summary <- renderUI({
+    req(input$ba_map_view == "annual")
+    res <- ba_annual_result()
+    if (is.null(res)) {
+      return(div(class = "infobox",
+                 p(style = "margin:0; color:#C62828;",
+                   "Annual burn map requires the API server to be running.")))
+    }
+    tot <- res$metadata$total_burned_km2
+    p(style = "color:#555; font-size:0.9em; margin-bottom:10px;",
+      paste0("Total burned area in ", input$year, ": ",
+             if (!is.null(tot)) paste0(round(tot, 1), " km2") else "n/a"))
+  })
+
+  output$ba_annual_leaflet <- renderLeaflet({
+    req(input$ba_map_view == "annual")
+    res <- ba_annual_result()
+    req(!is.null(res))
+    aoi_files <- list.files(file.path(data_dir, "AoI"),
+                            pattern = paste0("AoI.*", input$country, ".*\\.geojson$"))
+    req(length(aoi_files) > 0)
+    aoi_shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), input$country)
+    build_ba_annual_leaflet(parse_grid_response(res), aoi_shape, input$year,
+                            res$metadata$total_burned_km2)
+  })
+
   # ------- Show/hide sidebar year & month when toggling BA map views --------
 
   observeEvent(input$ba_map_view, {
     if (isTRUE(input$ba_map_view == "frp")) {
       shinyjs::hide("year")
+      shinyjs::hide("month")
+    } else if (isTRUE(input$ba_map_view == "annual")) {
+      shinyjs::show("year")
       shinyjs::hide("month")
     } else {
       shinyjs::show("year")

@@ -201,6 +201,82 @@ read_landcover_geometry <- function(file, aoi, land_cover_class,
   sf::st_read(file, quiet = TRUE)
 }
 
+#' Fetch a per-pixel grid response from the API (annual-grid, monthly-grid,
+#' monthly-anomaly-grid, burned-area grids). Unlike try_api_call() this returns
+#' the FULL parsed response (with $grid and $metadata) rather than $data, and it
+#' does NOT send format=table. NULL if the API is unavailable / errors / returns
+#' no grid (error responses have status "error" and no $grid).
+#'
+#' @param endpoint Character. e.g. "/api/v1/ndvi/annual-grid"
+#' @param params Named list. Query parameters.
+#' @param timeout_secs Numeric.
+#' @return Parsed response list (with $grid, $metadata) or NULL.
+try_api_grid_call <- function(endpoint, params,
+                              timeout_secs = API_TIMEOUT_SECS) {
+  tryCatch({
+    url <- paste0(API_BASE_URL, endpoint)
+    response <- httr::GET(url, query = params, httr::timeout(timeout_secs))
+    if (httr::status_code(response) != 200) return(NULL)
+    content <- httr::content(response, "text", encoding = "UTF-8")
+    parsed <- jsonlite::fromJSON(content, flatten = FALSE)
+    if (is.null(parsed$grid)) return(NULL)
+    parsed
+  }, error = function(e) NULL)
+}
+
+#' Parse a compact 2D grid response into a flat data frame with lat, lon, value.
+#'
+#' Robust to jsonlite's simplification: `grid$values` may arrive as a numeric
+#' matrix (when rectangular) or a list of row-lists (when nulls break
+#' simplification). Both are normalised to an [n_lat x n_lon] matrix, then
+#' expanded; masked (null/NA) pixels are dropped.
+#'
+#' @param response Parsed grid response (from try_api_grid_call()).
+#' @return data.frame with columns lat, lon, value (non-NA pixels only).
+parse_grid_response <- function(response) {
+  grid <- response$grid
+  lats <- as.numeric(grid$lats)
+  lons <- as.numeric(grid$lons)
+  vals <- grid$values
+
+  to_num_row <- function(r) {
+    r[vapply(r, is.null, logical(1))] <- NA
+    as.numeric(unlist(r))
+  }
+  if (is.matrix(vals)) {
+    m <- matrix(as.numeric(vals), nrow = nrow(vals), ncol = ncol(vals))
+  } else {
+    m <- do.call(rbind, lapply(vals, to_num_row))
+  }
+  # m[i, j] = value at lat i, lon j
+  if (is.null(m) || length(m) == 0L) {
+    return(data.frame(lat = numeric(0), lon = numeric(0), value = numeric(0)))
+  }
+
+  idx <- expand.grid(lat_idx = seq_along(lats), lon_idx = seq_along(lons))
+  df <- data.frame(
+    lat   = lats[idx$lat_idx],
+    lon   = lons[idx$lon_idx],
+    value = m[cbind(idx$lat_idx, idx$lon_idx)]
+  )
+  df[!is.na(df$value), , drop = FALSE]
+}
+
+#' Total AoI area (km^2) from the API geometry endpoint (its top-level
+#' `area_km2`). NULL if the API is unavailable. Used to turn burned-area km²
+#' into a percentage-of-study-area for the BA facet labels.
+get_aoi_area_km2 <- function(aoi, timeout_secs = API_TIMEOUT_SECS) {
+  tryCatch({
+    resp <- httr::GET(paste0(API_BASE_URL, "/api/v1/geometry/aoi"),
+                      query = list(aoi = aoi), httr::timeout(timeout_secs))
+    if (httr::status_code(resp) != 200) return(NULL)
+    parsed <- jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"),
+                                 flatten = FALSE)
+    a <- suppressWarnings(as.numeric(parsed$area_km2))
+    if (length(a) == 0L || is.na(a) || a <= 0) NULL else a
+  }, error = function(e) NULL)
+}
+
 # Remove land_cover classes that have NO valid (non-NA) mean_ndvi across all
 # rows.  At coarse resolutions tiny classes (e.g. Flooded_vegetation < 0.1 km²)
 # contain no raster pixels, producing all-NA mean_ndvi.  plot_anomaly_resilience

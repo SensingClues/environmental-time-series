@@ -234,7 +234,7 @@ mod_body_ui <- function(id) {
                                            shinyWidgets::radioGroupButtons(
                                              inputId  = "ba_map_view",
                                              label    = NULL,
-                                             choices  = c("Monthly View" = "monthly", "Fire Return Period" = "frp"),
+                                             choices  = c("Monthly View" = "monthly", "Annual View" = "annual", "Fire Return Period" = "frp"),
                                              selected = "monthly",
                                              size     = "sm",
                                              status   = "default"
@@ -277,6 +277,17 @@ mod_body_ui <- function(id) {
                                              # Busy Spinner always available for this tab
                                              mod_busy_spinner_ui("busy_spinner"),
                                              leafletOutput("ba_frp_leaflet", height = "450px")
+                                           ),
+
+                                           # === ANNUAL VIEW (API hot path only) ===
+                                           conditionalPanel(
+                                             condition = "input.ba_map_view == 'annual'",
+                                             div(class="infobox",
+                                                 p("This map shows how much of the study area burned across all months of the selected year. Orange = burned once; dark red = burned more than once. Requires the live data service.")
+                                             ),
+                                             uiOutput("ba_annual_summary"),
+                                             mod_busy_spinner_ui("busy_spinner"),
+                                             leafletOutput("ba_annual_leaflet", height = "450px")
                                            ),
 
                                            # Data-source label (shared across Monthly + FRP views)
