@@ -54,7 +54,8 @@ mod_sidebar_ui <- function(id) {
         conditionalPanel(
           condition = "!(
             (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience')) ||
-            (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab' && input.ndvi_ts_view == 'annual')
+            (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab' && input.ndvi_ts_view == 'annual') ||
+            (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'daily')
           )",
           selectInput("year", "Select year", selected = NULL, choices = NULL)
         ),
