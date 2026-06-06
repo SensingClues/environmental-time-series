@@ -2698,6 +2698,39 @@ build_ba_annual_leaflet <- function(ba_df, aoi_shape, year, total_burned_km2 = N
     options       = layersControlOptions(collapsed = FALSE), position = "topleft")
 }
 
+#' COLD PATH for the BA annual view: compute per-pixel burn frequency for one
+#' year directly from the monthly burned-area TIFs (fallback when the API is
+#' down). Returns list(df = data.frame(lat, lon, value = months-burned count),
+#' total_burned_km2, aoi_shape) or NULL if no TIFs exist for the year.
+compute_ba_annual_cold <- function(data_dir, country, resolution, year) {
+  data_path <- file.path(data_dir, "BurnedArea", country, paste0(resolution, "m_resolution"))
+  ba_files  <- list.files(data_path, pattern = "\\.tif$", full.names = TRUE)
+  yr_files  <- ba_files[grepl(paste0("^", year, "-"), basename(ba_files))]
+  if (length(yr_files) == 0L) return(NULL)
+
+  # Per-pixel count of months burned (BurnDate > 0) across the year.
+  monthly  <- terra::ifel(terra::rast(yr_files) > 0, 1, 0)
+  burn_cnt <- terra::app(monthly, fun = sum, na.rm = TRUE)
+  burn_cnt <- terra::project(burn_cnt, "EPSG:4326")
+
+  aoi_files <- list.files(file.path(data_dir, "AoI"),
+                          pattern = paste0("AoI.*", country, ".*\\.geojson$"))
+  if (length(aoi_files) == 0L) stop("No Area of Interest file found for the selected country.")
+  aoi_shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
+  aoi_4326  <- sf::st_transform(aoi_shape, 4326)
+  burn_cnt  <- terra::mask(burn_cnt, terra::vect(aoi_4326))
+
+  df <- as.data.frame(burn_cnt, xy = TRUE)
+  names(df) <- c("lon", "lat", "value")
+  df <- df[!is.na(df$value), c("lat", "lon", "value"), drop = FALSE]
+  if (nrow(df) == 0L) return(NULL)
+
+  px_km2 <- (suppressWarnings(as.numeric(gsub("[^0-9]", "", resolution))) / 1000)^2
+  total_burned_km2 <- round(sum(df$value > 0) * px_km2, 1)
+
+  list(df = df, total_burned_km2 = total_burned_km2, aoi_shape = aoi_4326)
+}
+
 #' HOT PATH for the NDVI facet PNG: fetch one monthly-grid per year for the last
 #' 4 years (selected month), assemble the data frame plot_ndvi_maps() expects,
 #' and save the PNG via the UNMODIFIED plot_ndvi_maps(). Returns TRUE on success,

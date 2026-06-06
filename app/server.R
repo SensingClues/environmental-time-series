@@ -1950,44 +1950,64 @@ server <- function(input, output, session) {
 
   # ------- BA Annual View reactive + outputs (NEW — hot path only) ----------
 
-  # Per-pixel annual burn frequency from the API; NULL when the API is down.
-  ba_annual_result <- reactive({
+  # Per-pixel annual burn frequency: HOT (annual-grid API) -> COLD (compute from
+  # the monthly burned-area TIFs). Returns a normalised list or NULL if neither
+  # source is available. `source` drives the data label ("api" / "tif").
+  ba_annual_data <- reactive({
     req(input$ba_map_view == "annual")
     req(input$country, input$year)
-    try_api_grid_call(
+
+    aoi_files <- list.files(file.path(data_dir, "AoI"),
+                            pattern = paste0("AoI.*", input$country, ".*\\.geojson$"))
+
+    # HOT PATH
+    raw <- try_api_grid_call(
       "/api/v1/burned-area/annual-grid",
       list(aoi = input$country, year = input$year)
     )
+    if (!is.null(raw)) {
+      aoi_shape <- if (length(aoi_files) > 0)
+        tryCatch(read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), input$country),
+                 error = function(e) NULL) else NULL
+      return(list(source = "api", df = parse_grid_response(raw),
+                  total_burned_km2 = raw$metadata$total_burned_km2, aoi_shape = aoi_shape))
+    }
+
+    # COLD PATH: compute burn frequency from raw TIFs.
+    cold <- tryCatch(
+      compute_ba_annual_cold(data_dir, input$country, input$resolution, input$year),
+      error = function(e) NULL)
+    if (!is.null(cold)) {
+      return(list(source = "tif", df = cold$df,
+                  total_burned_km2 = cold$total_burned_km2, aoi_shape = cold$aoi_shape))
+    }
+    NULL
   })
 
-  observeEvent(ba_annual_result(), {
-    if (!is.null(ba_annual_result())) data_source_rv("api")
+  observeEvent(ba_annual_data(), {
+    d <- ba_annual_data()
+    if (!is.null(d)) data_source_rv(d$source)
   })
 
   output$ba_annual_summary <- renderUI({
     req(input$ba_map_view == "annual")
-    res <- ba_annual_result()
-    if (is.null(res)) {
+    d <- ba_annual_data()
+    if (is.null(d)) {
       return(div(class = "infobox",
                  p(style = "margin:0; color:#C62828;",
-                   "Annual burn map requires the API server to be running.")))
+                   "Annual burn map requires the API server or local burned-area files.")))
     }
-    tot <- res$metadata$total_burned_km2
+    tot <- d$total_burned_km2
     p(style = "color:#555; font-size:0.9em; margin-bottom:10px;",
       paste0("Total burned area in ", input$year, ": ",
-             if (!is.null(tot)) paste0(round(tot, 1), " km2") else "n/a"))
+             if (!is.null(tot) && !is.na(tot)) paste0(round(tot, 1), " km2") else "n/a"))
   })
 
   output$ba_annual_leaflet <- renderLeaflet({
     req(input$ba_map_view == "annual")
-    res <- ba_annual_result()
-    req(!is.null(res))
-    aoi_files <- list.files(file.path(data_dir, "AoI"),
-                            pattern = paste0("AoI.*", input$country, ".*\\.geojson$"))
-    req(length(aoi_files) > 0)
-    aoi_shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), input$country)
-    build_ba_annual_leaflet(parse_grid_response(res), aoi_shape, input$year,
-                            res$metadata$total_burned_km2)
+    d <- ba_annual_data()
+    req(!is.null(d), !is.null(d$aoi_shape))
+    build_ba_annual_leaflet(d$df, d$aoi_shape, input$year, d$total_burned_km2)
   })
 
   # ------- Show/hide sidebar year & month when toggling BA map views --------
@@ -2011,6 +2031,35 @@ server <- function(input, output, session) {
       paste0("burned_area_", input$year, "_", match(input$month, month.name), ".geojson")
     },
     content = function(file) {
+      # HOT PATH: fetch the vectorized burned-area GeoJSON from the API.
+      # Single call, so no Windows short-circuit; longer 10s timeout because
+      # server-side vectorization is slower than tabular fetches.
+      api_url <- paste0(API_BASE_URL, "/api/v1/burned-area/monthly-geojson")
+      response <- tryCatch(
+        httr::GET(
+          api_url,
+          query = list(
+            aoi   = input$country,
+            year  = input$year,
+            month = match(input$month, month.name)  # input$month is the name
+          ),
+          httr::timeout(10)
+        ),
+        error = function(e) NULL
+      )
+      if (!is.null(response) && httr::status_code(response) == 200) {
+        content_text <- httr::content(response, "text", encoding = "UTF-8")
+        # The endpoint returns 200 with {"status":"error"} when no data exists,
+        # so only accept a genuine FeatureCollection before writing.
+        parsed <- tryCatch(jsonlite::fromJSON(content_text, simplifyVector = FALSE),
+                           error = function(e) NULL)
+        if (!is.null(parsed) && identical(parsed$type, "FeatureCollection")) {
+          writeLines(content_text, file)
+          return()  # early return — skip cold path
+        }
+      }
+
+      # COLD PATH: copy the pre-generated GeoJSON (existing behaviour, unchanged).
       path <- geojson_export_path_rv()
       req(path, file.exists(path))
       file.copy(path, file, overwrite = TRUE)

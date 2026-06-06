@@ -16,20 +16,37 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
   # Sensor/resolution mapping shared by the hot-path API calls below.
   sr <- get_sensor_resolution(resolution)
 
-  # WARM PATH: annual view (no hot path — the /ndvi/timeseries endpoint returns
-  # monthly rows, not the ndvi_annual schema with n_months/is_complete).
+  # ANNUAL view: HOT (/ndvi/annual) -> WARM (ndvi_annual parquet) -> COLD (TIF).
   if (identical(view, "annual") && !use_lc_requested) {
-    pq_ann <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_annual"))
-    if (!is.null(pq_ann)) {
-      annual_df <- pq_ann[pq_ann$aoi == country_name,
-                          c("year", "mean_ndvi", "n_months", "is_complete")]
-      if (nrow(annual_df) > 0) {
-        annual_df$is_complete <- as.logical(annual_df$is_complete)
-        annual_plot  <- plot_ndvi_annual(annual_df, land_cover_class = NULL)
-        annual_stats <- compute_ndvi_annual_stats(annual_df)
-        annual_stats$view <- "annual"
-        return(list(plot = annual_plot, stats = annual_stats, view = "annual", data_source = "parquet"))
+    annual_df <- NULL
+    ds        <- NULL
+
+    # HOT PATH: dedicated annual time-series endpoint (year, mean_ndvi,
+    # n_months, is_complete). Falls through silently if unavailable.
+    api_ann <- if (!is.null(sr)) try_api_call(
+      endpoint = "/api/v1/ndvi/annual",
+      params   = list(aoi = country_name, sensor = sr$sensor, resolution = sr$resolution)
+    ) else NULL
+    if (!is.null(api_ann) &&
+        all(c("year", "mean_ndvi", "n_months", "is_complete") %in% names(api_ann))) {
+      annual_df <- api_ann[, c("year", "mean_ndvi", "n_months", "is_complete")]
+      ds        <- "api"
+    } else {
+      # WARM PATH: pre-processed ndvi_annual.parquet
+      pq_ann <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_annual"))
+      if (!is.null(pq_ann)) {
+        tmp <- pq_ann[pq_ann$aoi == country_name,
+                      c("year", "mean_ndvi", "n_months", "is_complete")]
+        if (nrow(tmp) > 0) { annual_df <- tmp; ds <- "parquet" }
       }
+    }
+
+    if (!is.null(annual_df) && nrow(annual_df) > 0) {
+      annual_df$is_complete <- as.logical(annual_df$is_complete)
+      annual_plot  <- plot_ndvi_annual(annual_df, land_cover_class = NULL)
+      annual_stats <- compute_ndvi_annual_stats(annual_df)
+      annual_stats$view <- "annual"
+      return(list(plot = annual_plot, stats = annual_stats, view = "annual", data_source = ds))
     }
   }
 
