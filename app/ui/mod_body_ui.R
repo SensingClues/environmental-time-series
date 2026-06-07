@@ -381,61 +381,74 @@ mod_body_ui <- function(id) {
         value = "AIassistantTab",
         div(
           class = "plot-container",
-          tags$style(HTML("
-            .ai-chat { min-height: 320px; max-height: 60vh; overflow-y: auto;
-                       padding: 10px; border: 1px solid #e0e0e0; border-radius: 6px;
-                       background: #fafafa; }
-            .ai-row { display: flex; }
-            .ai-row.user  { justify-content: flex-end; }
-            .ai-row.agent { justify-content: flex-start; }
-            .ai-bubble { display: inline-block; padding: 8px 12px; border-radius: 12px;
-                         margin: 6px 0; max-width: 80%; font-size: 0.92em;
-                         line-height: 1.35; white-space: pre-wrap; word-wrap: break-word; }
-            .ai-bubble.user  { background: #1B5E20; color: #ffffff;
-                               border-bottom-right-radius: 2px; }
-            .ai-bubble.agent { background: #eceff1; color: #1f2d1f;
-                               border-bottom-left-radius: 2px; }
-            .ai-empty { color: #888; font-style: italic; padding: 16px; }
-          ")),
           fluidRow(
             column(
-              4,
-              selectInput(
-                "llm_provider", "AI provider",
-                choices = c("Anthropic (Claude)" = "anthropic",
-                            "OpenAI (GPT-4o)"     = "openai")
-              ),
-              conditionalPanel(
-                condition = "output.server_key_configured == false",
-                wellPanel(
-                  passwordInput("user_api_key", "Your API key",
-                                placeholder = "sk-... or sk-ant-..."),
-                  helpText("Used for this session only. Never stored.")
+              12,
+              # --- Collapsible settings panel (full width, above the chat) ---
+              div(
+                class = "ai-settings",
+                div(
+                  class = "ai-settings-header",
+                  tags$span(class = "ai-settings-title", "Assistant settings"),
+                  actionButton("toggle_settings", "Settings ▲",
+                               class = "btn-default btn-sm ai-settings-toggle")
+                ),
+                conditionalPanel(
+                  condition = "output.settings_expanded == true",
+                  selectInput(
+                    "llm_provider", "AI provider",
+                    choices = c("Anthropic (Claude)" = "anthropic",
+                                "OpenAI (GPT-4o)"     = "openai")
+                  ),
+                  conditionalPanel(
+                    condition = "output.server_key_configured == false",
+                    passwordInput("user_api_key", "Your API key",
+                                  placeholder = "sk-... or sk-ant-..."),
+                    helpText("Used for this session only. Never stored.")
+                  ),
+                  conditionalPanel(
+                    condition = "output.server_key_configured == true",
+                    p(tags$span(style = "color:#2E7D32; font-weight:bold;", "● "),
+                      "AI Assistant ready")
+                  )
+                ),
+                conditionalPanel(
+                  condition = "output.settings_expanded == false",
+                  div(class = "ai-settings-summary",
+                      textOutput("settings_summary", inline = TRUE))
                 )
               ),
-              conditionalPanel(
-                condition = "output.server_key_configured == true",
-                wellPanel(
-                  p(tags$span(style = "color:#2E7D32; font-weight:bold;", "● "),
-                    "AI Assistant ready")
-                )
-              ),
-              wellPanel(
-                h5("Current context"),
-                textOutput("context_summary")
-              )
-            ),
-            column(
-              8,
+
+              # --- Conversation (full width) ---
               uiOutput("conversation_display"),
               hr(),
+
+              # --- Input area (full width) ---
               textAreaInput(
                 "user_question", NULL,
                 placeholder = "Ask about vegetation trends, fire patterns, land cover changes...",
                 rows = 3, width = "100%"
               ),
-              actionButton("send_question", "Ask", class = "action_button"),
-              actionButton("clear_history", "Clear conversation", class = "btn-default btn-sm")
+              div(
+                class = "ai-input-actions",
+                actionButton("send_question", "Ask", class = "action_button ai-send-btn"),
+                actionButton("clear_history", "Clear conversation",
+                             class = "btn-default ai-clear-btn")
+              ),
+              tags$p(class = "ai-input-hint", "Press Ctrl + Enter (⌘ + Enter on Mac) to send."),
+
+              # Send on Ctrl/Cmd + Enter from the question box
+              tags$script(HTML(
+                "document.addEventListener('keydown', function(e){
+                   var ta = document.getElementById('user_question');
+                   if (ta && document.activeElement === ta &&
+                       (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                     e.preventDefault();
+                     var btn = document.getElementById('send_question');
+                     if (btn) btn.click();
+                   }
+                 });"
+              ))
             )
           )
         )

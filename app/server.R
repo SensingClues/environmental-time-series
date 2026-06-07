@@ -2090,6 +2090,16 @@ server <- function(input, output, session) {
   observeEvent(input$year, { current_context$year <- input$year })
   observeEvent(input$tabs, { current_context$tab  <- input$tabs })
 
+  # Hide the data filters (year/month/resolution) on the AI Assistant tab; the
+  # AoI selector + mini-map stay visible (AoI is still passed to the agent).
+  observeEvent(input$tabs, {
+    if (identical(input$tabs, "AIassistantTab")) {
+      shinyjs::hide("sidebar_filters")
+    } else {
+      shinyjs::show("sidebar_filters")
+    }
+  }, ignoreInit = FALSE)
+
   # --- Per-session conversation state (never stored server-side) ---
   session_history  <- reactiveVal(list())   # list of list(role=, content=)
   pending_question <- reactiveVal(NULL)      # set while the agent is processing
@@ -2125,14 +2135,35 @@ server <- function(input, output, session) {
     }
   })
 
-  # --- Context summary shown on the AI tab ---
-  output$context_summary <- renderText({
-    yr <- if (is.null(current_context$year) || is.na(current_context$year)) "—" else current_context$year
-    paste0(
-      current_context$aoi, "\n",
-      current_context$sensor, " ", current_context$resolution, "m\n",
-      "Year: ", yr
-    )
+  # --- Collapsible settings panel state (expanded on first load) ---
+  settings_expanded <- reactiveVal(TRUE)
+  output$settings_expanded <- reactive(settings_expanded())
+  outputOptions(output, "settings_expanded", suspendWhenHidden = FALSE)
+
+  observeEvent(input$toggle_settings, {
+    settings_expanded(!settings_expanded())
+  })
+  observeEvent(settings_expanded(), {
+    updateActionButton(session, "toggle_settings",
+                       label = if (settings_expanded()) "Settings ▲" else "Settings ▼")
+  })
+
+  # Collapsed-state one-line summary: provider + key status.
+  .provider_label <- function(p) {
+    switch(p, anthropic = "Anthropic (Claude)", openai = "OpenAI (GPT-4o)", p)
+  }
+  output$settings_summary <- renderText({
+    prov <- if (!is.null(input$llm_provider)) input$llm_provider else "anthropic"
+    pi   <- providers_info()
+    key_on_server <- !is.null(pi) && isTRUE(pi[[prov]]$server_key_configured)
+    status <- if (!is.null(input$user_api_key) && nzchar(input$user_api_key)) {
+      "API key set ✓"
+    } else if (key_on_server) {
+      "Server key active"
+    } else {
+      "No API key — expand to configure"
+    }
+    paste0(.provider_label(prov), " · ", status)
   })
 
   # --- Conversation display: chat bubbles (user right, agent left) ---

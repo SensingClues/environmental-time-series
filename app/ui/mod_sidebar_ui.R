@@ -51,28 +51,33 @@ mod_sidebar_ui <- function(id) {
                                 "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")), # Add more countries as needed
         leafletOutput("map", height = "165px"), # Adds leaflet map for the AoI
         br(),
-        conditionalPanel(
-          condition = "!(
-            (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience')) ||
-            (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab' && input.ndvi_ts_view == 'annual') ||
-            (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'daily')
-          )",
-          selectInput("year", "Select year", selected = NULL, choices = NULL)
-        ),
-        conditionalPanel(
-          condition = "!(
-            (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience' || input.scenariosubtabs == 'ScenarioLandCoverProductivity')) ||
-            (input.tabs == 'NDVIexplorerTab' && (input.ndvisubtabs == 'NDVItsTab' || input.ndvisubtabs == 'LCexplorerTab' || (input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'annual'))) ||
-            (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries')
-          )",
-          shinyjs::disabled(selectInput("month", "Select month",
-                                        selected = "January",
-                                        choices  = month.name[1:lubridate::month(Sys.Date())-1]))
-        ),
-        selectInput("resolution", "Select spatial resolution (m)", 
-                    selected = "1000 (ESA Sentinel-2)", 
-                    choices = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
-                                "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"))
+        # Data filters (year/month/resolution) — hidden on the AI Assistant tab
+        # via shinyjs (server.R observes input$tabs). AoI selector + map stay above.
+        div(
+          id = "sidebar_filters",
+          conditionalPanel(
+            condition = "!(
+              (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience')) ||
+              (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab' && input.ndvi_ts_view == 'annual') ||
+              (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'daily')
+            )",
+            selectInput("year", "Select year", selected = NULL, choices = NULL)
+          ),
+          conditionalPanel(
+            condition = "!(
+              (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience' || input.scenariosubtabs == 'ScenarioLandCoverProductivity')) ||
+              (input.tabs == 'NDVIexplorerTab' && (input.ndvisubtabs == 'NDVItsTab' || input.ndvisubtabs == 'LCexplorerTab' || (input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'annual'))) ||
+              (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries')
+            )",
+            shinyjs::disabled(selectInput("month", "Select month",
+                                          selected = "January",
+                                          choices  = month.name[1:lubridate::month(Sys.Date())-1]))
+          ),
+          selectInput("resolution", "Select spatial resolution (m)",
+                      selected = "1000 (ESA Sentinel-2)",
+                      choices = c("1000 (ESA Sentinel-2)" = "Sentinel_1000", "1000 (Terra MODIS)" = "MODIS_1000",
+                                  "500 (Terra MODIS)" = "500", "250 (Terra MODIS)" = "250", "100 (ESA Sentinel-2)" = "100"))
+        )
         ),
     
     # NDVI Time Series page-specific selector and button
