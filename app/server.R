@@ -2101,8 +2101,30 @@ server <- function(input, output, session) {
   }, ignoreInit = FALSE)
 
   # --- Per-session conversation state (never stored server-side) ---
-  session_history  <- reactiveVal(list())   # list of list(role=, content=)
+  # Each entry: list(role, content, chart=NULL|list, table=NULL|list, msg_id).
+  session_history  <- reactiveVal(list())
   pending_question <- reactiveVal(NULL)      # set while the agent is processing
+  msg_counter      <- reactiveVal(0)         # increments once per exchange (pair)
+
+  # Strip <chart>{...}</chart> / <table>{...}</table> blocks from the display text
+  # (the structured chart/table come back as separate response fields).
+  strip_agent_tags <- function(text) {
+    if (is.null(text)) return("")
+    text <- gsub("<chart>\\s*\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\}\\s*</chart>",
+                 "", text, perl = TRUE)
+    text <- gsub("<table>\\s*\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\}\\s*</table>",
+                 "", text, perl = TRUE)
+    trimws(text)
+  }
+
+  # Unique per-message output IDs (used by Steps 2/3 to register renderers).
+  ai_output_ids <- function(msg_id) {
+    list(
+      chart = paste0("ai_chart_", msg_id),
+      table = paste0("ai_table_", msg_id),
+      image = paste0("ai_image_", msg_id)
+    )
+  }
 
   # --- Provider / server-key discovery (GET /agent/providers) ---
   providers_info <- reactive({
@@ -2177,8 +2199,35 @@ server <- function(input, output, session) {
     }
     bubbles <- lapply(msgs, function(m) {
       role <- if (identical(m$role, "user")) "user" else "agent"
-      div(class = paste("ai-row", role),
-          div(class = paste("ai-bubble", role), m$content))
+      bubble <- div(class = paste("ai-row", role),
+                    div(class = paste("ai-bubble", role), m$content))
+
+      # Placeholder row(s) under an assistant message that carries a chart/table.
+      # Real renderers replace these in Steps 2/3.
+      placeholder <- NULL
+      if (identical(m$role, "assistant") &&
+          (!is.null(m$chart) || !is.null(m$table))) {
+        ids   <- ai_output_ids(m$msg_id)
+        parts <- list()
+        if (!is.null(m$chart)) {
+          parts[[length(parts) + 1]] <- div(
+            class = "ai-output-row ai-output-placeholder",
+            id    = paste0(ids$chart, "_container"),
+            if (!is.null(m$chart$title)) strong(m$chart$title),
+            p(paste0("[", m$chart$type, " chart — rendering in next step]"))
+          )
+        }
+        if (!is.null(m$table)) {
+          parts[[length(parts) + 1]] <- div(
+            class = "ai-output-row ai-output-placeholder",
+            id    = paste0(ids$table, "_container"),
+            if (!is.null(m$table$title)) strong(m$table$title),
+            p(paste0("[", m$table$type, " table — rendering in next step]"))
+          )
+        }
+        placeholder <- do.call(tagList, parts)
+      }
+      tagList(bubble, placeholder)
     })
     if (!is.null(pend)) {
       bubbles <- c(bubbles, list(
@@ -2233,24 +2282,30 @@ server <- function(input, output, session) {
                  text   = httr::content(resp, "text", encoding = "UTF-8"))
           }),
           onFulfilled = function(res) {
-            answer <- fallback
+            answer      <- fallback
+            agent_chart <- NULL
+            agent_table <- NULL
             if (isTRUE(res$status == 200)) {
               parsed <- tryCatch(jsonlite::fromJSON(res$text, simplifyVector = FALSE),
                                  error = function(e) NULL)
               if (!is.null(parsed) && !is.null(parsed$response) && nzchar(parsed$response)) {
-                answer <- parsed$response
+                answer      <- strip_agent_tags(parsed$response)
+                agent_chart <- parsed$chart   # NULL if absent; stored as-is
+                agent_table <- parsed$table   # NULL if absent; stored as-is
               }
             }
+            n <- msg_counter() + 1; msg_counter(n); mid <- paste0("msg_", n)
             session_history(c(session_history(), list(
-              list(role = "user",      content = q),
-              list(role = "assistant", content = answer)
+              list(role = "user",      content = q,      chart = NULL,        table = NULL,        msg_id = mid),
+              list(role = "assistant", content = answer, chart = agent_chart, table = agent_table, msg_id = mid)
             )))
           }
         ),
         onRejected = function(e) {
+          n <- msg_counter() + 1; msg_counter(n); mid <- paste0("msg_", n)
           session_history(c(session_history(), list(
-            list(role = "user",      content = q),
-            list(role = "assistant", content = fallback)
+            list(role = "user",      content = q,        chart = NULL, table = NULL, msg_id = mid),
+            list(role = "assistant", content = fallback, chart = NULL, table = NULL, msg_id = mid)
           )))
         }
       ),
@@ -2265,6 +2320,7 @@ server <- function(input, output, session) {
   observeEvent(input$clear_history, {
     session_history(list())
     pending_question(NULL)
+    msg_counter(0)
   })
 
 } # END SERVER

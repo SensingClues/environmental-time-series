@@ -741,8 +741,35 @@ table.lc-landcover-tooltip-table thead tr {
 /* Full-width row for charts/tables/maps rendered under a message (Phase 2B) */
 .ai-output-row {
   width: 100%;
-  margin: 8px 0;
-  min-height: 200px;
+  margin: 8px 0 16px 0;
+  clear: both;
+}
+.ai-output-placeholder {
+  background: #f8f9fa;
+  border: 1px dashed #ced4da;
+  border-radius: 6px;
+  padding: 12px 16px;
+  color: #6c757d;
+  font-size: 0.9em;
+}
+.ai-output-chart {
+  min-height: 350px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ai-output-table {
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 6px;
+}
+.ai-output-map {
+  height: 400px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ai-output-image {
+  width: 100%;
+  border-radius: 6px;
 }
 
 /* Collapsible settings panel */
