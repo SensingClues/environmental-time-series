@@ -24,11 +24,13 @@ library(plotly)
 library(htmlwidgets)
 library(arrow)
 library(httr)
+library(commonmark)
 
 # load functions specific for this app
 source("src/utilities.R")
 source("src/visualization.R")
 source("src/generate_plots.R")
+source("src/agent_renderers.R")
 
 # as part of future package we need to define where the future is executed,
 # multisession means we are launching background R processes on the same machine

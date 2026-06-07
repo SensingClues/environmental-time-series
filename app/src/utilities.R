@@ -3,6 +3,9 @@
 # UTILITY FUNCTIONS
 # -----------------------------------------------------------------------------
 
+# Null-coalescing operator: a if non-NULL, else b.
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
 #' Map app resolution key to pipeline sensor and resolution number
 #'
 #' The app uses resolution keys like "Sentinel_1000", "MODIS_1000", "100" etc.

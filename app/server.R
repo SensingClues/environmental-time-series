@@ -2117,7 +2117,7 @@ server <- function(input, output, session) {
     trimws(text)
   }
 
-  # Unique per-message output IDs (used by Steps 2/3 to register renderers).
+  # Unique per-message output IDs (used to register renderers per message).
   ai_output_ids <- function(msg_id) {
     list(
       chart = paste0("ai_chart_", msg_id),
@@ -2125,6 +2125,36 @@ server <- function(input, output, session) {
       image = paste0("ai_image_", msg_id)
     )
   }
+
+  # Register a renderPlotly / renderTable output per assistant message that
+  # carries a chart/table ref (once each). render_agent_* live in agent_renderers.R.
+  registered_outputs <- reactiveVal(character(0))
+  observe({
+    history <- session_history()
+    for (m in history) {
+      if (!identical(m$role, "assistant")) next
+      ids <- ai_output_ids(m$msg_id)
+
+      if (!is.null(m$chart) && !(ids$chart %in% registered_outputs())) {
+        local({
+          local_chart <- m$chart
+          local_id    <- ids$chart
+          output[[local_id]] <- plotly::renderPlotly({ render_agent_chart(local_chart) })
+        })
+        registered_outputs(c(registered_outputs(), ids$chart))
+      }
+
+      if (!is.null(m$table) && !(ids$table %in% registered_outputs())) {
+        local({
+          local_table <- m$table
+          local_id    <- ids$table
+          output[[local_id]] <- renderTable({ render_agent_table(local_table) },
+                                            striped = TRUE, hover = TRUE, bordered = TRUE)
+        })
+        registered_outputs(c(registered_outputs(), ids$table))
+      }
+    }
+  })
 
   # --- Provider / server-key discovery (GET /agent/providers) ---
   providers_info <- reactive({
@@ -2199,35 +2229,39 @@ server <- function(input, output, session) {
     }
     bubbles <- lapply(msgs, function(m) {
       role <- if (identical(m$role, "user")) "user" else "agent"
+      # Agent replies are markdown -> render to HTML; user input stays plain text.
+      bubble_content <- if (identical(m$role, "assistant")) {
+        HTML(commonmark::markdown_html(m$content))
+      } else {
+        m$content
+      }
       bubble <- div(class = paste("ai-row", role),
-                    div(class = paste("ai-bubble", role), m$content))
+                    div(class = paste("ai-bubble", role), bubble_content))
 
-      # Placeholder row(s) under an assistant message that carries a chart/table.
-      # Real renderers replace these in Steps 2/3.
-      placeholder <- NULL
+      # Rendered chart/table output under an assistant message that carries refs.
+      # Renderers are registered by the observer above; here we place the outputs.
+      outputs <- NULL
       if (identical(m$role, "assistant") &&
           (!is.null(m$chart) || !is.null(m$table))) {
         ids   <- ai_output_ids(m$msg_id)
         parts <- list()
         if (!is.null(m$chart)) {
           parts[[length(parts) + 1]] <- div(
-            class = "ai-output-row ai-output-placeholder",
-            id    = paste0(ids$chart, "_container"),
+            class = "ai-output-row ai-output-chart",
             if (!is.null(m$chart$title)) strong(m$chart$title),
-            p(paste0("[", m$chart$type, " chart — rendering in next step]"))
+            plotly::plotlyOutput(ids$chart, height = "350px")
           )
         }
         if (!is.null(m$table)) {
           parts[[length(parts) + 1]] <- div(
-            class = "ai-output-row ai-output-placeholder",
-            id    = paste0(ids$table, "_container"),
+            class = "ai-output-row ai-output-table",
             if (!is.null(m$table$title)) strong(m$table$title),
-            p(paste0("[", m$table$type, " table — rendering in next step]"))
+            tableOutput(ids$table)
           )
         }
-        placeholder <- do.call(tagList, parts)
+        outputs <- do.call(tagList, parts)
       }
-      tagList(bubble, placeholder)
+      tagList(bubble, outputs)
     })
     if (!is.null(pend)) {
       bubbles <- c(bubbles, list(
@@ -2321,6 +2355,7 @@ server <- function(input, output, session) {
     session_history(list())
     pending_question(NULL)
     msg_counter(0)
+    registered_outputs(character(0))
   })
 
 } # END SERVER
