@@ -50,6 +50,14 @@ render_mode_b_chart <- function(chart) {
     df[[x_key]] <- factor(df[[x_key]], levels = month_levels)
   }
 
+  # Convert year-like integers to character to prevent decimal axis
+  # A value is year-like if it's a 4-digit integer between 1990 and 2100
+  if (is.numeric(df[[x_key]]) &&
+      all(df[[x_key]] == floor(df[[x_key]]), na.rm = TRUE) &&
+      all(df[[x_key]] >= 1990 & df[[x_key]] <= 2100, na.rm = TRUE)) {
+    df[[x_key]] <- as.character(df[[x_key]])
+  }
+
   p <- if (identical(chart$type, "simple_line")) {
     plotly::plot_ly(df, x = ~get(x_key), y = ~get(y_key),
                     type = "scatter", mode = "lines+markers",
@@ -182,13 +190,43 @@ render_chart_burned_area_daily <- function(chart) {
 }
 
 render_chart_anomaly <- function(chart) {
-  df <- .agent_lc_fetch_all(chart$params)
-  if (is.null(df)) return(plotly::plotly_empty())
+  params_lc <- modifyList(chart$params, list(format = "table"))
+  params_lc$year <- NULL
+  df <- try_api_call("/api/v1/ndvi/by-landcover", params_lc)
+
+  if (is.null(df)) {
+    sensor <- chart$params$sensor %||% "sentinel2"
+    years  <- if (sensor == "modis") 2000:2025 else 2019:2025
+    df_list <- lapply(years, function(y) {
+      try_api_call("/api/v1/ndvi/by-landcover",
+                   modifyList(chart$params, list(year = y, format = "table")))
+    })
+    df <- do.call(rbind, Filter(Negate(is.null), df_list))
+  }
+
+  if (is.null(df) || nrow(df) == 0) return(plotly::plotly_empty())
+
+  # Ensure required columns exist with correct names and types
+  required <- c("year", "month", "land_cover", "mean_ndvi")
+  if (!all(required %in% names(df))) return(plotly::plotly_empty())
+
+  df$year       <- as.integer(df$year)
+  df$month      <- as.integer(df$month)
+  df$land_cover <- as.character(df$land_cover)
+  df$mean_ndvi  <- as.numeric(df$mean_ndvi)
+
+  df <- df[complete.cases(df[, required]), ]
+  if (nrow(df) == 0) return(plotly::plotly_empty())
+
   anomaly_year <- as.integer(chart$params$year %||% max(df$year, na.rm = TRUE))
-  res <- tryCatch(plot_anomaly_resilience(df = df, anomaly_year = anomaly_year),
-                  error = function(e) NULL)
-  if (is.null(res) || is.null(res$heatmap)) return(plotly::plotly_empty())
-  res$heatmap
+  if (!anomaly_year %in% df$year) anomaly_year <- max(df$year, na.rm = TRUE)
+
+  result <- tryCatch(
+    plot_anomaly_resilience(df = df, anomaly_year = anomaly_year),
+    error = function(e) NULL
+  )
+  if (is.null(result)) return(plotly::plotly_empty())
+  result$heatmap
 }
 
 render_chart_phenology <- function(chart) {
@@ -262,4 +300,108 @@ render_agent_table <- function(tbl) {
     if (length(cols) > 0) df <- df[, cols, drop = FALSE]
   }
   df
+}
+
+# ---- Leaflet map dispatcher (Step 3) -----------------------------------------
+
+render_agent_leaflet <- function(chart) {
+  switch(chart$type %||% "",
+    "delta_map"       = render_leaflet_delta_map(chart),
+    "frp_map"         = render_leaflet_frp(chart),
+    "burned_area_map" = render_leaflet_burned_area(chart),
+    leaflet::leaflet() %>% leaflet::addTiles()
+  )
+}
+
+# Spatial NDVI change between two years (reuses the Delta Map renderer).
+render_leaflet_delta_map <- function(chart) {
+  aoi    <- chart$params$aoi
+  sensor <- chart$params$sensor %||% "modis"
+  res    <- chart$params$resolution %||% 1000
+  result <- tryCatch(
+    compute_ndvi_delta_hot(aoi, sensor, res,
+                           chart$params$year_a, chart$params$year_b),
+    error = function(e) NULL
+  )
+  if (is.null(result)) {
+    return(leaflet::leaflet() %>% leaflet::addTiles() %>%
+             leaflet::addPopups(0, 0, "Delta map data unavailable."))
+  }
+  plot_annual_ndvi_leaflet(result)
+}
+
+# Fire return period (reuses build_ba_frp_leaflet; uses the global data_dir).
+render_leaflet_frp <- function(chart) {
+  aoi <- chart$params$aoi
+  res <- chart$params$resolution %||% 500
+  result <- tryCatch(
+    build_ba_frp_leaflet(data_dir = data_dir, country = aoi, resolution = res),
+    error = function(e) NULL
+  )
+  if (is.null(result)) {
+    return(leaflet::leaflet() %>% leaflet::addTiles() %>%
+             leaflet::addPopups(0, 0, "FRP data unavailable."))
+  }
+  result$map
+}
+
+# Annual burn-frequency map (API grid + AoI outline).
+render_leaflet_burned_area <- function(chart) {
+  aoi  <- chart$params$aoi
+  year <- chart$params$year %||% (as.integer(format(Sys.Date(), "%Y")) - 1)
+
+  grid_result <- tryCatch(
+    try_api_grid_call("/api/v1/burned-area/annual-grid", list(aoi = aoi, year = year)),
+    error = function(e) NULL
+  )
+  aoi_files <- list.files(file.path(data_dir, "AoI"),
+                          pattern = paste0("AoI.*", aoi, ".*\\.geojson$"))
+  aoi_shape <- if (length(aoi_files) > 0) tryCatch(
+    read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), aoi),
+    error = function(e) NULL) else NULL
+
+  if (is.null(grid_result) || is.null(aoi_shape)) {
+    return(leaflet::leaflet() %>% leaflet::addTiles() %>%
+             leaflet::addPopups(0, 0, "Burned area map data unavailable."))
+  }
+  build_ba_annual_leaflet(
+    ba_df            = parse_grid_response(grid_result),
+    aoi_shape        = aoi_shape,
+    year             = year,
+    total_burned_km2 = grid_result$metadata$total_burned_km2
+  )
+}
+
+# ---- Static comparison-image renderer (Step 3) -------------------------------
+# Builds a multi-year facet PNG (NDVI or burned area) from the hot builders.
+render_agent_image <- function(chart, output_id) {
+  aoi       <- chart$params$aoi
+  sensor    <- chart$params$sensor %||% "modis"
+  res       <- chart$params$resolution %||% 1000
+  month     <- as.integer(chart$params$month %||% 1)
+  years_vec <- as.integer(unlist(chart$params$years_vec))
+  map_year  <- if (length(years_vec)) max(years_vec) else
+                 as.integer(format(Sys.Date(), "%Y")) - 1
+  is_ba     <- grepl("burned-area", chart$endpoint %||% "", fixed = TRUE)
+
+  figures_dir <- file.path("www", "figures")
+  if (!dir.exists(figures_dir)) dir.create(figures_dir, recursive = TRUE)
+  filename <- paste0(output_id, ".png")
+
+  tryCatch({
+    if (is_ba) {
+      generate_ba_2Dmap_hot(country_name = aoi, map_year = map_year,
+                            map_month = month, figures_dir = figures_dir,
+                            figure_filename = filename, years_vec = years_vec)
+    } else {
+      generate_2Dmap_hot(country_name = aoi, sensor = sensor, resolution = res,
+                         map_year = map_year, map_month = month,
+                         figures_dir = figures_dir, figure_filename = filename,
+                         years_vec = years_vec)
+    }
+    list(src = file.path(figures_dir, filename), contentType = "image/png",
+         width = "100%", height = "auto", alt = chart$title %||% "Comparison map")
+  }, error = function(e) {
+    list(src = "", alt = paste("Image generation failed:", conditionMessage(e)))
+  })
 }

@@ -2179,7 +2179,12 @@ server <- function(input, output, session) {
       if (!identical(m$role, "assistant")) next
       ids <- ai_output_ids(m$msg_id)
 
-      if (!is.null(m$chart) && !(ids$chart %in% registered_outputs())) {
+      .leaflet_types <- c("delta_map", "frp_map", "burned_area_map")
+
+      # Plotly: every chart type EXCEPT Leaflet maps / static comparison images.
+      if (!is.null(m$chart) &&
+          !(m$chart$type %in% c(.leaflet_types, "comparison_image")) &&
+          !(ids$chart %in% registered_outputs())) {
         local({
           local_chart <- m$chart
           local_id    <- ids$chart
@@ -2187,6 +2192,31 @@ server <- function(input, output, session) {
         })
         registered_outputs(c(registered_outputs(), ids$chart))
         ai_scroll_to_bottom()  # re-scroll once the chart has rendered
+      }
+
+      # Leaflet maps (delta_map / frp_map / burned_area_map) on ids$chart.
+      if (!is.null(m$chart) && m$chart$type %in% .leaflet_types &&
+          !(ids$chart %in% registered_outputs())) {
+        local({
+          local_chart <- m$chart
+          local_id    <- ids$chart
+          output[[local_id]] <- renderLeaflet({ render_agent_leaflet(local_chart) })
+        })
+        registered_outputs(c(registered_outputs(), ids$chart))
+        ai_scroll_to_bottom()
+      }
+
+      # Static comparison image (PNG) on ids$image.
+      if (!is.null(m$chart) && identical(m$chart$type, "comparison_image") &&
+          !(ids$image %in% registered_outputs())) {
+        local({
+          local_chart <- m$chart
+          local_id    <- ids$image
+          output[[local_id]] <- renderImage({ render_agent_image(local_chart, local_id) },
+                                            deleteFile = FALSE)
+        })
+        registered_outputs(c(registered_outputs(), ids$image))
+        ai_scroll_to_bottom()
       }
 
       if (!is.null(m$table) && !(ids$table %in% registered_outputs())) {
@@ -2292,11 +2322,18 @@ server <- function(input, output, session) {
         ids   <- ai_output_ids(m$msg_id)
         parts <- list()
         if (!is.null(m$chart)) {
-          parts[[length(parts) + 1]] <- div(
-            class = "ai-output-row ai-output-chart",
-            if (!is.null(m$chart$title)) strong(m$chart$title),
-            plotly::plotlyOutput(ids$chart, height = "350px")
-          )
+          ctype <- m$chart$type %||% ""
+          ctitle <- if (!is.null(m$chart$title)) strong(m$chart$title)
+          parts[[length(parts) + 1]] <- if (ctype %in% c("delta_map", "frp_map", "burned_area_map")) {
+            div(class = "ai-output-row ai-output-map",
+                ctitle, leafletOutput(ids$chart, height = "400px"))
+          } else if (identical(ctype, "comparison_image")) {
+            div(class = "ai-output-row ai-output-image",
+                ctitle, imageOutput(ids$image, height = "auto"))
+          } else {
+            div(class = "ai-output-row ai-output-chart",
+                ctitle, plotly::plotlyOutput(ids$chart, height = "350px"))
+          }
         }
         if (!is.null(m$table)) {
           parts[[length(parts) + 1]] <- div(

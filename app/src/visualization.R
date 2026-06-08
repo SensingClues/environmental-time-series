@@ -1709,7 +1709,7 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
     mutate(label = ifelse(BurnedArea_Size <= 1, 
                           paste0(Year, "\nBurned Area: 0 km² (0%)"), 
                           paste0(Year, "\nBurned Area: ", round(BurnedArea_Size, 1), " km² (", round(Percentage_Burned, 1), "%)"))) %>%
-    select(Year, label) %>%
+    dplyr::select(Year, label) %>%
     tibble::deframe()
   
   ba_change <- data_filtered %>%
@@ -1723,7 +1723,7 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
                                                    BurnedArea_Size - 0,
                                                    BurnedArea_Size - lag(BurnedArea_Size))))) %>%
            # changeBurnedArea = BurnedArea_Size - lag(BurnedArea_Size)) %>%
-    select(changeBurnedArea) %>%
+    dplyr::select(changeBurnedArea) %>%
     tibble::deframe()
   BurnedArea_change <- round(ba_change[length(ba_change)], 1)
   year_range_label <- if (n_shown >= 2) paste0(min(selected_years), "–", max(selected_years)) else as.character(selected_years)
@@ -2736,15 +2736,17 @@ compute_ba_annual_cold <- function(data_dir, country, resolution, year) {
 #' and save the PNG via the UNMODIFIED plot_ndvi_maps(). Returns TRUE on success,
 #' NULL on failure (short-circuits if the first/most-recent-year call fails).
 generate_2Dmap_hot <- function(country_name, sensor, resolution, map_year, map_month,
-                               figures_dir, figure_filename) {
+                               figures_dir, figure_filename, years_vec = NULL) {
   map_year  <- as.integer(map_year)
   map_month <- as.integer(map_month)
   mm        <- sprintf("%02d", map_month)
-  years_desc <- map_year:(map_year - 3)  # most recent first
+  # Default: most-recent 4 years. A caller (e.g. comparison_image) may pass an
+  # explicit year list instead.
+  if (is.null(years_vec)) years_vec <- map_year:(map_year - 3)
 
   parts <- list()
-  for (i in seq_along(years_desc)) {
-    yr <- years_desc[i]
+  for (i in seq_along(years_vec)) {
+    yr <- years_vec[i]
     g <- try_api_grid_call(
       "/api/v1/ndvi/monthly-grid",
       list(aoi = country_name, sensor = sensor, resolution = resolution,
@@ -2777,15 +2779,15 @@ generate_2Dmap_hot <- function(country_name, sensor, resolution, map_year, map_m
 #' metadata$burned_km2; Percentage_Burned from aoi_area_km2), and save the PNG via
 #' the UNMODIFIED plot_ba_maps(). Returns TRUE on success, NULL on failure.
 generate_ba_2Dmap_hot <- function(country_name, map_year, map_month, figures_dir,
-                                  figure_filename, aoi_area_km2 = NULL) {
+                                  figure_filename, aoi_area_km2 = NULL, years_vec = NULL) {
   map_year  <- as.integer(map_year)
   map_month <- as.integer(map_month)
   mm        <- sprintf("%02d", map_month)
-  years_desc <- map_year:(map_year - 3)
+  if (is.null(years_vec)) years_vec <- map_year:(map_year - 3)
 
   parts <- list()
-  for (i in seq_along(years_desc)) {
-    yr <- years_desc[i]
+  for (i in seq_along(years_vec)) {
+    yr <- years_vec[i]
     g <- try_api_grid_call(
       "/api/v1/burned-area/monthly-grid",
       list(aoi = country_name, year = yr, month = map_month)
