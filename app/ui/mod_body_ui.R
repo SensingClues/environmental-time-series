@@ -11,7 +11,22 @@ mod_body_ui <- function(id) {
              position:fixed;
              top: calc(50%);
              left: calc(50% - 100px);
-             max-width: 300px}"))
+             max-width: 300px}")),
+      # MathJax: render LaTeX formulas in agent responses. Config must load
+      # BEFORE the library; enable $...$ inline + $$...$$ display delimiters.
+      tags$script(HTML(
+        "window.MathJax = {
+           tex: {
+             inlineMath:  [['$', '$'], ['\\\\(', '\\\\)']],
+             displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']]
+           },
+           options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }
+         };"
+      )),
+      tags$script(
+        src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js",
+        async = NA
+      )
     ),
 
     # Tabset with panels for separate pasted (nested, currently one for the NDVI Explorer and one for the BA Explorer)

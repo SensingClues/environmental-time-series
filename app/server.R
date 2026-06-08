@@ -2117,6 +2117,19 @@ server <- function(input, output, session) {
     trimws(text)
   }
 
+  # Render an assistant reply as HTML: markdown (incl. pipe tables via extensions)
+  # minus the trailing empty <p></p> that commonmark appends.
+  render_markdown_bubble <- function(text) {
+    if (is.null(text)) return(HTML(""))
+    html <- commonmark::markdown_html(text, extensions = TRUE)
+    # Remove all empty / whitespace-only paragraph tags, then any trailing run.
+    html <- gsub("<p>\\s*</p>", "", html, perl = TRUE)
+    html <- gsub("<p>\\n</p>", "", html, perl = TRUE)
+    html <- sub("(\\s*<p>[[:space:]]*</p>\\s*)+$", "", html, perl = TRUE)
+    html <- trimws(html)
+    HTML(html)
+  }
+
   # Unique per-message output IDs (used to register renderers per message).
   ai_output_ids <- function(msg_id) {
     list(
@@ -2124,6 +2137,37 @@ server <- function(input, output, session) {
       table = paste0("ai_table_", msg_id),
       image = paste0("ai_image_", msg_id)
     )
+  }
+
+  # The .ai-chat container is rebuilt by renderUI on every change, and MathJax
+  # loads asynchronously — so a one-shot scroll/typeset can fire before the bubble
+  # exists in the DOM or before MathJax is ready. Poll every 200ms (up to ~6s):
+  # keep scrolling to the bottom, and once MathJax is available, typeset the chat
+  # so any $$...$$ / $...$ LaTeX renders. Stop when the height is stable AND the
+  # formulas have been typeset.
+  ai_scroll_to_bottom <- function() {
+    shinyjs::runjs("
+      (function renderFinish() {
+        var attempt = 0, maxAttempts = 30, lastHeight = -1, typeset = false;
+        var interval = setInterval(function() {
+          attempt++;
+          var c = document.querySelector('.ai-chat');
+          if (c) {
+            if (!typeset && window.MathJax && MathJax.typesetPromise) {
+              typeset = true;
+              MathJax.typesetPromise([c]).then(function() {
+                var cc = document.querySelector('.ai-chat');
+                if (cc) cc.scrollTop = cc.scrollHeight;
+              }).catch(function() {});
+            }
+            c.scrollTop = c.scrollHeight;
+            if (c.scrollHeight === lastHeight && typeset) { clearInterval(interval); }
+            lastHeight = c.scrollHeight;
+          }
+          if (attempt >= maxAttempts) clearInterval(interval);
+        }, 200);
+      })();
+    ")
   }
 
   # Register a renderPlotly / renderTable output per assistant message that
@@ -2142,6 +2186,7 @@ server <- function(input, output, session) {
           output[[local_id]] <- plotly::renderPlotly({ render_agent_chart(local_chart) })
         })
         registered_outputs(c(registered_outputs(), ids$chart))
+        ai_scroll_to_bottom()  # re-scroll once the chart has rendered
       }
 
       if (!is.null(m$table) && !(ids$table %in% registered_outputs())) {
@@ -2152,6 +2197,7 @@ server <- function(input, output, session) {
                                             striped = TRUE, hover = TRUE, bordered = TRUE)
         })
         registered_outputs(c(registered_outputs(), ids$table))
+        ai_scroll_to_bottom()  # re-scroll once the table has rendered
       }
     }
   })
@@ -2231,7 +2277,7 @@ server <- function(input, output, session) {
       role <- if (identical(m$role, "user")) "user" else "agent"
       # Agent replies are markdown -> render to HTML; user input stays plain text.
       bubble_content <- if (identical(m$role, "assistant")) {
-        HTML(commonmark::markdown_html(m$content))
+        render_markdown_bubble(m$content)
       } else {
         m$content
       }
@@ -2316,30 +2362,52 @@ server <- function(input, output, session) {
                  text   = httr::content(resp, "text", encoding = "UTF-8"))
           }),
           onFulfilled = function(res) {
-            answer      <- fallback
+            warn        <- "⚠️ "   # warning sign + VS16
             agent_chart <- NULL
             agent_table <- NULL
-            if (isTRUE(res$status == 200)) {
+            status      <- res$status
+
+            if (isTRUE(status == 401)) {
+              answer <- paste0(warn, "**Authentication error** — your API key appears to be ",
+                               "invalid or expired. Please check your key in the Settings panel above.")
+            } else if (isTRUE(status == 400)) {
+              answer <- paste0(warn, "**Request error** — the selected AI provider could not ",
+                               "process the request. Try switching provider in Settings.")
+            } else if (isTRUE(status >= 500)) {
+              answer <- paste0(warn, "**Server error** — the data service is temporarily ",
+                               "unavailable. Please try again in a moment.")
+            } else if (isTRUE(status == 200)) {
               parsed <- tryCatch(jsonlite::fromJSON(res$text, simplifyVector = FALSE),
                                  error = function(e) NULL)
-              if (!is.null(parsed) && !is.null(parsed$response) && nzchar(parsed$response)) {
+              if (!is.null(parsed) && !is.null(parsed$error) && nzchar(parsed$error)) {
+                answer <- paste0(warn, parsed$error)
+              } else if (!is.null(parsed) && !is.null(parsed$response) && nzchar(parsed$response)) {
                 answer      <- strip_agent_tags(parsed$response)
-                agent_chart <- parsed$chart   # NULL if absent; stored as-is
-                agent_table <- parsed$table   # NULL if absent; stored as-is
+                agent_chart <- parsed$chart
+                agent_table <- parsed$table
+              } else {
+                answer <- paste0(warn, "The assistant returned an empty response. Please try again.")
               }
+            } else {
+              answer <- paste0(warn, "Could not reach the data service. ",
+                               "Please check your connection and try again.")
             }
+
             n <- msg_counter() + 1; msg_counter(n); mid <- paste0("msg_", n)
             session_history(c(session_history(), list(
               list(role = "user",      content = q,      chart = NULL,        table = NULL,        msg_id = mid),
               list(role = "assistant", content = answer, chart = agent_chart, table = agent_table, msg_id = mid)
             )))
+            ai_scroll_to_bottom()  # scroll + typeset LaTeX once the bubble renders
           }
         ),
         onRejected = function(e) {
           n <- msg_counter() + 1; msg_counter(n); mid <- paste0("msg_", n)
+          err <- paste0("⚠️ Could not reach the data service. ",
+                        "Please check your connection and try again.")
           session_history(c(session_history(), list(
-            list(role = "user",      content = q,        chart = NULL, table = NULL, msg_id = mid),
-            list(role = "assistant", content = fallback, chart = NULL, table = NULL, msg_id = mid)
+            list(role = "user",      content = q,   chart = NULL, table = NULL, msg_id = mid),
+            list(role = "assistant", content = err, chart = NULL, table = NULL, msg_id = mid)
           )))
         }
       ),

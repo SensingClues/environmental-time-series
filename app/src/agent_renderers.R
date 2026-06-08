@@ -43,6 +43,13 @@ render_mode_b_chart <- function(chart) {
   x_key <- chart$x_key %||% names(df)[1]
   y_key <- chart$y_key %||% names(df)[2]
 
+  # Reorder x-axis chronologically if values are month names
+  month_levels <- c("January","February","March","April","May","June",
+                    "July","August","September","October","November","December")
+  if (all(df[[x_key]] %in% month_levels)) {
+    df[[x_key]] <- factor(df[[x_key]], levels = month_levels)
+  }
+
   p <- if (identical(chart$type, "simple_line")) {
     plotly::plot_ly(df, x = ~get(x_key), y = ~get(y_key),
                     type = "scatter", mode = "lines+markers",
@@ -72,17 +79,29 @@ render_chart_timeseries_annual <- function(chart) {
 render_chart_timeseries_monthly <- function(chart) {
   df <- try_api_call(chart$endpoint, chart$params)
   if (is.null(df) || nrow(df) == 0) return(plotly::plotly_empty())
+
+  # Highlight the agent-specified year, else the most recent COMPLETE year
+  # (the max year is usually still in progress). Single-year data -> use it.
+  highlight_year <- as.integer(chart$params$year %||%
+                                 max(df$year[df$year < max(df$year)], na.rm = TRUE))
+  if (length(unique(df$year)) == 1) highlight_year <- unique(df$year)
+
   # Reshape to the columns plot_ndvi_anomaly() expects (YearMonth, NDVI, Year, Month).
   df$YearMonth <- as.Date(paste(df$year, sprintf("%02d", df$month), "01", sep = "-"))
   df$NDVI      <- df$mean_ndvi
   df$Year      <- as.character(df$year)
   df$Month     <- sprintf("%02d", df$month)
-  latest <- max(df$year, na.rm = TRUE)
-  keep   <- c("YearMonth", "NDVI", "Year", "Month")
-  train  <- df[df$year <  latest, keep, drop = FALSE]
-  test   <- df[df$year == latest, keep, drop = FALSE]
-  if (nrow(train) == 0 || nrow(test) == 0) return(plotly::plotly_empty())
-  plot_ndvi_anomaly(train_ndvi_df = train, test_ndvi_df = test)
+  keep  <- c("YearMonth", "NDVI", "Year", "Month")
+  train <- df[df$year != highlight_year, keep, drop = FALSE]
+  test  <- df[df$year == highlight_year, keep, drop = FALSE]
+  if (nrow(test) == 0) return(plotly::plotly_empty())
+
+  plot_ndvi_anomaly(train_ndvi_df = train, test_ndvi_df = test) %>%
+    plotly::layout(
+      legend = list(orientation = "h", x = 0.5, xanchor = "center",
+                    y = -0.32, yanchor = "top", font = list(size = 9)),
+      margin = list(t = 30, b = 130)
+    )
 }
 
 render_chart_landcover <- function(chart) {
@@ -107,8 +126,13 @@ render_chart_landcover <- function(chart) {
 render_chart_burned_area_monthly <- function(chart) {
   df <- try_api_call(chart$endpoint, chart$params)
   if (is.null(df) || nrow(df) == 0) return(plotly::plotly_empty())
-  latest <- max(df$year, na.rm = TRUE)
+
+  highlight_year <- as.integer(chart$params$year %||%
+                                 max(df$year[df$year < max(df$year)], na.rm = TRUE))
+  if (length(unique(df$year)) == 1) highlight_year <- unique(df$year)
+
   # Reshape to plot_ba_timeseries_plotly()'s contract (Month, mean_val, lower_ci, upper_ci).
+  # The baseline (ba_mean/CI) is per-calendar-month and year-independent.
   tr <- unique(df[, c("month", "ba_mean", "ba_lower_ci", "ba_upper_ci")])
   train_data <- data.frame(
     Month    = sprintf("%02d", tr$month),
@@ -117,7 +141,7 @@ render_chart_burned_area_monthly <- function(chart) {
     upper_ci = tr$ba_upper_ci,
     stringsAsFactors = FALSE
   )
-  te <- df[df$year == latest, ]
+  te <- df[df$year == highlight_year, ]
   if (nrow(te) == 0) return(plotly::plotly_empty())
   test_data <- data.frame(
     Month    = sprintf("%02d", te$month),
@@ -127,7 +151,7 @@ render_chart_burned_area_monthly <- function(chart) {
     stringsAsFactors = FALSE
   )
   plot_ba_timeseries_plotly(train_data = train_data, test_data = test_data,
-                            test_year = latest)
+                            test_year = highlight_year)
 }
 
 render_chart_burned_area_daily <- function(chart) {

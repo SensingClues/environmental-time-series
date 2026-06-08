@@ -730,7 +730,11 @@ table.lc-landcover-tooltip-table thead tr {
   word-wrap: break-word;
 }
 .ai-bubble.user  { background: #1B5E20; color: #ffffff; border-bottom-right-radius: 2px; }
-.ai-bubble.agent { background: #eceff1; color: #1f2d1f; border-bottom-left-radius: 2px; }
+.ai-bubble.agent { background: #eceff1; color: #1f2d1f; border-bottom-left-radius: 2px;
+                   white-space: normal; }  /* HTML content controls its own wrapping */
+/* No extra space above the first / below the last block inside a bubble */
+.ai-bubble > :first-child { margin-top: 0; }
+.ai-bubble > :last-child  { margin-bottom: 0; }
 .ai-empty {
   color: #8a8f8a;
   font-style: italic;
@@ -809,6 +813,30 @@ table.lc-landcover-tooltip-table thead tr {
 }
 .ai-settings-toggle.btn:hover { background: #e6ebe7 !important; }
 .ai-settings-summary { color: #555; font-size: 0.92em; margin-top: 2px; }
+
+/* Rendered markdown tables inside chat bubbles */
+.ai-bubble table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 0.88em;
+}
+.ai-bubble table th {
+  background-color: #2d6a4f;
+  color: white;
+  padding: 6px 10px;
+  text-align: left;
+}
+.ai-bubble table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #dee2e6;
+}
+.ai-bubble table tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+.ai-bubble table tr:hover {
+  background-color: #e9ecef;
+}
 
 /* Input actions: prominent Ask (grows) + compact Clear on one row */
 .ai-input-actions {
