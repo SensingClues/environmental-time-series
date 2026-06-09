@@ -83,18 +83,18 @@ mod_sidebar_ui <- function(id) {
     # NDVI Time Series page-specific selector and button
     conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
                      div(
-                       selectInput("ndvi_ts_lc_class", "Filter by land cover",
-                                   choices = c(
-                                     "Overall (all land cover)" = "",
-                                     "Crops"               = "Crops",
-                                     "Rangeland"           = "Rangeland",
-                                     "Water"               = "Water",
-                                     "Trees"               = "Trees",
-                                     "Flooded vegetation"  = "Flooded_vegetation",
-                                     "Built area"          = "Built_Area",
-                                     "Bare ground"         = "Bare_ground"
-                                   ),
-                                   selected = ""),
+                       selectizeInput("ndvi_ts_lc_class", "Filter by land cover",
+                                      choices = c(
+                                        "Overall (all land cover)" = "all",
+                                        "Crops"               = "Crops",
+                                        "Rangeland"           = "Rangeland",
+                                        "Water"               = "Water",
+                                        "Trees"               = "Trees",
+                                        "Flooded vegetation"  = "Flooded_vegetation",
+                                        "Built area"          = "Built_Area",
+                                        "Bare ground"         = "Bare_ground"
+                                      ),
+                                      selected = "all"),
                        actionButton("generate_ndvi_ts_figures", "Generate Figure", class = "action_button")
                      )),
     

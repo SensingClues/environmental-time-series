@@ -706,6 +706,11 @@ server <- function(input, output, session) {
   ndvi_ts_plot_obj <- reactiveVal(NULL)
   ndvi_ts_stats    <- reactiveVal(NULL)
   ndvi_ts_view_rv  <- reactiveVal("monthly")
+  # Translates the "all" sentinel value to NULL so downstream functions treat it as no filter.
+  ndvi_lc_filter <- reactive({
+    val <- input$ndvi_ts_lc_class
+    if (is.null(val) || val == "all") NULL else val
+  })
   
   output$ndvi_ts_plot_output <- plotly::renderPlotly({
     p <- ndvi_ts_plot_obj()
@@ -720,7 +725,7 @@ server <- function(input, output, session) {
     if (is.null(error_msg) && isTRUE(ndvi_ts_ready())) { # If no errors and the reactive flag is TRUE (after successful figure generation), show output, otherwise empty
       div(
         class = "image-fill top-center ndvi-ts-plot-stack",
-        ndvi_anomaly_titles_ui(input$resolution, land_cover_class = input$ndvi_ts_lc_class,
+        ndvi_anomaly_titles_ui(input$resolution, land_cover_class = ndvi_lc_filter(),
                                view = ndvi_ts_view_rv()),
         plotlyOutput("ndvi_ts_plot_output", height = "550px"),
         height = "auto"
@@ -734,14 +739,14 @@ server <- function(input, output, session) {
     s <- ndvi_ts_stats()
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
     if (!identical(s$view, "monthly")) return(NULL)
-    ndvi_insight_wilcox_card_ui(s, land_cover_class = input$ndvi_ts_lc_class)
+    ndvi_insight_wilcox_card_ui(s, land_cover_class = ndvi_lc_filter())
   })
 
   output$smk_card <- renderUI({
     s <- ndvi_ts_stats()
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
     if (!identical(s$view, "annual")) return(NULL)
-    ndvi_annual_trend_card_ui(s, land_cover_class = input$ndvi_ts_lc_class)
+    ndvi_annual_trend_card_ui(s, land_cover_class = ndvi_lc_filter())
   })
 
   output$ndvi_data_source_guidance <- renderUI({
@@ -1025,8 +1030,7 @@ server <- function(input, output, session) {
         dir.create(figures_dir, recursive = TRUE)
       }
       
-      lc_class <- if (!is.null(input$ndvi_ts_lc_class) && nzchar(input$ndvi_ts_lc_class))
-        input$ndvi_ts_lc_class else NULL
+      lc_class <- ndvi_lc_filter()
       ts_view <- if (!is.null(input$ndvi_ts_view)) input$ndvi_ts_view else "monthly"
 
       ndvi_result <- generate_timeseries(
@@ -1583,10 +1587,11 @@ server <- function(input, output, session) {
       decreasing    = TRUE
     )
     default_sel <- head(as.character(available_years), 3)
-    selectInput("ba_daily_years", "Select years to compare",
-                choices  = as.character(available_years),
-                selected = default_sel,
-                multiple = TRUE)
+    selectizeInput("ba_daily_years", "Select years to compare",
+                   choices  = as.character(available_years),
+                   selected = default_sel,
+                   multiple = TRUE,
+                   options  = list(plugins = list("remove_button")))
   })
 
   output$ba_daily_plot_container <- renderUI({

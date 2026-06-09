@@ -2257,7 +2257,8 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
         group        = "Fire Return Period"
       ) %>%
       addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
-                  opacity = 0.9, fillOpacity = 0, group = "Study Area") %>%
+                  opacity = 0.9, fillOpacity = 0, group = "Study Area",
+                  options = pathOptions(interactive = FALSE)) %>%
       fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]]) %>%
       addLegend("bottomright", pal = pal, values = frp_sf$return_period,
                 title   = "Fire Return Period<br>(years)", opacity = 0.85,
@@ -2344,7 +2345,8 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
       group        = "Fire Return Period"
     ) %>%
     addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
-                opacity = 0.9, fillOpacity = 0, group = "Study Area") %>%
+                opacity = 0.9, fillOpacity = 0, group = "Study Area",
+                options = pathOptions(interactive = FALSE)) %>%
     fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]]) %>%
     addLegend("bottomright", pal = pal, values = polys_rp$return_period,
               title   = "Fire Return Period<br>(years)", opacity = 0.85,
