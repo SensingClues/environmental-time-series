@@ -2148,21 +2148,74 @@ server <- function(input, output, session) {
   ai_scroll_to_bottom <- function() {
     shinyjs::runjs("
       (function renderFinish() {
-        var attempt = 0, maxAttempts = 30, lastHeight = -1, typeset = false;
+        // window.__etsUserHeld is a single shared guard (multiple concurrent
+        // scroll loops can run for one response). It turns true only when the
+        // user scrolls UP away from the bottom, so we never yank them back down
+        // while they read earlier messages. Reset on each new response below.
+        window.__etsUserHeld = false;
+        var attempt = 0, maxAttempts = 60;       // 60 * 200ms = 12s safety window
+        var lastHeight = -1, stableTicks = 0;
+        var typesetStarted = false, typesetDone = false;
+
+        function stick(c) { if (!window.__etsUserHeld) c.scrollTop = c.scrollHeight; }
+
+        // Re-scroll when any image finishes loading (comparison PNGs, leaflet
+        // tiles). New images are added late, so we re-hook on every tick.
+        function hookImages(c) {
+          var imgs = c.querySelectorAll('img');
+          for (var i = 0; i < imgs.length; i++) {
+            if (!imgs[i].__etsHook && !imgs[i].complete) {
+              imgs[i].__etsHook = true;
+              imgs[i].addEventListener('load', function() {
+                var cc = document.querySelector('.ai-chat');
+                if (cc) stick(cc);
+              }, { once: true });
+            }
+          }
+        }
+
+        // Bind a scroll listener once per (rebuilt) container to detect a
+        // deliberate scroll-up. Programmatic scroll-to-bottom lands near the
+        // bottom (distance ~0), so it won't falsely trip this.
+        function bindScroll(c) {
+          if (c.__etsBound) return;
+          c.__etsBound = true;
+          c.addEventListener('scroll', function() {
+            var distance = c.scrollHeight - c.scrollTop - c.clientHeight;
+            window.__etsUserHeld = distance > 120;
+          });
+        }
+
         var interval = setInterval(function() {
           attempt++;
           var c = document.querySelector('.ai-chat');
           if (c) {
-            if (!typeset && window.MathJax && MathJax.typesetPromise) {
-              typeset = true;
-              MathJax.typesetPromise([c]).then(function() {
-                var cc = document.querySelector('.ai-chat');
-                if (cc) cc.scrollTop = cc.scrollHeight;
-              }).catch(function() {});
+            bindScroll(c);
+            hookImages(c);
+
+            if (!typesetStarted) {
+              if (window.MathJax && MathJax.typesetPromise) {
+                typesetStarted = true;
+                MathJax.typesetPromise([c]).then(function() {
+                  typesetDone = true;
+                  var cc = document.querySelector('.ai-chat');
+                  if (cc) stick(cc);
+                }).catch(function() { typesetDone = true; });
+              } else if (window.MathJax === undefined) {
+                typesetDone = true;   // no MathJax on the page: nothing to wait for
+              }
             }
-            c.scrollTop = c.scrollHeight;
-            if (c.scrollHeight === lastHeight && typeset) { clearInterval(interval); }
+
+            stick(c);
+
+            if (c.scrollHeight === lastHeight) { stableTicks++; } else { stableTicks = 0; }
             lastHeight = c.scrollHeight;
+
+            // Stop only once the height has held steady for ~1s (covers async
+            // charts/maps/images settling) AND MathJax has finished.
+            if (stableTicks >= 5 && (typesetDone || !typesetStarted && attempt > 3)) {
+              clearInterval(interval);
+            }
           }
           if (attempt >= maxAttempts) clearInterval(interval);
         }, 200);
