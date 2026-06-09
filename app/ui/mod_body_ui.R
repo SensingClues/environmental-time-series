@@ -451,6 +451,8 @@ mod_body_ui <- function(id) {
                              class = "btn-default ai-clear-btn")
               ),
               tags$p(class = "ai-input-hint", "Press Ctrl + Enter (⌘ + Enter on Mac) to send."),
+              tags$p(class = "ai-disclaimer",
+                     "AI-generated responses may be inaccurate — double-check key figures against the explorer data. Questions are sent to a third-party AI provider."),
 
               # Send on Ctrl/Cmd + Enter from the question box
               tags$script(HTML(

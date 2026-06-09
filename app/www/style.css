@@ -857,6 +857,7 @@ table.lc-landcover-tooltip-table thead tr {
 }
 .ai-clear-btn.btn:hover { background: #e6ebe7 !important; }
 .ai-input-hint { color: #9aa09a; font-size: 0.8em; margin: 4px 2px 0; }
+.ai-disclaimer { color: #9aa09a; font-size: 0.78em; font-style: italic; margin: 2px 2px 0; line-height: 1.35; }
 
 /* Ensure all options in the land cover selectize dropdown are left-aligned */
 #ndvi_ts_lc_class + .selectize-control .selectize-dropdown .option,
