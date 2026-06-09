@@ -312,6 +312,12 @@ lc_simplify_wgs84_for_plot <- function(x, dTolerance_m = 75, dTolerance_deg = 0.
     sf::st_simplify(g, dTolerance = dtol, preserveTopology = TRUE),
     error = function(e) g
   )
+  # Simplifying an already-simplified or very small polygon can collapse it into
+  # an empty geometry or a GEOMETRYCOLLECTION, which plotly::add_sf cannot draw
+  # ("not implemented for objects of class sfc_GEOMETRYCOLLECTION"). Keep the
+  # original geometry for any feature that degenerated this way.
+  bad <- sf::st_is_empty(sg) | sf::st_geometry_type(sg) == "GEOMETRYCOLLECTION"
+  if (any(bad)) sg[bad] <- g[bad]
   sf::st_set_geometry(x, sg)
 }
 
@@ -388,6 +394,11 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   ord <- order(landuse_types)
   geojson_files <- geojson_files[ord]
   landuse_types <- landuse_types[ord]
+  # AoI name for the geometry hot path; folder is .../LandUse/{aoi}/S2_10m_LULC_2023.
+  # Probe once so a down API costs a single 1s health check, not one 2s timeout
+  # per class across the loops below.
+  aoi_name <- basename(dirname(folder_path))
+  lc_api_up <- api_is_available()
   pal_named <- land_cover_class_colors()
   bbox_by_stem <- vector("list", length(landuse_types))
   names(bbox_by_stem) <- landuse_types
@@ -421,14 +432,19 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   }
   if (is.na(total_study_area_ha) || total_study_area_ha <= 0) {
     total_study_area_ha <- sum(vapply(geojson_files, function(fp) {
-      g <- sf::st_read(fp, quiet = TRUE)
+      g <- read_landcover_geometry(
+        fp, aoi_name, geojson_stem_to_class_key(tools::file_path_sans_ext(basename(fp))),
+        api_available = lc_api_up
+      )
       g <- sf::st_transform(g, crs = 4326)
       sum(as.numeric(sf::st_area(g)), na.rm = TRUE) / 10000
     }, numeric(1)), na.rm = TRUE)
   }
   for (i in seq_along(geojson_files)) {
     stem <- landuse_types[i]
-    geojson_data <- sf::st_read(geojson_files[i], quiet = TRUE)
+    geojson_data <- read_landcover_geometry(geojson_files[i], aoi_name,
+                                            geojson_stem_to_class_key(stem),
+                                            api_available = lc_api_up)
     geojson_data <- lc_simplify_wgs84_for_plot(sf::st_transform(geojson_data, crs = 4326))
     bbox_by_stem[[stem]] <- sf::st_bbox(geojson_data)
     lab_short <- geojson_stem_to_class_key(stem)
@@ -735,12 +751,19 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
     if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
   }
 
+  train_year_min <- if (nrow(train_monthly) > 0) min(lubridate::year(train_monthly$YearMonth)) else NA_integer_
+  train_year_max <- if (nrow(train_monthly) > 0) max(lubridate::year(train_monthly$YearMonth)) else NA_integer_
+  test_year      <- if (nrow(test_monthly)  > 0) lubridate::year(test_monthly$YearMonth[1])   else NA_integer_
+
   list(
     wilcox_p = wilcox_p,
     wilcox_median = wilcox_median,
     smk_p = smk_p,
     sen_slope = sen_slope,
-    smk_n_months = smk_n_months
+    smk_n_months = smk_n_months,
+    train_year_min = train_year_min,
+    train_year_max = train_year_max,
+    test_year = test_year
   )
 }
 
@@ -1693,7 +1716,7 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
     mutate(label = ifelse(BurnedArea_Size <= 1, 
                           paste0(Year, "\nBurned Area: 0 km² (0%)"), 
                           paste0(Year, "\nBurned Area: ", round(BurnedArea_Size, 1), " km² (", round(Percentage_Burned, 1), "%)"))) %>%
-    select(Year, label) %>%
+    dplyr::select(Year, label) %>%
     tibble::deframe()
   
   ba_change <- data_filtered %>%
@@ -1707,7 +1730,7 @@ plot_ba_maps <- function(data = NULL, month_to_plot = "01",
                                                    BurnedArea_Size - 0,
                                                    BurnedArea_Size - lag(BurnedArea_Size))))) %>%
            # changeBurnedArea = BurnedArea_Size - lag(BurnedArea_Size)) %>%
-    select(changeBurnedArea) %>%
+    dplyr::select(changeBurnedArea) %>%
     tibble::deframe()
   BurnedArea_change <- round(ba_change[length(ba_change)], 1)
   year_range_label <- if (n_shown >= 2) paste0(min(selected_years), "–", max(selected_years)) else as.character(selected_years)
@@ -1832,10 +1855,18 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   geojson_files <- geojson_files[ord]
   landuse_types <- landuse_types[ord]
   
+  # AoI name for the geometry hot path; folder is .../LandUse/{aoi}/S2_10m_LULC_2023.
+  # Probe the API once (avoids a per-class 2s timeout when it is down).
+  aoi_name <- basename(dirname(folder_path))
+  lc_api_up <- api_is_available()
+
   # Pre-calculate total study area (Improvement 7: for percentage in tooltip)
   total_study_area_ha <- 0
   for (file in geojson_files) {
-    gj <- sf::st_read(file, quiet = TRUE)
+    gj <- read_landcover_geometry(
+      file, aoi_name, geojson_stem_to_class_key(tools::file_path_sans_ext(basename(file))),
+      api_available = lc_api_up
+    )
     gj <- sf::st_transform(gj, crs = 4326)
     total_study_area_ha <- total_study_area_ha + sum(as.numeric(sf::st_area(gj)) / 10000)
   }
@@ -1862,9 +1893,11 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     file <- geojson_files[i]
     landuse_type <- landuse_types[i]
     
-    # Read the GeoJSON file
-    geojson_data <- sf::st_read(file, quiet = TRUE)
-    
+    # Read the GeoJSON file (API hot path, file fallback)
+    geojson_data <- read_landcover_geometry(file, aoi_name,
+                                            geojson_stem_to_class_key(landuse_type),
+                                            api_available = lc_api_up)
+
     # Transform the GeoJSON data to WGS 84 (EPSG:4326)
     geojson_data <- sf::st_transform(geojson_data, crs = 4326)
     bbox_by_stem[[landuse_type]] <- sf::st_bbox(geojson_data)
@@ -2039,9 +2072,9 @@ plot_ba_geojson_from_a_folder <- function(input_file_path, data_dir = data_dir, 
   if (length(aoi_files) == 0) {
     stop("No Area of Interest file found for the selected country.")
   }
-  aoi_shape <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]))
+  aoi_shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
   aoi_shape <- sf::st_transform(aoi_shape, crs = 4326)
-  
+
   # Create a leaflet map with the specified basemap
   map <- leaflet() %>%
     addProviderTiles(providers[[basemap]]) %>%
@@ -2109,7 +2142,7 @@ build_ba_monthly_leaflet <- function(geojson_path = NULL, data_dir = NULL,
   aoi_files <- list.files(file.path(data_dir, "AoI"),
                           pattern = paste0("AoI.*", country, ".*\\.geojson$"))
   if (length(aoi_files) == 0) stop("No Area of Interest file found for the selected country.")
-  aoi_shape  <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]), quiet = TRUE)
+  aoi_shape  <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
   aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
   aoi_bounds <- sf::st_bbox(aoi_shape)
 
@@ -2182,9 +2215,63 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
   aoi_files <- list.files(file.path(data_dir, "AoI"),
                           pattern = paste0("AoI.*", country, ".*\\.geojson$"))
   if (length(aoi_files) == 0) stop("No Area of Interest file found for the selected country.")
-  aoi_shape  <- sf::st_read(file.path(data_dir, "AoI", aoi_files[[1]]), quiet = TRUE)
+  aoi_shape  <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
   aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
   aoi_bounds <- sf::st_bbox(aoi_shape)
+
+  # HOT PATH: pre-computed FRP polygons + year-range metadata from the API. The
+  # GeoJSON carries return period in `frp_years`; the year range comes from the
+  # response metadata. Returns early; the TIF computation below is the fallback
+  # and runs unchanged when the API is unavailable.
+  frp_api <- try_api_geometry(
+    endpoint        = "/api/v1/geometry/fire-return-period",
+    params          = list(aoi = country),
+    return_metadata = TRUE
+  )
+  if (!is.null(frp_api) && inherits(frp_api$geometry, "sf") &&
+      "frp_years" %in% names(frp_api$geometry) && nrow(frp_api$geometry) > 0 &&
+      !is.null(frp_api$metadata$n_years)) {
+    frp_sf <- sf::st_transform(frp_api$geometry, 4326)
+    frp_sf$return_period <- frp_sf$frp_years
+    years_label <- paste(frp_api$metadata$year_start, "to", frp_api$metadata$year_end)
+    n_years     <- frp_api$metadata$n_years
+
+    pal <- leaflet::colorNumeric(
+      palette  = rev(RColorBrewer::brewer.pal(9, "YlOrRd")),
+      domain   = c(1, max(frp_sf$return_period, na.rm = TRUE)),
+      na.color = "transparent"
+    )
+    rp_vals <- round(frp_sf$return_period, 1)
+    m <- leaflet() %>%
+      addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+      addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+      addPolygons(
+        data         = frp_sf,
+        fillColor    = ~pal(return_period), fillOpacity = 0.8,
+        color        = NA, weight = 0,
+        label        = lapply(paste0(
+          "<b>Burns approximately every ", rp_vals, " year",
+          ifelse(rp_vals == 1, "", "s"), "</b>"
+        ), htmltools::HTML),
+        labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+        group        = "Fire Return Period"
+      ) %>%
+      addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                  opacity = 0.9, fillOpacity = 0, group = "Study Area",
+                  options = pathOptions(interactive = FALSE)) %>%
+      fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]]) %>%
+      addLegend("bottomright", pal = pal, values = frp_sf$return_period,
+                title   = "Fire Return Period<br>(years)", opacity = 0.85,
+                labFormat = labelFormat(suffix = " yrs", digits = 1)) %>%
+      addLayersControl(
+        baseGroups    = c("Street Map", "Satellite"),
+        overlayGroups = c("Study Area", "Fire Return Period"),
+        options       = layersControlOptions(collapsed = FALSE),
+        position      = "topleft"
+      )
+
+    return(list(map = m, years_label = years_label, n_years = n_years, data_source = "api"))
+  }
 
   ba_files <- list.files(data_path, pattern = "\\.tif$", full.names = TRUE)
   if (length(ba_files) == 0) {
@@ -2258,7 +2345,8 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
       group        = "Fire Return Period"
     ) %>%
     addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
-                opacity = 0.9, fillOpacity = 0, group = "Study Area") %>%
+                opacity = 0.9, fillOpacity = 0, group = "Study Area",
+                options = pathOptions(interactive = FALSE)) %>%
     fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]]) %>%
     addLegend("bottomright", pal = pal, values = polys_rp$return_period,
               title   = "Fire Return Period<br>(years)", opacity = 0.85,
@@ -2270,7 +2358,7 @@ build_ba_frp_leaflet <- function(data_dir = NULL, country = NULL, resolution = N
       position      = "topleft"
     )
 
-  list(map = m, years_label = years_label, n_years = n_years)
+  list(map = m, years_label = years_label, n_years = n_years, data_source = "tif")
 }
 
 # Function to plot delta NDVI on a Leaflet map
@@ -2339,9 +2427,8 @@ plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
 # Compute per-pixel annual mean NDVI delta between two years
 compute_annual_ndvi_change <- function(year_a, year_b, country_name, resolution, data_dir) {
   data_path <- file.path(data_dir, "NDVI", country_name, paste0(resolution, "m_resolution"))
-  aoi_country <- sub("_.*", "", country_name)
-  aoi_path    <- file.path(data_dir, "AoI")
-  aoi_files   <- get_filenames(aoi_path, "AoI", ".geojson", aoi_country)
+  aoi_path  <- file.path(data_dir, "AoI")
+  aoi_files <- get_filenames(aoi_path, "AoI", ".geojson", country_name)
   aoi_proj    <- get_aoi_vector(aoi_files[[1]], aoi_path, "EPSG:4326")
 
   ndvi_files <- get_filenames(data_path, "NDVI", ".tif", country_name)
@@ -2451,4 +2538,291 @@ plot_annual_ndvi_leaflet <- function(result) {
       title    = paste0("Annual vegetation change<br>", year_a, " to ", year_b),
       opacity  = 0.8
     )
+}
+
+# =============================================================================
+# GRID HOT PATH — per-pixel grid endpoints (annual/monthly NDVI delta, BA maps)
+# =============================================================================
+
+#' HOT PATH for the annual NDVI Delta Map: fetch two annual-mean NDVI grids from
+#' the API and compute the per-pixel delta. Returns a list shaped exactly like
+#' compute_annual_ndvi_change() so plot_annual_ndvi_leaflet() + the summary card
+#' work unchanged. NULL if the API is unavailable (short-circuits after year_a).
+compute_ndvi_delta_hot <- function(aoi, sensor, resolution, year_a, year_b) {
+  grid_a_raw <- try_api_grid_call(
+    "/api/v1/ndvi/annual-grid",
+    list(aoi = aoi, sensor = sensor, resolution = resolution, year = year_a)
+  )
+  if (is.null(grid_a_raw)) return(NULL)  # short-circuit: don't try year_b
+  grid_b_raw <- try_api_grid_call(
+    "/api/v1/ndvi/annual-grid",
+    list(aoi = aoi, sensor = sensor, resolution = resolution, year = year_b)
+  )
+  if (is.null(grid_b_raw)) return(NULL)
+
+  grid_a <- parse_grid_response(grid_a_raw)
+  grid_b <- parse_grid_response(grid_b_raw)
+  if (nrow(grid_a) == 0L || nrow(grid_b) == 0L) return(NULL)
+
+  merged <- merge(grid_a, grid_b, by = c("lat", "lon"), suffixes = c("_a", "_b"))
+  if (nrow(merged) == 0L) return(NULL)
+  merged$delta <- merged$value_b - merged$value_a
+
+  # Pixel area (km^2) from the grid resolution in metres.
+  res_m <- suppressWarnings(as.numeric(grid_a_raw$metadata$resolution))
+  if (is.na(res_m) || res_m <= 0) res_m <- suppressWarnings(as.numeric(resolution))
+  px_km2 <- if (is.na(res_m) || res_m <= 0) NA_real_ else (res_m / 1000)^2
+
+  pos_km2   <- round(sum(merged$delta > 0, na.rm = TRUE) * px_km2, 1)
+  neg_km2   <- round(sum(merged$delta < 0, na.rm = TRUE) * px_km2, 1)
+  total_km2 <- round(nrow(merged) * px_km2, 1)
+
+  delta_df <- data.frame(
+    x = merged$lon, y = merged$lat,
+    ndvi_a = merged$value_a, ndvi_b = merged$value_b, delta = merged$delta
+  )
+  list(delta_df = delta_df, pos_km2 = pos_km2, neg_km2 = neg_km2,
+       total_km2 = total_km2, year_a = year_a, year_b = year_b,
+       country_name = aoi)
+}
+
+#' Render a monthly NDVI anomaly grid (selected month vs same-month historical
+#' baseline) as a diverging-colour Leaflet. `anomaly_df` has lat, lon, value
+#' (NDVI delta from baseline).
+plot_monthly_anomaly_leaflet <- function(anomaly_df, year, month, baseline_years = NULL) {
+  month_label <- month.name[as.integer(month)]
+  quants  <- stats::quantile(anomaly_df$value, c(0.02, 0.98), na.rm = TRUE)
+  max_abs <- max(abs(quants), na.rm = TRUE)
+  if (!is.finite(max_abs) || max_abs == 0) max_abs <- 0.1
+
+  pal <- leaflet::colorNumeric(
+    palette = c("#8B0000", "#CC3300", "#FFFFFF", "#66BB6A", "#1B5E20"),
+    domain  = c(-max_abs, max_abs), na.color = "transparent"
+  )
+  n_base <- length(baseline_years)
+  base_txt <- if (n_base > 0) paste0(" vs ", n_base, "-year baseline") else ""
+
+  leaflet::leaflet(anomaly_df) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~lon, lat = ~lat, radius = 3, stroke = FALSE, fillOpacity = 0.8,
+      fillColor = ~pal(scales::squish(value, c(-max_abs, max_abs))),
+      popup = ~paste0("<b>NDVI anomaly:</b> ", round(value, 3))
+    ) %>%
+    leaflet::addLegend(
+      position = "bottomright",
+      colors   = c(pal(-max_abs), pal(0), pal(max_abs)),
+      labels   = c("Less green than usual", "Typical", "Greener than usual"),
+      title    = paste0(month_label, " ", year, " NDVI anomaly", base_txt),
+      opacity  = 0.8
+    )
+}
+
+#' HOT PATH interactive Leaflet for the BA monthly map, built from a burned-area
+#' monthly grid (value = BurnDate; >0 means burned). Mirrors the look of
+#' build_ba_monthly_leaflet() but renders pixels as markers from the grid.
+build_ba_monthly_leaflet_grid <- function(ba_df, aoi_shape, year, month_num,
+                                          burned_km2 = NULL) {
+  aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
+  aoi_bounds <- sf::st_bbox(aoi_shape)
+  month_label <- format(as.Date(paste0(year, "-", sprintf("%02d", month_num), "-01")), "%B %Y")
+
+  m <- leaflet() %>%
+    addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+    addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+    addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                opacity = 0.9, fillOpacity = 0, label = "Study area boundary",
+                group = "Study Area") %>%
+    fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]])
+
+  burned <- ba_df[!is.na(ba_df$value) & ba_df$value > 0, , drop = FALSE]
+  if (nrow(burned) > 0) {
+    burned$burn_date <- format(as.Date(burned$value - 1, origin = paste0(year, "-01-01")), "%B %d, %Y")
+    km2_txt <- if (!is.null(burned_km2)) paste0(" (", round(burned_km2, 1), " km2 burned)") else ""
+    m <- m %>%
+      addCircleMarkers(
+        data = burned, lng = ~lon, lat = ~lat,
+        radius = 3, stroke = FALSE, fillOpacity = 0.75, fillColor = "#E25822",
+        label = ~lapply(paste0("<b>Burned on:</b> ", burn_date), htmltools::HTML),
+        labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+        group = "Burned Area"
+      ) %>%
+      addLegend("bottomright", colors = "#E25822",
+                labels = paste0("Burned Area", km2_txt),
+                title = month_label, opacity = 0.85)
+  } else {
+    m <- m %>% addControl(
+      html = paste0('<div style="background:white;padding:10px 14px;border-radius:4px;',
+                    'border:1px solid #ddd;font-size:13px;color:#555;">',
+                    'No burned area detected in ', month_label, ' for this area.</div>'),
+      position = "topright")
+  }
+  m %>% addLayersControl(
+    baseGroups    = c("Street Map", "Satellite"),
+    overlayGroups = c("Study Area", "Burned Area"),
+    options       = layersControlOptions(collapsed = FALSE), position = "topleft")
+}
+
+#' HOT PATH Leaflet for the NEW BA annual view, built from a burned-area annual
+#' grid (value = burn frequency: 0 none, 1 once, 2+ multiple).
+build_ba_annual_leaflet <- function(ba_df, aoi_shape, year, total_burned_km2 = NULL) {
+  aoi_shape  <- sf::st_transform(aoi_shape, crs = 4326)
+  aoi_bounds <- sf::st_bbox(aoi_shape)
+
+  m <- leaflet() %>%
+    addProviderTiles(providers$OpenStreetMap,     group = "Street Map") %>%
+    addProviderTiles(providers$Esri.WorldImagery, group = "Satellite") %>%
+    addPolygons(data = aoi_shape, color = "#1B5E20", weight = 2,
+                opacity = 0.9, fillOpacity = 0, label = "Study area boundary",
+                group = "Study Area") %>%
+    fitBounds(aoi_bounds[[1]], aoi_bounds[[2]], aoi_bounds[[3]], aoi_bounds[[4]])
+
+  burned <- ba_df[!is.na(ba_df$value) & ba_df$value > 0, , drop = FALSE]
+  if (nrow(burned) > 0) {
+    burned$col <- ifelse(burned$value >= 2, "#7F0000", "#E25822")
+    burned$lab <- ifelse(burned$value >= 2,
+                         paste0("Burned ", burned$value, " times in ", year),
+                         paste0("Burned once in ", year))
+    m <- m %>%
+      addCircleMarkers(
+        data = burned, lng = ~lon, lat = ~lat,
+        radius = 3, stroke = FALSE, fillOpacity = 0.75, fillColor = ~col,
+        label = ~lapply(lab, htmltools::HTML),
+        labelOptions = labelOptions(style = list("font-size" = "12px"), direction = "auto"),
+        group = "Burned Area"
+      ) %>%
+      addLegend("bottomright", colors = c("#E25822", "#7F0000"),
+                labels = c("Burned once", "Burned 2+ times"),
+                title = paste0("Annual burns ", year), opacity = 0.85)
+  } else {
+    m <- m %>% addControl(
+      html = paste0('<div style="background:white;padding:10px 14px;border-radius:4px;',
+                    'border:1px solid #ddd;font-size:13px;color:#555;">',
+                    'No burned area detected in ', year, ' for this area.</div>'),
+      position = "topright")
+  }
+  m %>% addLayersControl(
+    baseGroups    = c("Street Map", "Satellite"),
+    overlayGroups = c("Study Area", "Burned Area"),
+    options       = layersControlOptions(collapsed = FALSE), position = "topleft")
+}
+
+#' COLD PATH for the BA annual view: compute per-pixel burn frequency for one
+#' year directly from the monthly burned-area TIFs (fallback when the API is
+#' down). Returns list(df = data.frame(lat, lon, value = months-burned count),
+#' total_burned_km2, aoi_shape) or NULL if no TIFs exist for the year.
+compute_ba_annual_cold <- function(data_dir, country, resolution, year) {
+  data_path <- file.path(data_dir, "BurnedArea", country, paste0(resolution, "m_resolution"))
+  ba_files  <- list.files(data_path, pattern = "\\.tif$", full.names = TRUE)
+  yr_files  <- ba_files[grepl(paste0("^", year, "-"), basename(ba_files))]
+  if (length(yr_files) == 0L) return(NULL)
+
+  # Per-pixel count of months burned (BurnDate > 0) across the year.
+  monthly  <- terra::ifel(terra::rast(yr_files) > 0, 1, 0)
+  burn_cnt <- terra::app(monthly, fun = sum, na.rm = TRUE)
+  burn_cnt <- terra::project(burn_cnt, "EPSG:4326")
+
+  aoi_files <- list.files(file.path(data_dir, "AoI"),
+                          pattern = paste0("AoI.*", country, ".*\\.geojson$"))
+  if (length(aoi_files) == 0L) stop("No Area of Interest file found for the selected country.")
+  aoi_shape <- read_aoi_geometry(file.path(data_dir, "AoI", aoi_files[[1]]), country)
+  aoi_4326  <- sf::st_transform(aoi_shape, 4326)
+  burn_cnt  <- terra::mask(burn_cnt, terra::vect(aoi_4326))
+
+  df <- as.data.frame(burn_cnt, xy = TRUE)
+  names(df) <- c("lon", "lat", "value")
+  df <- df[!is.na(df$value), c("lat", "lon", "value"), drop = FALSE]
+  if (nrow(df) == 0L) return(NULL)
+
+  px_km2 <- (suppressWarnings(as.numeric(gsub("[^0-9]", "", resolution))) / 1000)^2
+  total_burned_km2 <- round(sum(df$value > 0) * px_km2, 1)
+
+  list(df = df, total_burned_km2 = total_burned_km2, aoi_shape = aoi_4326)
+}
+
+#' HOT PATH for the NDVI facet PNG: fetch one monthly-grid per year for the last
+#' 4 years (selected month), assemble the data frame plot_ndvi_maps() expects,
+#' and save the PNG via the UNMODIFIED plot_ndvi_maps(). Returns TRUE on success,
+#' NULL on failure (short-circuits if the first/most-recent-year call fails).
+generate_2Dmap_hot <- function(country_name, sensor, resolution, map_year, map_month,
+                               figures_dir, figure_filename, years_vec = NULL) {
+  map_year  <- as.integer(map_year)
+  map_month <- as.integer(map_month)
+  mm        <- sprintf("%02d", map_month)
+  # Default: most-recent 4 years. A caller (e.g. comparison_image) may pass an
+  # explicit year list instead.
+  if (is.null(years_vec)) years_vec <- map_year:(map_year - 3)
+
+  parts <- list()
+  for (i in seq_along(years_vec)) {
+    yr <- years_vec[i]
+    g <- try_api_grid_call(
+      "/api/v1/ndvi/monthly-grid",
+      list(aoi = country_name, sensor = sensor, resolution = resolution,
+           year = yr, month = map_month)
+    )
+    if (is.null(g)) {
+      if (i == 1L) return(NULL)  # short-circuit: API down on the first call
+      next                       # older year simply has no data for this month
+    }
+    df <- parse_grid_response(g)
+    if (nrow(df) == 0L) next
+    parts[[length(parts) + 1L]] <- data.frame(
+      x = df$lon, y = df$lat, NDVI = df$value,
+      Year = as.character(yr), Month = mm, YearMonth = paste(yr, mm),
+      stringsAsFactors = FALSE
+    )
+  }
+  if (length(parts) == 0L) return(NULL)
+
+  data <- do.call(rbind, parts)
+  plot_ndvi_maps(data = data, month_to_plot = mm,
+                 ncol = length(parts),
+                 save_path = figures_dir, filename = figure_filename)
+  TRUE
+}
+
+#' HOT PATH for the burned-area facet PNG: fetch one burned-area monthly-grid per
+#' year for the last 4 years (selected month), assemble the data frame
+#' plot_ba_maps() expects (BurnedArea 0/1; per-year BurnedArea_Size from
+#' metadata$burned_km2; Percentage_Burned from aoi_area_km2), and save the PNG via
+#' the UNMODIFIED plot_ba_maps(). Returns TRUE on success, NULL on failure.
+generate_ba_2Dmap_hot <- function(country_name, map_year, map_month, figures_dir,
+                                  figure_filename, aoi_area_km2 = NULL, years_vec = NULL) {
+  map_year  <- as.integer(map_year)
+  map_month <- as.integer(map_month)
+  mm        <- sprintf("%02d", map_month)
+  if (is.null(years_vec)) years_vec <- map_year:(map_year - 3)
+
+  parts <- list()
+  for (i in seq_along(years_vec)) {
+    yr <- years_vec[i]
+    g <- try_api_grid_call(
+      "/api/v1/burned-area/monthly-grid",
+      list(aoi = country_name, year = yr, month = map_month)
+    )
+    if (is.null(g)) {
+      if (i == 1L) return(NULL)  # short-circuit: API down on the first call
+      next
+    }
+    df <- parse_grid_response(g)
+    if (nrow(df) == 0L) next
+    burned_km2 <- suppressWarnings(as.numeric(g$metadata$burned_km2))
+    if (length(burned_km2) == 0L) burned_km2 <- NA_real_
+    pct <- if (!is.null(aoi_area_km2) && !is.na(aoi_area_km2) && aoi_area_km2 > 0 &&
+               !is.na(burned_km2)) burned_km2 / aoi_area_km2 * 100 else 0
+    parts[[length(parts) + 1L]] <- data.frame(
+      x = df$lon, y = df$lat,
+      BurnedArea = as.integer(df$value > 0),
+      Month = mm, Year = as.character(yr), YearMonth = paste(yr, mm),
+      BurnedArea_Size = burned_km2, Percentage_Burned = pct,
+      stringsAsFactors = FALSE
+    )
+  }
+  if (length(parts) == 0L) return(NULL)
+
+  data <- do.call(rbind, parts)
+  plot_ba_maps(data = data, month_to_plot = mm, n_years = 4,
+               save_path = figures_dir, filename = figure_filename)
+  TRUE
 }

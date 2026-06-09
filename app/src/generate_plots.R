@@ -11,7 +11,94 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
                                 land_cover_class = NULL,
                                 view = "monthly"
 ) {
+  use_lc_requested <- !is.null(land_cover_class) && nzchar(land_cover_class)
 
+  # Sensor/resolution mapping shared by the hot-path API calls below.
+  sr <- get_sensor_resolution(resolution)
+
+  # ANNUAL view: HOT (/ndvi/annual) -> WARM (ndvi_annual parquet) -> COLD (TIF).
+  if (identical(view, "annual") && !use_lc_requested) {
+    annual_df <- NULL
+    ds        <- NULL
+
+    # HOT PATH: dedicated annual time-series endpoint (year, mean_ndvi,
+    # n_months, is_complete). Falls through silently if unavailable.
+    api_ann <- if (!is.null(sr)) try_api_call(
+      endpoint = "/api/v1/ndvi/annual",
+      params   = list(aoi = country_name, sensor = sr$sensor, resolution = sr$resolution)
+    ) else NULL
+    if (!is.null(api_ann) &&
+        all(c("year", "mean_ndvi", "n_months", "is_complete") %in% names(api_ann))) {
+      annual_df <- api_ann[, c("year", "mean_ndvi", "n_months", "is_complete")]
+      ds        <- "api"
+    } else {
+      # WARM PATH: pre-processed ndvi_annual.parquet
+      pq_ann <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_annual"))
+      if (!is.null(pq_ann)) {
+        tmp <- pq_ann[pq_ann$aoi == country_name,
+                      c("year", "mean_ndvi", "n_months", "is_complete")]
+        if (nrow(tmp) > 0) { annual_df <- tmp; ds <- "parquet" }
+      }
+    }
+
+    if (!is.null(annual_df) && nrow(annual_df) > 0) {
+      annual_df$is_complete <- as.logical(annual_df$is_complete)
+      annual_plot  <- plot_ndvi_annual(annual_df, land_cover_class = NULL)
+      annual_stats <- compute_ndvi_annual_stats(annual_df)
+      annual_stats$view <- "annual"
+      return(list(plot = annual_plot, stats = annual_stats, view = "annual", data_source = ds))
+    }
+  }
+
+  # WARM PATH: monthly view (overall AoI only — no per-class data in ndvi_monthly)
+  if (identical(view, "monthly") && !use_lc_requested) {
+    # HOT PATH: try the API first; the /timeseries table returns all years with
+    # the ndvi_monthly schema (year, month, mean_ndvi). Falls back silently.
+    ds <- "api"
+    pq <- if (!is.null(sr)) try_api_call(
+      endpoint = "/api/v1/ndvi/timeseries",
+      params   = list(aoi = country_name, sensor = sr$sensor, resolution = sr$resolution)
+    ) else NULL
+    if (is.null(pq)) {
+      ds      <- "parquet"
+      pq_path <- get_parquet_path(country_name, resolution, "ndvi_monthly")
+      pq      <- try_read_parquet(pq_path)
+    }
+    if (!is.null(pq)) {
+      # API responses carry no `aoi` column (already filtered server-side); the
+      # Parquet file does, so only filter when the column is present.
+      if ("aoi" %in% names(pq)) pq <- pq[pq$aoi == country_name, ]
+      if (nrow(pq) > 0) {
+        pq$YearMonth <- as.Date(paste(pq$year, sprintf("%02d", pq$month), "01", sep = "-"))
+        pq$Year      <- as.character(pq$year)
+        pq$Month     <- sprintf("%02d", pq$month)
+        pq$NDVI      <- pq$mean_ndvi
+
+        end_date_pq   <- as.Date(paste(end_year, sprintf("%02d", end_month), "01", sep = "-"))
+        start_date_pq <- as.Date(paste(end_year, "01", "01", sep = "-"))
+        months_in_test_pq <- pq$month[pq$YearMonth >= start_date_pq & pq$YearMonth <= end_date_pq]
+
+        test_ndvi_df  <- pq[pq$YearMonth >= start_date_pq & pq$YearMonth <= end_date_pq,
+                            c("YearMonth", "NDVI", "Year", "Month")]
+        train_ndvi_df <- pq[pq$year < end_year & pq$month %in% months_in_test_pq,
+                            c("YearMonth", "NDVI", "Year", "Month")]
+
+        if (nrow(test_ndvi_df) > 0 && nrow(train_ndvi_df) > 0) {
+          ndvi_ts_plot <- plot_ndvi_anomaly(train_ndvi_df = train_ndvi_df,
+                                            test_ndvi_df  = test_ndvi_df,
+                                            land_cover_class = NULL)
+          if (isTRUE(return_plot)) {
+            stats      <- compute_ndvi_explorer_stats(train_ndvi_df, test_ndvi_df)
+            stats$view <- "monthly"
+            return(list(plot = ndvi_ts_plot, stats = stats, view = "monthly", data_source = ds))
+          }
+          return(invisible(NULL))
+        }
+      }
+    }
+  }
+
+  # COLD PATH (unchanged)
   data_type  <- "NDVI"
   data_path  <- file.path(data_dir, paste0(data_type, "/", country_name, "/", resolution, "m_resolution/"))
   aoi_path   <- file.path(data_dir, "AoI")
@@ -114,9 +201,57 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
                                    figures_dir = NULL, data_dir = NULL,
                                    return_plot = FALSE, figure_filename = NULL
 ) {
-  
+  # HOT PATH + WARM PATH: API first, then pre-processed ba_monthly.parquet.
+  # Both share the ba_monthly schema so the transform below is reused unchanged.
+  if (isTRUE(return_plot)) {
+    ds    <- "api"
+    pq_ba <- try_api_call(
+      endpoint = "/api/v1/burned-area/summary",
+      params   = list(aoi = country_name)
+    )
+    if (is.null(pq_ba)) {
+      ds    <- "parquet"
+      pq_ba <- try_read_parquet(
+        get_parquet_path(country_name, resolution, "ba_monthly", sensor_override = "burned_area")
+      )
+    }
+    if (!is.null(pq_ba)) {
+      # API summary has no `aoi` column (already filtered); Parquet does.
+      if ("aoi" %in% names(pq_ba)) pq_ba <- pq_ba[pq_ba$aoi == country_name, ]
+      if (nrow(pq_ba) > 0) {
+        train_ba <- unique(pq_ba[, c("month", "ba_mean", "ba_lower_ci", "ba_upper_ci")])
+        train_ba <- data.frame(
+          Month    = sprintf("%02d", train_ba$month),
+          mean_val = train_ba$ba_mean,
+          lower_ci = pmax(train_ba$ba_lower_ci, 0),
+          upper_ci = train_ba$ba_upper_ci,
+          stringsAsFactors = FALSE
+        )
+        test_raw <- pq_ba[pq_ba$year == end_year & pq_ba$month <= end_month, ]
+        if (nrow(test_raw) > 0) {
+          test_ba <- data.frame(
+            Month    = sprintf("%02d", test_raw$month),
+            mean_val = test_raw$burned_km2,
+            lower_ci = test_raw$burned_km2,
+            upper_ci = test_raw$burned_km2,
+            stringsAsFactors = FALSE
+          )
+          return(list(
+            plot = plot_ba_timeseries_plotly(
+              train_data = train_ba,
+              test_data  = test_ba,
+              test_year  = end_year
+            ),
+            data_source = ds
+          ))
+        }
+      }
+    }
+  }
+
+  # COLD PATH (unchanged)
   ### Set paths and define parameters
-  
+
   # figure path
   figure_path <- file.path(figures_dir, figure_filename)
   
@@ -188,10 +323,13 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
     test_raw        <- get_ba_summary_fast(test_files_df, data_path, aoi_proj)
     test_ba_summary <- get_summary_ba_df(ba_df = test_raw)
 
-    return(plot_ba_timeseries_plotly(
-      train_data = train_ba_summary,
-      test_data  = test_ba_summary,
-      test_year  = end_year
+    return(list(
+      plot = plot_ba_timeseries_plotly(
+        train_data = train_ba_summary,
+        test_data  = test_ba_summary,
+        test_year  = end_year
+      ),
+      data_source = "tif"
     ))
   }
 
@@ -475,8 +613,125 @@ generate_timeseries_landcover <- function(country_name = NULL, resolution = NULL
                                             "Flooded_vegetation", "Built_Area", "Bare_ground"
                                           )
 ) {
-  
+  # HOT PATH (per-class NDVI only): the API supplies the ndvi_monthly_by_class
+  # table; the two baseline tables have no endpoint and are still read from
+  # Parquet. Tag "api" only when the per-class frame came from the API.
+  sr_lc <- get_sensor_resolution(resolution)
+  ds    <- "api"
+  pq_lc <- if (!is.null(sr_lc)) try_api_call(
+    endpoint = "/api/v1/ndvi/by-landcover",
+    params   = list(aoi = country_name, sensor = sr_lc$sensor,
+                    resolution = sr_lc$resolution, year = end_year)
+  ) else NULL
+  if (is.null(pq_lc)) {
+    ds    <- "parquet"
+    pq_lc <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_by_class"))
+  }
+
+  # WARM PATH: read pre-processed baseline Parquet files if available
+  pq_bl     <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_baselines"))
+  pq_bl_cls <- try_read_parquet(get_parquet_path(country_name, resolution, "ndvi_monthly_baselines_by_class"))
+
+  if (!is.null(pq_lc) && !is.null(pq_bl) && !is.null(pq_bl_cls)) {
+    # API per-class frame has no `aoi` column; the Parquet ones do.
+    if ("aoi" %in% names(pq_lc)) pq_lc <- pq_lc[pq_lc$aoi == country_name, ]
+    pq_bl     <- pq_bl    [pq_bl$aoi      == country_name, ]
+    pq_bl_cls <- pq_bl_cls[pq_bl_cls$aoi  == country_name, ]
+    pq_lc$year  <- as.integer(pq_lc$year)
+    pq_lc$month <- as.integer(pq_lc$month)
+
+    # Months present in the test year up to end_month — mirrors cold-path months_in_test
+    test_months_pq <- sort(unique(
+      pq_lc$month[pq_lc$year == as.integer(end_year) & pq_lc$month <= as.integer(end_month)]
+    ))
+
+    if (length(test_months_pq) > 0) {
+
+      # AoI-wide historical ribbon  →  train_ndvi_summary_aoi shape: Month, mean_val, lower_ci, upper_ci
+      bl_rows <- pq_bl[pq_bl$month %in% test_months_pq, ]
+      train_ndvi_summary_aoi_pq <- data.frame(
+        Month    = sprintf("%02d", as.integer(bl_rows$month)),
+        mean_val = bl_rows$climatology,
+        lower_ci = bl_rows$ts_lower,
+        upper_ci = bl_rows$ts_upper,
+        stringsAsFactors = FALSE
+      )
+
+      # Per-class summaries  →  land_cover_summaries shape: Month, mean_val, lower_ci, upper_ci, land_cover, period
+      lc_list_pq <- lapply(land_cover_classes, function(lc) {
+        # Test: current year, up to end_month
+        test_d <- pq_lc[pq_lc$land_cover == lc &
+                          pq_lc$year == as.integer(end_year) &
+                          pq_lc$month %in% test_months_pq, ]
+        if (nrow(test_d) == 0) return(NULL)
+        test_s <- data.frame(
+          Month    = sprintf("%02d", as.integer(test_d$month)),
+          mean_val = test_d$mean_ndvi,
+          lower_ci = NA_real_,
+          upper_ci = NA_real_,
+          stringsAsFactors = FALSE
+        )
+
+        # Train: pre-computed historical baseline per class
+        train_d <- pq_bl_cls[pq_bl_cls$land_cover == lc &
+                                pq_bl_cls$month %in% test_months_pq, ]
+        if (nrow(train_d) == 0) return(NULL)
+        train_s <- data.frame(
+          Month    = sprintf("%02d", as.integer(train_d$month)),
+          mean_val = train_d$lc_mean,
+          lower_ci = train_d$lc_lower_ci,
+          upper_ci = train_d$lc_upper_ci,
+          stringsAsFactors = FALSE
+        )
+
+        dplyr::bind_rows(
+          dplyr::mutate(train_s, land_cover = lc, period = "train"),
+          dplyr::mutate(test_s,  land_cover = lc, period = "test")
+        )
+      })
+      land_cover_summaries_pq <- dplyr::bind_rows(Filter(Negate(is.null), lc_list_pq))
+
+      if (nrow(land_cover_summaries_pq) > 0 && nrow(train_ndvi_summary_aoi_pq) > 0) {
+        cat("[LC Explorer] Warm path: reading Parquet\n")
+        Sys.setlocale("LC_TIME", "C")
+        name_ribbon_pq <- paste0(
+          "Historical range (until ",
+          format(as.Date(paste(end_year, "01", "01", sep = "-")), "%b %Y"),
+          ")"
+        )
+        use_map_pq <- !is.null(lulc_map_folder_path) && nzchar(lulc_map_folder_path) &&
+          dir.exists(lulc_map_folder_path)
+
+        if (isTRUE(use_map_pq)) {
+          aoi_path_pq <- file.path(data_dir, "AoI/")
+          aoi_sf_pq   <- get_aoi_vector(
+            aoi_files  = get_filenames(aoi_path_pq, "AoI", ".geojson", country_name),
+            aoi_path   = aoi_path_pq,
+            projection = "EPSG:4326"
+          )
+          combo_pq <- plot_ndvi_landcover_with_map(
+            train_ndvi_summary_aoi = train_ndvi_summary_aoi_pq,
+            land_cover_summaries   = land_cover_summaries_pq,
+            name_ribbon            = name_ribbon_pq,
+            lulc_map_folder        = lulc_map_folder_path,
+            aoi_sf                 = aoi_sf_pq
+          )
+          if (isTRUE(return_plot)) return(list(plot = combo_pq$plot, bbox_by_stem = combo_pq$bbox_by_stem, data_source = ds))
+        } else {
+          p_pq <- plot_ndvi_landcover_multiline(
+            train_ndvi_summary_aoi = train_ndvi_summary_aoi_pq,
+            land_cover_summaries   = land_cover_summaries_pq,
+            name_ribbon            = name_ribbon_pq
+          )
+          if (isTRUE(return_plot)) return(list(plot = p_pq, bbox_by_stem = NULL, data_source = ds))
+        }
+        return(invisible(NULL))
+      }
+    }
+  }
+  # COLD PATH (unchanged)
   data_type <- "NDVI"
+  cat("[LC Explorer] Cold path: computing from TIF\n")
   Sys.setlocale("LC_TIME", "C") # Otherwise creates language inconsistencies, at least locally
   
   data_path <- file.path(data_dir, paste0(data_type, "/",

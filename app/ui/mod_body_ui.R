@@ -11,7 +11,22 @@ mod_body_ui <- function(id) {
              position:fixed;
              top: calc(50%);
              left: calc(50% - 100px);
-             max-width: 300px}"))
+             max-width: 300px}")),
+      # MathJax: render LaTeX formulas in agent responses. Config must load
+      # BEFORE the library; enable $...$ inline + $$...$$ display delimiters.
+      tags$script(HTML(
+        "window.MathJax = {
+           tex: {
+             inlineMath:  [['$', '$'], ['\\\\(', '\\\\)']],
+             displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']]
+           },
+           options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }
+         };"
+      )),
+      tags$script(
+        src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js",
+        async = NA
+      )
     ),
 
     # Tabset with panels for separate pasted (nested, currently one for the NDVI Explorer and one for the BA Explorer)
@@ -99,6 +114,10 @@ mod_body_ui <- function(id) {
                                          uiOutput("ndvi_health_summary_card"),
                                          uiOutput("ndvi_annual_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
+                                         tags$p(
+                                           style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                           textOutput("ds_label_ndvi_ts", inline = TRUE)
+                                         ),
                                          div(
                                            class = "ndvi-ts-insight-cards",
                                            style = "margin-top: 16px;",
@@ -118,7 +137,11 @@ mod_body_ui <- function(id) {
                                            div(class = "ndvi-callout",
                                                p("This chart shows vegetation health for each land cover type throughout the year. Each coloured line represents one type - click the legend to show or hide classes. Use the map on the right to see where each type is located.")),
                                            mod_busy_spinner_ui("busy_spinner"),
-                                           uiOutput("lc_plot_container"))
+                                           uiOutput("lc_plot_container"),
+                                           tags$p(
+                                             style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                             textOutput("ds_label_lc", inline = TRUE)
+                                           ))
                       ),
                     ),
 
@@ -148,7 +171,11 @@ mod_body_ui <- function(id) {
                                 p("This map compares annual average vegetation health between two selected years. Green = vegetation gaining. Red = vegetation declining. Use it to identify long-term gains and losses across the landscape."))
                           ),
                           mod_busy_spinner_ui("busy_spinner"),
-                          uiOutput("dm_plot_container")
+                          uiOutput("dm_plot_container"),
+                          tags$p(
+                            style = "font-size:0.8em; color:#888; margin-top:4px;",
+                            textOutput("ds_label_ndvi_delta", inline = TRUE)
+                          )
                         )
                       )
                     ),
@@ -187,7 +214,11 @@ mod_body_ui <- function(id) {
                                              ),
 
                                              mod_busy_spinner_ui("busy_spinner"),
-                                             uiOutput("ba_plot_container")
+                                             uiOutput("ba_plot_container"),
+                                             tags$p(
+                                               style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                               textOutput("ds_label_ba_seasonal", inline = TRUE)
+                                             )
                                            ),
 
                                            # === DAILY ACTIVITY ===
@@ -198,7 +229,11 @@ mod_body_ui <- function(id) {
                                              ),
 
                                              mod_busy_spinner_ui("busy_spinner"),
-                                             uiOutput("ba_daily_plot_container")
+                                             uiOutput("ba_daily_plot_container"),
+                                             tags$p(
+                                               style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                               textOutput("ds_label_ba_daily", inline = TRUE)
+                                             )
                                            ),
                                        )
                       )
@@ -214,7 +249,7 @@ mod_body_ui <- function(id) {
                                            shinyWidgets::radioGroupButtons(
                                              inputId  = "ba_map_view",
                                              label    = NULL,
-                                             choices  = c("Monthly View" = "monthly", "Fire Return Period" = "frp"),
+                                             choices  = c("Monthly View" = "monthly", "Annual View" = "annual", "Fire Return Period" = "frp"),
                                              selected = "monthly",
                                              size     = "sm",
                                              status   = "default"
@@ -259,6 +294,23 @@ mod_body_ui <- function(id) {
                                              leafletOutput("ba_frp_leaflet", height = "450px")
                                            ),
 
+                                           # === ANNUAL VIEW (API hot path only) ===
+                                           conditionalPanel(
+                                             condition = "input.ba_map_view == 'annual'",
+                                             div(class="infobox",
+                                                 p("This map shows how much of the study area burned across all months of the selected year. Orange = burned once; dark red = burned more than once. Requires the live data service.")
+                                             ),
+                                             uiOutput("ba_annual_summary"),
+                                             mod_busy_spinner_ui("busy_spinner"),
+                                             leafletOutput("ba_annual_leaflet", height = "450px")
+                                           ),
+
+                                           # Data-source label (shared across Monthly + FRP views)
+                                           tags$p(
+                                             style = "font-size:0.8em; color:#888; margin-top:4px;",
+                                             textOutput("ds_label_ba_map", inline = TRUE)
+                                           ),
+
                                        )
                       )
                     )
@@ -295,7 +347,11 @@ mod_body_ui <- function(id) {
                         HTML("⚠️ <strong>Note:</strong> Flooded vegetation's variability is driven by water levels, not vegetation stress — interpret it differently."))
                   ),
                   mod_busy_spinner_ui("busy_spinner"),
-                  uiOutput("scenario_productivity_container")
+                  uiOutput("scenario_productivity_container"),
+                  tags$p(
+                    style = "font-size:0.8em; color:#888; margin-top:4px;",
+                    textOutput("ds_label_productivity", inline = TRUE)
+                  )
               )
             )
           ),
@@ -307,7 +363,11 @@ mod_body_ui <- function(id) {
               condition = "input.tabs == 'ScenarioExplorerTab' && input.scenariosubtabs == 'ScenarioAnomalyResilience'",
               div(class="plot-container",
                   mod_busy_spinner_ui("busy_spinner"),
-                  uiOutput("scenario_anomaly_container")
+                  uiOutput("scenario_anomaly_container"),
+                  tags$p(
+                    style = "font-size:0.8em; color:#888; margin-top:4px;",
+                    textOutput("ds_label_anomaly", inline = TRUE)
+                  )
               )
             )
           ),
@@ -319,8 +379,93 @@ mod_body_ui <- function(id) {
               div(class="plot-container",
                   uiOutput("agri_callout"),
                   mod_busy_spinner_ui("busy_spinner"),
-                  uiOutput("scenario_agri_container")
+                  uiOutput("scenario_agri_container"),
+                  tags$p(
+                    style = "font-size:0.8em; color:#888; margin-top:4px;",
+                    textOutput("ds_label_agri", inline = TRUE)
+                  )
               )
+            )
+          )
+        )
+      ),
+
+      # AI Assistant (standalone chat tab; existing tabs unchanged)
+      tabPanel(
+        title = "AI Assistant",
+        value = "AIassistantTab",
+        div(
+          class = "plot-container",
+          fluidRow(
+            column(
+              12,
+              # --- Collapsible settings panel (full width, above the chat) ---
+              div(
+                class = "ai-settings",
+                div(
+                  class = "ai-settings-header",
+                  tags$span(class = "ai-settings-title", "Assistant settings"),
+                  actionButton("toggle_settings", "Settings ▲",
+                               class = "btn-default btn-sm ai-settings-toggle")
+                ),
+                conditionalPanel(
+                  condition = "output.settings_expanded == true",
+                  selectInput(
+                    "llm_provider", "AI provider",
+                    choices = c("Anthropic (Claude)" = "anthropic",
+                                "OpenAI (GPT-4o)"     = "openai")
+                  ),
+                  conditionalPanel(
+                    condition = "output.server_key_configured == false",
+                    passwordInput("user_api_key", "Your API key",
+                                  placeholder = "sk-... or sk-ant-..."),
+                    helpText("Used for this session only. Never stored.")
+                  ),
+                  conditionalPanel(
+                    condition = "output.server_key_configured == true",
+                    p(tags$span(style = "color:#2E7D32; font-weight:bold;", "● "),
+                      "AI Assistant ready")
+                  )
+                ),
+                conditionalPanel(
+                  condition = "output.settings_expanded == false",
+                  div(class = "ai-settings-summary",
+                      textOutput("settings_summary", inline = TRUE))
+                )
+              ),
+
+              # --- Conversation (full width) ---
+              uiOutput("conversation_display"),
+              hr(),
+
+              # --- Input area (full width) ---
+              textAreaInput(
+                "user_question", NULL,
+                placeholder = "Ask about vegetation trends, fire patterns, land cover changes...",
+                rows = 3, width = "100%"
+              ),
+              div(
+                class = "ai-input-actions",
+                actionButton("send_question", "Ask", class = "action_button ai-send-btn"),
+                actionButton("clear_history", "Clear conversation",
+                             class = "btn-default ai-clear-btn")
+              ),
+              tags$p(class = "ai-input-hint", "Press Ctrl + Enter (⌘ + Enter on Mac) to send."),
+              tags$p(class = "ai-disclaimer",
+                     "AI-generated responses may be inaccurate — double-check key figures against the explorer data. Questions are sent to a third-party AI provider."),
+
+              # Send on Ctrl/Cmd + Enter from the question box
+              tags$script(HTML(
+                "document.addEventListener('keydown', function(e){
+                   var ta = document.getElementById('user_question');
+                   if (ta && document.activeElement === ta &&
+                       (e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                     e.preventDefault();
+                     var btn = document.getElementById('send_question');
+                     if (btn) btn.click();
+                   }
+                 });"
+              ))
             )
           )
         )

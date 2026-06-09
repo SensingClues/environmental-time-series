@@ -3,6 +3,294 @@
 # UTILITY FUNCTIONS
 # -----------------------------------------------------------------------------
 
+# Null-coalescing operator: a if non-NULL, else b.
+`%||%` <- function(a, b) if (!is.null(a)) a else b
+
+#' Map app resolution key to pipeline sensor and resolution number
+#'
+#' The app uses resolution keys like "Sentinel_1000", "MODIS_1000", "100" etc.
+#' The pipeline stores Parquet files by sensor name and numeric resolution.
+#' This function bridges the two naming conventions.
+#'
+#' @param resolution_key Character. One of the values from resolutionchoices_rv.
+#' @return Named list with 'sensor' (character) and 'resolution' (integer),
+#'         or NULL if the key is not recognised.
+get_sensor_resolution <- function(resolution_key) {
+  mapping <- list(
+    "100"          = list(sensor = "sentinel2", resolution = 100L),
+    "Sentinel_1000"= list(sensor = "sentinel2", resolution = 1000L),
+    "250"          = list(sensor = "modis",     resolution = 250L),
+    "500"          = list(sensor = "modis",     resolution = 500L),
+    "MODIS_1000"   = list(sensor = "modis",     resolution = 1000L)
+  )
+  mapping[[resolution_key]]
+}
+
+#' Build the full path to a pre-processed Parquet file
+#'
+#' @param aoi Character. AoI name matching folder name, e.g. "Zambia_Mponda".
+#' @param resolution_key Character. App resolution key, e.g. "Sentinel_1000".
+#' @param table_name Character. Parquet table name without extension,
+#'        e.g. "ndvi_monthly", "ndvi_monthly_by_class", "ba_monthly".
+#' @param sensor_override Character or NULL. If not NULL, use this sensor
+#'        instead of deriving from resolution_key. Used for burned_area.
+#' @return Full file path as character, or NULL if resolution_key not recognised.
+get_parquet_path <- function(aoi, resolution_key, table_name,
+                             sensor_override = NULL) {
+  if (!is.null(sensor_override)) {
+    sensor <- sensor_override
+    resolution <- as.integer(sub("[^0-9]", "", resolution_key))
+  } else {
+    sr <- get_sensor_resolution(resolution_key)
+    if (is.null(sr)) return(NULL)
+    sensor <- sr$sensor
+    resolution <- sr$resolution
+  }
+
+  file.path(
+    "www/data/processed",
+    aoi,
+    sensor,
+    paste0(resolution, "m"),
+    paste0(table_name, ".parquet")
+  )
+}
+
+#' Try to read a Parquet file, return NULL if it doesn't exist
+#'
+#' @param path Character. Full path from get_parquet_path().
+#' @return data.frame from arrow::read_parquet(), or NULL if file not found.
+try_read_parquet <- function(path) {
+  if (is.null(path) || !file.exists(path)) return(NULL)
+  tryCatch(
+    arrow::read_parquet(path),
+    error = function(e) {
+      warning(paste("Failed to read Parquet:", path, "-", e$message))
+      NULL
+    }
+  )
+}
+
+#' Try to fetch data from the FastAPI hot path
+#'
+#' @param endpoint Character. API endpoint path, e.g. "/api/v1/ndvi/timeseries"
+#' @param params Named list. Query parameters.
+#' @param timeout_secs Numeric. Seconds before giving up and falling through.
+#' @return data.frame if successful, NULL if API unavailable or returns error.
+try_api_call <- function(endpoint, params, timeout_secs = API_TIMEOUT_SECS) {
+  # Add format=table to all data requests so response matches Parquet schema
+  params$format <- "table"
+
+  tryCatch({
+    url <- paste0(API_BASE_URL, endpoint)
+    response <- httr::GET(
+      url,
+      query = params,
+      httr::timeout(timeout_secs)
+    )
+
+    if (httr::status_code(response) != 200) return(NULL)
+
+    content <- httr::content(response, "text", encoding = "UTF-8")
+    parsed <- jsonlite::fromJSON(content, flatten = FALSE)
+
+    if (is.null(parsed$data) || length(parsed$data) == 0) return(NULL)
+
+    as.data.frame(parsed$data)
+
+  }, error = function(e) {
+    # Silent fallback — do not show error to user
+    # Common causes: API not running, network timeout, invalid response
+    NULL
+  })
+}
+
+#' Check if the API is reachable
+#'
+#' @return TRUE if /health responds within timeout, FALSE otherwise
+api_is_available <- function() {
+  result <- tryCatch({
+    response <- httr::GET(
+      paste0(API_BASE_URL, "/api/v1/health"),
+      httr::timeout(1)  # shorter timeout for health check
+    )
+    httr::status_code(response) == 200
+  }, error = function(e) FALSE)
+  result
+}
+
+#' Try to fetch geometry from the FastAPI hot path
+#'
+#' `sf::st_read()` can parse a GeoJSON string returned by the API directly, not
+#' just a file path. When `return_metadata = TRUE` the FeatureCollection's
+#' top-level `metadata` object (e.g. the FRP year range) is returned alongside
+#' the parsed geometry.
+#'
+#' @param endpoint Character. e.g. "/api/v1/geometry/landcover"
+#' @param params Named list. Query parameters.
+#' @param return_metadata Logical. If TRUE, return a list with `geometry` (sf)
+#'        and `metadata` (parsed FeatureCollection metadata). Default FALSE.
+#' @param timeout_secs Numeric.
+#' @return sf object (or list with geometry + metadata) on success; NULL if the
+#'         API is unavailable.
+try_api_geometry <- function(endpoint, params,
+                             return_metadata = FALSE,
+                             timeout_secs = API_TIMEOUT_SECS) {
+  tryCatch({
+    url <- paste0(API_BASE_URL, endpoint)
+    response <- httr::GET(
+      url,
+      query = params,
+      httr::timeout(timeout_secs)
+    )
+    if (httr::status_code(response) != 200) return(NULL)
+
+    content_text <- httr::content(response, "text", encoding = "UTF-8")
+    sf_obj <- sf::st_read(content_text, quiet = TRUE)
+
+    if (return_metadata) {
+      parsed <- jsonlite::fromJSON(content_text, flatten = FALSE)
+      list(
+        geometry = sf_obj,
+        metadata = parsed$metadata
+      )
+    } else {
+      sf_obj
+    }
+  }, error = function(e) NULL)
+}
+
+#' Load an AoI boundary polygon: API hot path, GeoJSON file fallback.
+#'
+#' The API serves geometry in EPSG:4326; callers still re-project afterwards,
+#' which is a harmless no-op on hot-path data. Falls back silently to the file.
+#'
+#' @param file Character. Fallback GeoJSON path (already resolved by the caller).
+#' @param aoi  Character. AoI name, e.g. "Zambia_Mponda".
+#' @return sf object (API or file). Errors only if BOTH the API and file fail.
+read_aoi_geometry <- function(file, aoi) {
+  if (!is.null(aoi) && nzchar(aoi)) {
+    sf_obj <- try_api_geometry("/api/v1/geometry/aoi", list(aoi = aoi))
+    if (!is.null(sf_obj)) return(sf_obj)
+  }
+  sf::st_read(file, quiet = TRUE)
+}
+
+#' Load land-cover class polygons: API hot path, GeoJSON file fallback.
+#'
+#' Uses simplified geometry from the API (≈84% smaller, ~0.3% area drift,
+#' invisible to users). The hot path only runs when the AoI and class are known;
+#' otherwise it reads the file directly.
+#'
+#' @param file Character. Fallback per-class GeoJSON path.
+#' @param aoi  Character. AoI name, e.g. "Zambia_Mponda".
+#' @param land_cover_class Character. e.g. "Crops" (NA / "" skips the hot path).
+#' @param api_available Logical. When FALSE, skip the API entirely and read the
+#'        file. Callers looping over many classes should pass a single
+#'        `api_is_available()` result so a down API costs one probe, not one
+#'        2-second timeout per class.
+#' @return sf object (API or file).
+read_landcover_geometry <- function(file, aoi, land_cover_class,
+                                    api_available = TRUE) {
+  if (isTRUE(api_available) && !is.null(aoi) && nzchar(aoi) &&
+      !is.null(land_cover_class) && !is.na(land_cover_class) &&
+      nzchar(land_cover_class)) {
+    sf_obj <- try_api_geometry(
+      "/api/v1/geometry/landcover",
+      list(aoi = aoi, land_cover_class = land_cover_class, simplified = TRUE)
+    )
+    if (!is.null(sf_obj)) return(sf_obj)
+  }
+  sf::st_read(file, quiet = TRUE)
+}
+
+#' Fetch a per-pixel grid response from the API (annual-grid, monthly-grid,
+#' monthly-anomaly-grid, burned-area grids). Unlike try_api_call() this returns
+#' the FULL parsed response (with $grid and $metadata) rather than $data, and it
+#' does NOT send format=table. NULL if the API is unavailable / errors / returns
+#' no grid (error responses have status "error" and no $grid).
+#'
+#' @param endpoint Character. e.g. "/api/v1/ndvi/annual-grid"
+#' @param params Named list. Query parameters.
+#' @param timeout_secs Numeric.
+#' @return Parsed response list (with $grid, $metadata) or NULL.
+try_api_grid_call <- function(endpoint, params,
+                              timeout_secs = API_TIMEOUT_SECS) {
+  tryCatch({
+    url <- paste0(API_BASE_URL, endpoint)
+    response <- httr::GET(url, query = params, httr::timeout(timeout_secs))
+    if (httr::status_code(response) != 200) return(NULL)
+    content <- httr::content(response, "text", encoding = "UTF-8")
+    parsed <- jsonlite::fromJSON(content, flatten = FALSE)
+    if (is.null(parsed$grid)) return(NULL)
+    parsed
+  }, error = function(e) NULL)
+}
+
+#' Parse a compact 2D grid response into a flat data frame with lat, lon, value.
+#'
+#' Robust to jsonlite's simplification: `grid$values` may arrive as a numeric
+#' matrix (when rectangular) or a list of row-lists (when nulls break
+#' simplification). Both are normalised to an [n_lat x n_lon] matrix, then
+#' expanded; masked (null/NA) pixels are dropped.
+#'
+#' @param response Parsed grid response (from try_api_grid_call()).
+#' @return data.frame with columns lat, lon, value (non-NA pixels only).
+parse_grid_response <- function(response) {
+  grid <- response$grid
+  lats <- as.numeric(grid$lats)
+  lons <- as.numeric(grid$lons)
+  vals <- grid$values
+
+  to_num_row <- function(r) {
+    r[vapply(r, is.null, logical(1))] <- NA
+    as.numeric(unlist(r))
+  }
+  if (is.matrix(vals)) {
+    m <- matrix(as.numeric(vals), nrow = nrow(vals), ncol = ncol(vals))
+  } else {
+    m <- do.call(rbind, lapply(vals, to_num_row))
+  }
+  # m[i, j] = value at lat i, lon j
+  if (is.null(m) || length(m) == 0L) {
+    return(data.frame(lat = numeric(0), lon = numeric(0), value = numeric(0)))
+  }
+
+  idx <- expand.grid(lat_idx = seq_along(lats), lon_idx = seq_along(lons))
+  df <- data.frame(
+    lat   = lats[idx$lat_idx],
+    lon   = lons[idx$lon_idx],
+    value = m[cbind(idx$lat_idx, idx$lon_idx)]
+  )
+  df[!is.na(df$value), , drop = FALSE]
+}
+
+#' Total AoI area (km^2) from the API geometry endpoint (its top-level
+#' `area_km2`). NULL if the API is unavailable. Used to turn burned-area km²
+#' into a percentage-of-study-area for the BA facet labels.
+get_aoi_area_km2 <- function(aoi, timeout_secs = API_TIMEOUT_SECS) {
+  tryCatch({
+    resp <- httr::GET(paste0(API_BASE_URL, "/api/v1/geometry/aoi"),
+                      query = list(aoi = aoi), httr::timeout(timeout_secs))
+    if (httr::status_code(resp) != 200) return(NULL)
+    parsed <- jsonlite::fromJSON(httr::content(resp, "text", encoding = "UTF-8"),
+                                 flatten = FALSE)
+    a <- suppressWarnings(as.numeric(parsed$area_km2))
+    if (length(a) == 0L || is.na(a) || a <= 0) NULL else a
+  }, error = function(e) NULL)
+}
+
+# Remove land_cover classes that have NO valid (non-NA) mean_ndvi across all
+# rows.  At coarse resolutions tiny classes (e.g. Flooded_vegetation < 0.1 km²)
+# contain no raster pixels, producing all-NA mean_ndvi.  plot_anomaly_resilience
+# crashes when which.min() receives an all-NA vector, so we drop these classes
+# before the data reaches any plot function.
+.drop_empty_lc_classes <- function(df) {
+  if (is.null(df) || nrow(df) == 0) return(df)
+  valid_lc <- unique(df$land_cover[!is.na(df$mean_ndvi)])
+  df[df$land_cover %in% valid_lc, , drop = FALSE]
+}
+
 # get system language from locale (Windows)
 get_sys_language <- function(OS) {
   default_locale <- Sys.getlocale("LC_CTYPE")

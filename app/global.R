@@ -22,11 +22,15 @@ library(tidyr)
 library(trend)
 library(plotly)
 library(htmlwidgets)
+library(arrow)
+library(httr)
+library(commonmark)
 
 # load functions specific for this app
 source("src/utilities.R")
 source("src/visualization.R")
 source("src/generate_plots.R")
+source("src/agent_renderers.R")
 
 # as part of future package we need to define where the future is executed,
 # multisession means we are launching background R processes on the same machine
@@ -55,6 +59,12 @@ cache_dir <- file.path("www/.cache")
 # Set test folder structure (uncomment when working locally with a different folder structure)
 #test_dir <- file.path("www/data")
 #data_dir <- test_dir
+
+# --- API (hot path) configuration --------------------------------------------
+# Set NDVI_API_URL to point at the FastAPI server. Defaults to localhost so the
+# hot path is attempted by default; on timeout the app falls back to Parquet.
+API_BASE_URL     <- Sys.getenv("NDVI_API_URL", unset = "http://localhost:8000")
+API_TIMEOUT_SECS <- 2   # hard requirement — do not increase
 
 # --- Multilingual setup -------------------------------------------------------
 i18n <- Translator$new(translation_json_path = "translations.json")
