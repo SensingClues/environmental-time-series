@@ -1,35 +1,55 @@
 # Environmental Time Series Analysis
 
-A [Shiny](https://shiny.posit.co/) web application by [Sensing Clues](https://www.sensingclues.org) for exploring and visualizing environmental remote sensing time series data, including NDVI (vegetation) and Burned Area analyses across multiple conservation project areas.
+<!-- TODO: replace the "#" in the Data API badge below with the deployed Data API URL once it is live -->
+[![Shiny App – Production](https://img.shields.io/badge/Shiny_App-Production-2E7D32?logo=r&logoColor=white)](https://analytical.sensingclues.org/environmentaltimeseries/)
+[![Shiny App – Test](https://img.shields.io/badge/Shiny_App-Test-F57C00?logo=r&logoColor=white)](https://analytical.sensingclues.org/test/environmentaltimeseries/)
+[![Data API – coming soon](https://img.shields.io/badge/Data_API-coming_soon-9E9E9E?logo=fastapi&logoColor=white)](#)
+
+A [Shiny](https://shiny.posit.co/) web application by [Sensing Clues](https://www.sensingclues.org) for exploring and visualizing environmental remote sensing time series data, including NDVI (vegetation), Burned Area, and land cover analyses across multiple conservation project areas. The app pairs interactive explorers with an AI Assistant that can answer questions and generate charts, tables, and maps on demand.
 
 ## Features
 
 ### NDVI Explorer
 
--   **Time Series** — Plot multi-year NDVI trends for a selected project area and spatial resolution.
--   **Land Cover Explorer** — Visualize NDVI trends broken down by land cover type (crops, rangeland, water, trees, flooded vegetation, built area, bare ground), alongside an interactive land use/land cover map.
--   **Delta Map** — Generate static and interactive maps showing NDVI change (delta) for a selected month and year.
+-   **Time Series** — Two views: a **Monthly view** showing the seasonal NDVI pattern with a historical range band, a vegetation-health summary card, and statistical trend cards (Wilcoxon signed-rank and Seasonal Mann–Kendall); and an **Annual view** showing the year-by-year long-term trend.
+-   **Land Cover Explorer** — NDVI trends broken down by land cover type (crops, rangeland, water, trees, flooded vegetation, built area, bare ground), alongside an interactive land use/land cover map.
+-   **Delta Map** — A **Monthly view** showing NDVI change against the same month in previous years, and an **Annual change view** comparing the average vegetation health between two selected years across the landscape.
 
 ### Burned Area Explorer
 
--   **Time Series** — Plot burned area trends over time for a selected project area.
--   **Map Explorer** — Generate static burned area maps and interactive maps for a specific month and year, with GeoJSON export functionality.
+-   **Time Series** — A **Seasonal Overview** of monthly burned area against a historical range band, and a **Daily Activity** view showing day-level fire detections across the fire season for one or more years.
+-   **Map Explorer** — A **Monthly view** (where fires occurred, with an interactive Leaflet map and GeoJSON export), an **Annual view** (cumulative burn across a full year), and a **Fire Return Period** view (how often each area tends to burn).
+
+### Scenario Explorer
+
+-   **Land Cover Productivity** — Compares productivity and year-to-year stability across land cover classes.
+-   **Agricultural Monitoring** — Tracks NDVI for crops and rangeland.
+-   **Anomaly Resilience** — Examines how vegetation responded during an anomalous year.
+
+### AI Assistant
+
+-   Ask questions in natural language about vegetation trends, fire patterns, and land cover changes.
+-   Multi-provider LLM backend (Anthropic Claude or OpenAI GPT), selectable in the settings panel.
+-   A tool-calling agent that queries the Data API and renders results inline as **Plotly charts, tables, interactive Leaflet maps, and side-by-side comparison images**.
+-   Responses render Markdown and LaTeX (via MathJax).
+-   Uses a server-configured API key when available, or a user-provided key entered in the UI (kept for the session only, never stored).
 
 ### General
 
 -   Interactive map showing the selected Area of Interest (AoI).
+-   Multilingual UI (English, Dutch, French).
 -   Figures are cached after first generation to speed up repeated requests.
 -   Multiple satellite data sources and spatial resolutions supported.
 
 ## Supported Project Areas
 
-| Area           | Country  | Available in         |
-|----------------|----------|----------------------|
-| Mponda         | Zambia   | NDVI Explorer        |
-| Ancares Courel | Spain    | NDVI Explorer        |
-| Stara Planina  | Bulgaria | NDVI Explorer        |
-| Kasigau        | Kenya    | NDVI Explorer        |
-| West Lunga     | Zambia   | Burned Area Explorer |
+| Area           | Country  | Available in                                  |
+|----------------|----------|-----------------------------------------------|
+| Mponda         | Zambia   | NDVI Explorer, Scenario Explorer, Burned Area |
+| West Lunga     | Zambia   | NDVI Explorer, Scenario Explorer, Burned Area |
+| Ancares Courel | Spain    | NDVI Explorer, Scenario Explorer              |
+| Stara Planina  | Bulgaria | NDVI Explorer, Scenario Explorer              |
+| Kasigau        | Kenya    | NDVI Explorer, Scenario Explorer              |
 
 ## Data Sources & Resolutions
 
@@ -40,27 +60,40 @@ A [Shiny](https://shiny.posit.co/) web application by [Sensing Clues](https://ww
 
 Data is available from 2015 onwards.
 
+## Data Access (hot/warm/cold)
+
+The app resolves data through a three-tier fallback so it stays responsive even if a tier is unavailable:
+
+1.  **Hot path — Data API.** A companion FastAPI service serves on-demand time series, grids, and geometry. Configured via the `NDVI_API_URL` environment variable (defaults to `http://localhost:8000`) with a hard 2-second timeout.
+2.  **Warm path — Parquet.** Pre-computed summaries read from local Parquet files.
+3.  **Cold path — Raster.** Raw raster (TIF) files read and processed directly.
+
+If the Data API is unreachable, the app silently falls back to the warm and then cold paths, so all explorers continue to work against local data. The AI Assistant requires the Data API (hot path).
+
 ## Project Structure
 
-```         
+```
 app/
-├── app.R                  # Entry point
-├── global.R               # Library loading and global variables
-├── server.R               # Shiny server logic
-├── ui.R                   # Top-level UI definition
+├── app.R                     # Entry point
+├── global.R                  # Library loading, global variables, and API/data config
+├── server.R                  # Shiny server logic
+├── ui.R                      # Top-level UI definition
 ├── ui/
-│   ├── mod_header_ui.R    # Header module
-│   ├── mod_sidebar_ui.R   # Sidebar controls module
-│   └── mod_body_ui.R      # Main body/tab content module
+│   ├── mod_header_ui.R       # Header module
+│   ├── mod_sidebar_ui.R      # Sidebar controls module
+│   ├── mod_body_ui.R         # Main body/tab content module
+│   └── mod_busy_spinner_ui.R # Busy-spinner module
 ├── src/
-│   ├── utilities.R        # Helper functions
-│   ├── visualization.R    # Visualization utilities
-│   └── generate_plots.R   # Plot generation functions
-├── translations.json      # UI translation strings (EN/NL/FR)
-├── DESCRIPTION            # R package dependencies (deprecated)
+│   ├── utilities.R           # Helper functions (incl. API/geometry helpers)
+│   ├── visualization.R       # Visualization utilities and hot-path builders
+│   ├── generate_plots.R      # Plot generation functions
+│   ├── scenario_analysis.R   # Scenario Explorer analyses
+│   └── agent_renderers.R     # Renders AI Assistant charts/tables/maps/images
+├── translations.json         # UI translation strings (EN/NL/FR)
+├── DESCRIPTION               # R package dependencies (deprecated)
 └── www/
-    ├── figures/           # Cached generated figures
-    └── style.css          # Custom app styling
+    ├── figures/              # Cached generated figures
+    └── style.css             # Custom app styling
 ```
 
 ## Installation & Running
@@ -72,11 +105,11 @@ app/
 
 ``` r
 install.packages(c(
-  "dplyr", "future", "ggplot2", "ipc", "jsonlite",
-  "leaflet", "leaflet.extras", "lubridate", "promises",
-  "raster", "shiny", "shinybusy", "shiny.i18n", "shinyjs",
-  "shinyTree", "shinyWidgets", "sf", "terra", "tidyr",
-  "trend", "plotly", "htmlwidgets", "devtools"
+  "dplyr", "future", "ggplot2", "htmltools", "ipc", "jsonlite",
+  "leaflet", "leaflet.extras2", "lubridate", "promises", "raster",
+  "RColorBrewer", "shiny", "shinybusy", "shiny.i18n", "shinyjs",
+  "shinyTree", "shinyWidgets", "sf", "terra", "tidyr", "trend",
+  "plotly", "htmlwidgets", "arrow", "httr", "commonmark", "devtools"
 ))
 ```
 
@@ -95,11 +128,29 @@ shiny::runApp("app")
 
 Or open `app.R` in RStudio and click **Run App**.
 
+### Configure the Data API and AI Assistant
+
+The hot path and the AI Assistant talk to the companion Data API. Point the app at a running instance via an environment variable (otherwise it defaults to `http://localhost:8000` and silently falls back to local data):
+
+``` r
+# In R, before launching the app, or in .Renviron
+Sys.setenv(NDVI_API_URL = "https://your-data-api-host")
+```
+
+The AI Assistant needs an LLM API key. Either configure a server-side key as an environment variable on the Data API host:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+```
+
+…or leave them unset and let each user paste their own key into the Assistant settings panel (used for that session only, never stored).
+
 ### Data Setup
 
 The app reads input data from a folder with the following structure:
 
-```         
+```
 <data_dir>/
 ├── AoI/
 │   └── AoI_<project_area>.geojson  # Area of Interest boundaries
