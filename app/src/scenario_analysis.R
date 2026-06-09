@@ -305,7 +305,7 @@ plot_productivity_comparison <- function(df, selected_year, compare_year = NULL)
     `Historical Min`    = round(stats_df$hist_min,    3),
     `Historical Max`    = round(stats_df$hist_max,    3),
     `Year-to-Year CV <span title="SD ÷ mean of each class’s annual NDVI across all available years — lower means more consistent year to year." style="cursor:help;color:#888;font-size:0.85em;">ⓘ</span>` = round(stats_df$cv, 3),
-    `Interpretation`    = stats_df$interpretation,
+    `Interpretation <span title="Each label is based on two things: (1) the land cover type, and (2) how much NDVI varies from year to year (CV). The same level of variability means something different depending on the land cover — for example, high variability in flooded areas reflects seasonal water levels (not vegetation damage), while high variability in crops or trees may signal stress. Built Area and Water always show a fixed label because NDVI is not a useful vegetation measure for those classes." style="cursor:help;color:#888;font-size:0.85em;">ⓘ</span>` = stats_df$interpretation,
     check.names = FALSE, stringsAsFactors = FALSE
   )
 
@@ -581,16 +581,17 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
 
   years_available <- sort(unique(all_df$year))
 
-  # legendrank controls order: avg(1) → years(100+) → phenology(200+)
-  # Each year has its own unique legendgroup so it toggles individually.
-  # Section headers come from legendgrouptitle on the first trace of each section.
-  marker_meta <- list(
-    "Green-up"   = list(rank = 200L, group_title = "Phenology"),
-    "Peak"       = list(rank = 201L, group_title = NULL),
-    "Senescence" = list(rank = 202L, group_title = NULL)
+  # Legend layout: avg(rank 1) → phenology symbol keys(rank 200-202) → years(rank 100+).
+  # Each year's line AND its phenology markers share the same legendgroup ("yr_<year>"),
+  # so toggling a year in the legend shows/hides both the line and all its markers together.
+  # The three symbol-key traces (Green-up / Peak / Senescence) are empty reference entries
+  # that explain the marker shapes; they live in their own legendgroup so they stay visible.
+  symbol_keys <- list(
+    list(label = "Green-up",   color = "#43A047", base_sym = "triangle-up",   rank = 200L, group_title = "Phenology"),
+    list(label = "Peak",       color = "#1565C0", base_sym = "star",          rank = 201L, group_title = NULL),
+    list(label = "Senescence", color = "#E65100", base_sym = "triangle-down", rank = 202L, group_title = NULL)
   )
 
-  shown_in_legend <- character(0)
   p <- plotly::plot_ly()
 
   p <- plotly::add_lines(
@@ -603,19 +604,34 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
     hovertemplate = paste0(selected_class, " avg: %{y:.3f}<extra></extra>")
   )
 
+  # Symbol-key traces — one NA point each, invisible on chart but shows in legend to explain marker shapes.
+  for (sk in symbol_keys) {
+    p <- plotly::add_markers(
+      p,
+      x = NA_real_, y = NA_real_,
+      name             = sk$label,
+      legendgroup      = paste0("sym_", sk$label),
+      legendgrouptitle = if (!is.null(sk$group_title)) list(text = sk$group_title) else NULL,
+      legendrank       = sk$rank,
+      showlegend       = TRUE,
+      marker           = list(symbol = sk$base_sym, color = sk$color, size = 10, opacity = 1),
+      hovertemplate    = "<extra></extra>"
+    )
+  }
+
   for (i in seq_along(years_available)) {
     yr    <- years_available[i]
     df_yr <- dplyr::arrange(all_df[all_df$year == yr, ], month)
     ph    <- pheno_df[pheno_df$year == yr, ]
+    yr_group <- paste0("yr_", yr)
 
-    # Each year gets unique legendgroup → individually toggleable.
-    # "Year" section header only on first year.
+    # Year line — the legend entry for this group.
     p <- plotly::add_lines(
       p,
       x = df_yr$month, y = df_yr$mean_ndvi,
       name             = as.character(yr),
       legendrank       = 100L + i,
-      legendgroup      = paste0("yr_", yr),
+      legendgroup      = yr_group,
       legendgrouptitle = if (i == 1L) list(text = "Year") else NULL,
       hovertemplate    = paste0(
         "<b>", yr, "</b><br>Month: %{x}<br>", selected_class, " NDVI: %{y:.3f}<extra></extra>"
@@ -660,27 +676,23 @@ plot_agricultural_monitoring <- function(df, selected_class = "Crops") {
       )
     )
 
+    # Markers share yr_group → toggling the year legend item hides/shows markers too.
     for (mk in marker_defs) {
       if (is.na(mk$month) || mk$conf == "Not detected") next
       ms <- .conf_marker_style(mk$conf, mk$base_sym)
       if (is.null(ms)) next
       ndvi_val <- df_yr$mean_ndvi[df_yr$month == mk$month]
       if (length(ndvi_val) == 0L) next
-      meta        <- marker_meta[[mk$label]]
-      first_shown <- !(mk$label %in% shown_in_legend)
       p <- plotly::add_markers(
         p, x = mk$month, y = ndvi_val[1L],
-        name             = mk$label,
-        legendgroup      = mk$label,
-        legendgrouptitle = if (first_shown) meta$group_title else NULL,
-        legendrank       = meta$rank,
-        showlegend       = first_shown,
-        marker           = list(size = ms$size, color = mk$color,
-                                symbol = ms$symbol, opacity = ms$opacity),
-        hovertemplate    = paste0("<b>", yr, " ", mk$label, "</b><br>",
-                                  gsub("\n", "<br>", mk$tip), "<extra></extra>")
+        name          = paste0(yr, " ", mk$label),
+        legendgroup   = yr_group,
+        showlegend    = FALSE,
+        marker        = list(size = ms$size, color = mk$color,
+                             symbol = ms$symbol, opacity = ms$opacity),
+        hovertemplate = paste0("<b>", yr, " ", mk$label, "</b><br>",
+                               gsub("\n", "<br>", mk$tip), "<extra></extra>")
       )
-      if (first_shown) shown_in_legend <- c(shown_in_legend, mk$label)
     }
   }
 

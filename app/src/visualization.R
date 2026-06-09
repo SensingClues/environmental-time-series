@@ -751,12 +751,19 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
     if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
   }
 
+  train_year_min <- if (nrow(train_monthly) > 0) min(lubridate::year(train_monthly$YearMonth)) else NA_integer_
+  train_year_max <- if (nrow(train_monthly) > 0) max(lubridate::year(train_monthly$YearMonth)) else NA_integer_
+  test_year      <- if (nrow(test_monthly)  > 0) lubridate::year(test_monthly$YearMonth[1])   else NA_integer_
+
   list(
     wilcox_p = wilcox_p,
     wilcox_median = wilcox_median,
     smk_p = smk_p,
     sen_slope = sen_slope,
-    smk_n_months = smk_n_months
+    smk_n_months = smk_n_months,
+    train_year_min = train_year_min,
+    train_year_max = train_year_max,
+    test_year = test_year
   )
 }
 

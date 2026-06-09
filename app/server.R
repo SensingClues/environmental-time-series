@@ -796,40 +796,58 @@ server <- function(input, output, session) {
     if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
     if (identical(s$view, "annual")) return(NULL)
 
-    # Determine status from long-term trend and current-year condition.
-    status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05 &&
-                  !is.null(s$sen_slope) && !is.na(s$sen_slope) && s$sen_slope < 0) {
-      "Degrading"
-    } else if (!is.null(s$wilcox_p) && !is.na(s$wilcox_p) && s$wilcox_p < 0.05 &&
-               !is.null(s$wilcox_median) && !is.na(s$wilcox_median) && s$wilcox_median < 0) {
-      "Mild stress"
+    # Monthly view status is based entirely on Wilcoxon test:
+    # selected year's monthly NDVI anomalies vs historical monthly average.
+    wilcox_p   <- if (!is.null(s$wilcox_p))      s$wilcox_p      else NA_real_
+    wilcox_med <- if (!is.null(s$wilcox_median))  s$wilcox_median else NA_real_
+
+    status <- if (is.na(wilcox_p)) {
+      "Insufficient data"
+    } else if (wilcox_p < 0.05 && !is.na(wilcox_med) && wilcox_med > 0) {
+      "Above normal"
+    } else if (wilcox_p < 0.05 && !is.na(wilcox_med) && wilcox_med < 0) {
+      "Below normal"
     } else {
-      "Stable"
+      "Within normal range"
     }
+
     status_color <- switch(status,
-      "Stable" = "#4CAF50",
-      "Mild stress" = "#FFC107",
-      "Degrading" = "#F44336",
+      "Above normal"       = "#009E73",
+      "Below normal"       = "#D55E00",
+      "Within normal range" = "#4CAF50",
       "#9E9E9E"
     )
+
+    train_min <- if (!is.null(s$train_year_min)) s$train_year_min else NA_integer_
+    train_max <- if (!is.null(s$train_year_max)) s$train_year_max else NA_integer_
+    test_yr   <- if (!is.null(s$test_year))      s$test_year      else NA_integer_
+    hist_label <- if (!is.na(train_min) && !is.na(train_max)) sprintf("%d–%d", train_min, train_max) else "historical"
+    yr_label   <- if (!is.na(test_yr)) as.character(test_yr) else "this year"
+
     status_explanation <- switch(status,
-      "Stable" = "No significant change detected compared to historical data.",
-      "Mild stress" = "Vegetation health is below its usual range this year.",
-      "Degrading" = "Long-term vegetation health is declining compared to historical data.",
-      "No significant change detected compared to historical data."
+      "Above normal"       = paste0("Monthly vegetation health in ", yr_label,
+                                    " is significantly above the ", hist_label, " historical average."),
+      "Below normal"       = paste0("Monthly vegetation health in ", yr_label,
+                                    " is significantly below the ", hist_label, " historical average."),
+      "Within normal range" = paste0("Monthly vegetation health in ", yr_label,
+                                     " is within the expected range of the ", hist_label, " historical average."),
+      "Not enough monthly data to compare against the historical baseline."
     )
 
-    # Data coverage from available files
-    years_avail <- get_available_years(data_dir, "NDVI", input$country, input$resolution)
-    res_label   <- dplyr::case_when(
+    # Source label
+    res_label <- dplyr::case_when(
       grepl("Sentinel", input$resolution) ~ "Sentinel-2",
       grepl("MODIS",    input$resolution) ~ "MODIS",
       TRUE                                ~ "satellite"
     )
-    coverage <- if (length(years_avail) > 0) {
-      sprintf("Based on %s data from %d to %d", res_label, min(years_avail), max(years_avail))
+
+    # Analysis period: what year is shown vs what baseline was used
+    has_year_range <- !is.na(test_yr) && !is.na(train_min) && !is.na(train_max)
+    analysis_period <- if (has_year_range) {
+      sprintf("%d (%s), compared against %d–%d baseline (%d years)",
+              test_yr, res_label, train_min, train_max, train_max - train_min + 1L)
     } else {
-      "Based on available data"
+      sprintf("%s data", res_label)
     }
 
     # MODIS recommendation when Sentinel-2 is selected
@@ -839,7 +857,7 @@ server <- function(input, output, session) {
       if (length(modis_years) >= 2L) {
         sprintf("Switch to MODIS for a longer-term perspective covering %d–%d.",
                 min(modis_years), max(modis_years))
-      } else ndvi_error_ui(error_msg)
+      } else NULL
     } else NULL
 
     div(
@@ -848,20 +866,25 @@ server <- function(input, output, session) {
         "; padding:12px; margin-bottom:16px; border-radius:4px;"
       ),
       fluidRow(
-        column(4,
-          tags$strong("Overall status:"), tags$br(),
+        column(5,
+          tags$strong(paste0("Vegetation status in ", yr_label, ":")), tags$br(),
           tags$span(
             style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"),
             tags$span(class = "ndvi-status-dot", style = paste0("background:", status_color, ";")),
             status
           ),
           tags$br(),
-          tags$span(style = "font-size:0.92em; color:#333;", status_explanation)
+          tags$span(style = "font-size:0.85em; color:#444;", status_explanation),
+          tags$br(),
+          tags$span(
+            style = "font-size:0.80em; color:#666; font-style:italic; margin-top:4px; display:inline-block;",
+            if (!is.na(wilcox_p)) paste0("Wilcoxon test, p = ", format(round(wilcox_p, 3), nsmall = 3)) else "p-value: N/A"
+          )
         ),
-        column(8,
-          tags$strong("Data coverage:"), tags$br(),
-          tags$span(coverage),
-          if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
+        column(7,
+          tags$strong("Analysis period:"), tags$br(),
+          tags$span(style = "font-size:0.92em;", analysis_period),
+          if (!is.null(recommendation)) tagList(tags$br(), tags$em(style = "font-size:0.85em; color:#555;", recommendation)) else NULL
         )
       )
     )
