@@ -495,8 +495,7 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       center = cz$center,
       zoom = cz$zoom
     ),
-    margin = list(l = 4, r = 4, t = 24, b = 4),
-    title = list(text = "Land cover", font = list(size = 12), y = 0.98, yref = "paper")
+    margin = list(l = 4, r = 4, t = 24, b = 4)
   )
   list(p = p, bbox_by_stem = bbox_by_stem)
 }
@@ -523,8 +522,8 @@ plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
     p_ts,
     mp$p,
     nrows = 1,
-    widths = c(0.5, 0.5),
-    margin = 0.06,
+    widths = c(0.7, 0.3),
+    margin = 0.04,
     titleY = TRUE
   )
   out <- out %>%
@@ -982,7 +981,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, land_co
   }
 
   ndvi_anomaly_y_axis <- list(
-    title = "NDVI Anomaly", zeroline = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
+    title = "NDVI Deviation", zeroline = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
     showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"
   )
   if (!is.null(rng_anom)) {
@@ -1519,6 +1518,8 @@ plot_ba_daily_activity <- function(daily_data, selected_years) {
         )
     } else {
       ydata <- dplyr::arrange(ydata, date)
+      ydata$date_overlay <- as.Date(
+        paste0("2000-", format(ydata$date, "%m-%d")))
       r_val <- strtoi(substr(col, 2, 3), 16L)
       g_val <- strtoi(substr(col, 4, 5), 16L)
       b_val <- strtoi(substr(col, 6, 7), 16L)
@@ -1526,12 +1527,13 @@ plot_ba_daily_activity <- function(daily_data, selected_years) {
       p <- p %>%
         plotly::add_lines(
           data          = ydata,
-          x             = ~date, y = ~km2,
+          x             = ~date_overlay, y = ~km2,
+          customdata    = ~date,
           name          = yr,
           line          = list(color = col, width = 2.5),
           fill          = "tozeroy",
           fillcolor     = fill_col,
-          hovertemplate = paste0("%{x|%d %B %Y} — %{y:.2f} km² burned<extra>", yr, "</extra>")
+          hovertemplate = paste0("%{customdata|%d %B %Y} — %{y:.2f} km² burned<extra>", yr, "</extra>")
         )
     }
   }
@@ -1598,7 +1600,7 @@ plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
 
 # Function to plot 2D maps for a specific month over several years
 plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
-                           plot_width = 15, plot_height = 8,
+                           plot_width = 20, plot_height = 10,
                            zlim_range = c(-0.7, 0.7), ncol = 6,
                            save_path = NULL, filename = "NDVI_maps.png") {
   # Set plot size

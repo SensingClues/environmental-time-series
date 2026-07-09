@@ -612,7 +612,7 @@ server <- function(input, output, session) {
         class = "image-fill top-center ndvi-ts-plot-stack",
         ndvi_anomaly_titles_ui(input$resolution, land_cover_class = input$ndvi_ts_lc_class,
                                view = ndvi_ts_view_rv()),
-        plotlyOutput("ndvi_ts_plot_output", height = "550px"),
+        plotlyOutput("ndvi_ts_plot_output", height = "60vh"),
         height = "auto"
       )
     } else {
@@ -703,10 +703,10 @@ server <- function(input, output, session) {
       "#9E9E9E"
     )
     status_explanation <- switch(status,
-      "Stable" = "No significant change detected compared to historical data.",
+      "Stable" = "No significant change compared to historical data.",
       "Mild stress" = "Vegetation health is below its usual range this year.",
       "Degrading" = "Long-term vegetation health is declining compared to historical data.",
-      "No significant change detected compared to historical data."
+      "No significant change compared to historical data."
     )
 
     # Data coverage from available files
@@ -738,7 +738,7 @@ server <- function(input, output, session) {
         "; padding:12px; margin-bottom:16px; border-radius:4px;"
       ),
       fluidRow(
-        column(4,
+        column(6,
           tags$strong("Overall status:"), tags$br(),
           tags$span(
             style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"),
@@ -748,7 +748,7 @@ server <- function(input, output, session) {
           tags$br(),
           tags$span(style = "font-size:0.92em; color:#333;", status_explanation)
         ),
-        column(8,
+        column(6,
           tags$strong("Data coverage:"), tags$br(),
           tags$span(coverage),
           if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
@@ -823,7 +823,7 @@ server <- function(input, output, session) {
         "; padding:12px; margin-bottom:16px; border-radius:4px;"
       ),
       fluidRow(
-        column(4,
+        column(6,
           tags$strong("Overall trend:"), tags$br(),
           tags$span(
             style = paste0("font-size:1.2em; color:", trend_color, "; font-weight:bold;"),
@@ -835,7 +835,7 @@ server <- function(input, output, session) {
           tags$br(),
           tags$span(style = "font-size:0.85em; color:#666;", slope_label)
         ),
-        column(8,
+        column(6,
           tags$strong("Data coverage:"), tags$br(),
           tags$span(coverage),
           if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
@@ -965,7 +965,7 @@ server <- function(input, output, session) {
                div(
                  class = "image-fill top-center ndvi-ts-plot-stack",
                  ndvi_landcover_titles_ui(input$resolution, year = lc_plot_year()),
-                 plotlyOutput("lc_ndvi_plot_output", height = "1050px"),
+                 plotlyOutput("lc_ndvi_plot_output", height = "60vh"),
                  height = "auto"
                ))
       )
@@ -1148,9 +1148,9 @@ server <- function(input, output, session) {
       return(p("Not enough years available for annual comparison."))
     }
     tagList(
-      selectInput("ndvi_annual_year_a", "Baseline year",
+      selectInput("ndvi_annual_year_a", "Select baseline year",
                   choices = years, selected = min(years)),
-      selectInput("ndvi_annual_year_b", "Comparison year",
+      selectInput("ndvi_annual_year_b", "Select comparison year",
                   choices = years, selected = max(years))
     )
   })
@@ -1196,9 +1196,9 @@ server <- function(input, output, session) {
     if (view == "monthly") {
       if (is.null(error_msg) && isTRUE(ndvi_dm_ready())) {
         fluidRow(
-          column(8, div(class = "image-fill top-center",
-                        imageOutput("ndvi_histmap_output"), height = "100%")),
-          column(4, htmlOutput("ndvi_delta_map_output"))
+          column(7, div(class = "image-fill top-center",
+                        imageOutput("ndvi_histmap_output"), height = "60vh")),
+          column(5, htmlOutput("ndvi_delta_map_output"), height = "60vh")
         )
       } else ndvi_error_ui(error_msg)
     } else {
@@ -1213,33 +1213,31 @@ server <- function(input, output, session) {
         gain_pct_label <- if (!is.na(gain_pct)) paste0(" (", gain_pct, "% of study area)") else ""
         loss_pct_label <- if (!is.na(loss_pct)) paste0(" (", loss_pct, "% of study area)") else ""
         interpretation <- if (net_gain) {
-          paste0("Most of the study area had higher average vegetation health in ", res$year_b,
-                 " compared to ", res$year_a,
-                 ". This may reflect a wetter than usual year, vegetation recovery, or land management changes.")
+          paste0("Most of the study area had higher average NDVI in ", res$year_b,
+                 " compared to ", res$year_a, ".")
         } else {
-          paste0("Most of the study area had lower average vegetation health in ", res$year_b,
-                 " compared to ", res$year_a,
-                 ". This may reflect a drier than usual year or ongoing land cover change.")
+          paste0("Most of the study area had lower average NDVI in ", res$year_b,
+                 " compared to ", res$year_a, ".")
         }
-        tagList(
-          div(
-            style = "background: #E8F5E922; border-left: 4px solid #1D9E75; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
-            tags$strong("Annual Change Summary"), tags$br(),
-            tags$span(style = paste0("font-weight:700; color:", net_color, ";"), net_dir),
-            tags$br(),
-            tags$span(style = "display:none;", sprintf(
-              "Between %s and %s: %.1f km² showed vegetation gain and %.1f km² showed vegetation loss — %s.",
-              res$year_a, res$year_b, res$pos_km2, res$neg_km2, net_dir
-            )),
-            tags$br(),
-            tags$span(sprintf(
-              "Vegetation gain: %.1f km2%s. Vegetation loss: %.1f km2%s.",
-              res$pos_km2, gain_pct_label, res$neg_km2, loss_pct_label
-            )),
-            tags$br(),
-            tags$span(interpretation)
-          ),
-          leafletOutput("ndvi_annual_leaflet_output", height = "500px")
+        fluidRow(
+          column(3, tagList(
+            div(
+              style = "background: #E8F5E922; border-left: 4px solid #1D9E75; padding: 12px; margin-bottom: 12px; border-radius: 4px;",
+              tags$strong("Annual Change Summary"), tags$br(),
+              tags$span(style = paste0("font-weight:700; color:", net_color, ";"), net_dir),
+              tags$span(style = "display:none;", sprintf(
+                "Between %s and %s: %.1f km² showed higher NDVI and %.1f km² showed lower NDVI — %s.",
+                res$year_a, res$year_b, res$pos_km2, res$neg_km2, net_dir
+              )),
+              tags$br(),
+              tags$span(sprintf(
+                "Higher NDVI: %.1f km2%s. Lower NDVI: %.1f km2%s.",
+                res$pos_km2, gain_pct_label, res$neg_km2, loss_pct_label
+              )),
+              tags$br(),
+              tags$span(interpretation)
+            ))),
+          column(9, leafletOutput("ndvi_annual_leaflet_output", height = "60vh"))
         )
       } else ndvi_error_ui(error_msg)
     }
@@ -1282,7 +1280,8 @@ server <- function(input, output, session) {
       }
       output$ndvi_histmap_output <- renderImage({
         list(src = figure_path, 
-             alt = "NDVI 2D map")
+             alt = "NDVI 2D map",
+             height = "100%")
       }, deleteFile = FALSE)
     
     }, error = function(e) {
@@ -1317,7 +1316,7 @@ server <- function(input, output, session) {
       output$ndvi_delta_map_output <- renderUI({
         tags$iframe(src = paste0("figures/", figure_filename_dm), 
                     width = "100%", 
-                    height = "500px", 
+                    height = "450px", 
                     frameborder = 0)
       })
       
@@ -1389,9 +1388,9 @@ server <- function(input, output, session) {
       data_type     = "BurnedArea",
       country_name  = country_name,
       resolution    = resolution,
-      decreasing    = TRUE
+      decreasing    = FALSE
     )
-    default_sel <- head(as.character(available_years), 3)
+    default_sel <- tail(as.character(available_years), 3)
     selectInput("ba_daily_years", "Select years to compare",
                 choices  = as.character(available_years),
                 selected = default_sel,
@@ -1526,7 +1525,16 @@ server <- function(input, output, session) {
   output$ba_map_container <- renderUI({
     error_msg <- error_message_rv()
     if (is.null(error_msg) && isTRUE(ba_map_ready())) {
-      div(class = "image-fill top-center", imageOutput("ba_map_output"), height = "auto")
+        div(
+          style = "
+          width: 100%;
+          overflow: hidden;
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+          ",
+          imageOutput("ba_map_output")
+        )
     } else {
       return(NULL)
     }
@@ -1574,7 +1582,7 @@ server <- function(input, output, session) {
       }
       output$ba_map_output <- renderImage({
         list(src = figure_path_bam,
-             width = "100%",
+             height = "100%",
              alt = "Burned Area 2D map")
       }, deleteFile = FALSE)
       

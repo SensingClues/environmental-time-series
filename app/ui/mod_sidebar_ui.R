@@ -54,7 +54,8 @@ mod_sidebar_ui <- function(id) {
         conditionalPanel(
           condition = "!(
             (input.tabs == 'ScenarioExplorerTab' && (input.scenariosubtabs == 'ScenarioAgriculturalMonitoring' || input.scenariosubtabs == 'ScenarioAnomalyResilience')) ||
-            (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab' && input.ndvi_ts_view == 'annual')
+            (input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab' && input.ndvi_ts_view == 'annual') || (input.ndvisubtabs == 'NDVIdeltaTab' && input.ndvi_delta_view == 'annual') || 
+            (input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'daily')
           )",
           selectInput("year", "Select year", selected = NULL, choices = NULL)
         ),
@@ -121,7 +122,7 @@ mod_sidebar_ui <- function(id) {
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'daily'",
                      div(
                        uiOutput("ba_daily_year_selector"),
-                       sliderInput("ba_season_months", "Fire season (months)",
+                       sliderInput("ba_season_months", "Select fire season (months)",
                                    min = 1, max = 12, value = c(6, 11), step = 1),
                        actionButton("generate_ba_daily_figures", "Generate Figure", class = "action_button")
                      )
