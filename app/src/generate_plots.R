@@ -313,7 +313,7 @@ generate_2Dmap <- function(country_name = NULL, resolution = NULL,
                                plot_width = 15, 
                                plot_height = 8,
                                zlim_range = c(-0.7, 0.7), 
-                               ncol = dim(train_files_df)[1] + 1,
+                               ncol = 2,
                                save_path = figures_dir,
                                filename = figure_filename
     )

@@ -1391,7 +1391,8 @@ server <- function(input, output, session) {
       decreasing    = FALSE
     )
     default_sel <- tail(as.character(available_years), 3)
-    selectInput("ba_daily_years", "Select years to compare",
+    pickerInput("ba_daily_years", 
+                "Select years to compare",
                 choices  = as.character(available_years),
                 selected = default_sel,
                 multiple = TRUE)

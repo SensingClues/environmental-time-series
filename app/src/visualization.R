@@ -1006,15 +1006,15 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, land_co
       x               = ~YearMonth, y = ~NDVI,
       type            = "scatter", mode = "lines+markers",
       name            = name_current,
-      line            = list(width = 3, color = "#0072B2"),
-      marker          = list(size = 7, color = "#0072B2"),
+      line            = list(width = 3, color = "#E69F00"),
+      marker          = list(size = 7, color = "#E69F00"),
       hovertemplate   = "Date: %{x|%b %Y}<br>NDVI: %{y:.3f}<extra></extra>"
     ) %>%
     plotly::add_lines(
       data            = plot_df,
       x               = ~YearMonth, y = ~climatology,
       name            = name_clim,
-      line            = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      line            = list(width = 2.5, dash = "dash", color = "#0072B2"),
       hovertemplate   = "Date: %{x|%b %Y}<br>Historical average: %{y:.3f}<extra></extra>"
     ) %>%
     plotly::layout(
@@ -1601,7 +1601,7 @@ plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
 # Function to plot 2D maps for a specific month over several years
 plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
                            plot_width = 20, plot_height = 10,
-                           zlim_range = c(-0.7, 0.7), ncol = 6,
+                           zlim_range = c(-0.7, 0.7), ncol = 2,
                            save_path = NULL, filename = "NDVI_maps.png") {
   # Set plot size
   options(repr.plot.width = plot_width, repr.plot.height = plot_height)
@@ -1618,7 +1618,7 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
     dplyr::select(Year) %>%
     unique() %>%
     pull()
-  this_and_last_year <- tail(this_and_last_year, n = 4)
+  this_and_last_year <- tail(this_and_last_year, n = 2)
   data_filtered <- data_filtered %>%
     dplyr::filter(Year %in% this_and_last_year)
   

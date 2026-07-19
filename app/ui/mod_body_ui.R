@@ -81,46 +81,6 @@ mod_body_ui <- function(id) {
                     type = "tabs",
                     
                     tabPanel(
-                      title = tags$span(title = "Displays NDVI time series for the selected area. Switch between monthly and annual views to explore vegetation dynamics over time.", "NDVI Time Series"),
-                      value = "NDVItsTab",
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
-                                       div(
-                                         class = "plot-container",
-                                         style = "margin-left: 10px; margin-right: 10px;",
-                                         shinyWidgets::radioGroupButtons(
-                                           inputId  = "ndvi_ts_view",
-                                           label    = NULL,
-                                           choices  = c("Monthly view" = "monthly", "Annual view" = "annual"),
-                                           selected = "monthly",
-                                           size     = "sm",
-                                           status   = "default"
-                                         ),
-                                         mod_busy_spinner_ui("busy_spinner"),
-                                         uiOutput("ndvi_health_summary_card"),
-                                         uiOutput("ndvi_annual_summary_card"),
-                                         uiOutput("ndvi_ts_plot_container"),
-                                         div(
-                                           class = "ndvi-ts-insight-cards",
-                                           style = "margin-top: 16px;",
-                                           fluidRow(
-                                             column(12, uiOutput("wilcoxon_card")),
-                                             column(12, uiOutput("smk_card"))
-                                           )
-                                         )
-                                       )),
-                    ),
-
-                    tabPanel(
-                      title = tags$span(title = "This chart shows vegetation health for each land cover type throughout the year. Each coloured line represents one type - click the legend to show or hide classes. Use the map on the right to see where each type is located.", "NDVI Land Cover Explorer"),
-                      value = "LCexplorerTab",
-                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
-                                       div(class="plot-container",
-                                           mod_busy_spinner_ui("busy_spinner"),
-                                           uiOutput("lc_plot_container"))
-                      ),
-                    ),
-
-                    tabPanel(
                       title = tags$span(title = "This map shows how vegetation greenness has changed compared to the same month in previous years (Monthly view) or between two selected years (Annual change view). Green = improvement. Red = decline. Use it to identify gains and losses over time across the selected area.", "NDVI Delta Map"),
                       value = "NDVIdeltaTab",
                       conditionalPanel(
@@ -145,6 +105,46 @@ mod_body_ui <- function(id) {
                           uiOutput("dm_plot_container")
                         )
                       )
+                    ),
+                    
+                    tabPanel(
+                      title = tags$span(title = "This chart shows vegetation health for each land cover type throughout the year. Each coloured line represents one type - click the legend to show or hide classes. Use the map on the right to see where each type is located.", "NDVI Land Cover Explorer"),
+                      value = "LCexplorerTab",
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'LCexplorerTab'", # Show this figure only when on this tab/subtab combination
+                                       div(class="plot-container",
+                                           mod_busy_spinner_ui("busy_spinner"),
+                                           uiOutput("lc_plot_container"))
+                      ),
+                    ),
+                    
+                    tabPanel(
+                      title = tags$span(title = "Displays NDVI time series for the selected area. Switch between monthly and annual views to explore vegetation dynamics over time.", "NDVI Time Series"),
+                      value = "NDVItsTab",
+                      conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
+                                       div(
+                                         class = "plot-container",
+                                         style = "margin-left: 10px; margin-right: 10px;",
+                                         # shinyWidgets::radioGroupButtons(
+                                         #   inputId  = "ndvi_ts_view",
+                                         #   label    = NULL,
+                                         #   choices  = c("Monthly view" = "monthly", "Annual view" = "annual"),
+                                         #   selected = "monthly",
+                                         #   size     = "sm",
+                                         #   status   = "default"
+                                         # ),
+                                         mod_busy_spinner_ui("busy_spinner"),
+                                         uiOutput("ndvi_health_summary_card"),
+                                         uiOutput("ndvi_annual_summary_card"),
+                                         uiOutput("ndvi_ts_plot_container"),
+                                         div(
+                                           class = "ndvi-ts-insight-cards",
+                                           style = "margin-top: 16px;",
+                                           fluidRow(
+                                             column(12, uiOutput("wilcoxon_card")),
+                                             column(12, uiOutput("smk_card"))
+                                           )
+                                         )
+                                       )),
                     ),
         )
       ),
@@ -184,44 +184,11 @@ mod_body_ui <- function(id) {
                     type = "tabs",
 
                     tabPanel(
-                      title = tags$span(title = "This tab is used to compare current land burned to historic values (Seasonal Overview) or to evaluate how the timing of the fire season compares to that of previous years (Daily Activity).", "Burned Area Time Series"),
-                      value = "BAtimeseries",
-                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
-                                       div(class = "plot-container",
-
-                                           # --- View toggle ---
-                                           shinyWidgets::radioGroupButtons(
-                                             inputId  = "ba_ts_view",
-                                             label    = NULL,
-                                             choices  = c("Seasonal Overview" = "seasonal", "Daily Activity" = "daily"),
-                                             selected = "seasonal",
-                                             size     = "sm",
-                                             status   = "default"
-                                           ),
-
-                                           # === SEASONAL OVERVIEW ===
-                                           conditionalPanel(
-                                             condition = "input.ba_ts_view == 'seasonal'",
-                                             mod_busy_spinner_ui("busy_spinner"),
-                                             uiOutput("ba_plot_container")
-                                           ),
-
-                                           # === DAILY ACTIVITY ===
-                                           conditionalPanel(
-                                             condition = "input.ba_ts_view == 'daily'",
-                                             mod_busy_spinner_ui("busy_spinner"),
-                                             uiOutput("ba_daily_plot_container")
-                                           ),
-                                       )
-                      )
-                    ),
-
-                    tabPanel(
                       title = tags$span(title = "This tab is used to evaluate where fires occured and when they started in the selected month (Monthly View) or to analyze the burn frequency (lower frequency = more regular fires) in different parts of the selected area (Fire Return Period).", "Burned Area Map Explorer"),
                       value = "BAmapexplorer",
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAmapexplorer'",
                                        div(class = "plot-container",
-
+                                           
                                            # --- View toggle ---
                                            shinyWidgets::radioGroupButtons(
                                              inputId  = "ba_map_view",
@@ -231,7 +198,7 @@ mod_body_ui <- function(id) {
                                              size     = "sm",
                                              status   = "default"
                                            ),
-
+                                           
                                            # === MONTHLY VIEW ===
                                            conditionalPanel(
                                              condition = "input.ba_map_view == 'monthly'",
@@ -262,8 +229,8 @@ mod_body_ui <- function(id) {
                                                  p(style = "font-weight:600; color:#444; margin-bottom:10px;",
                                                    "Interactive Burned Area Map"),
                                                  leafletOutput("ba_monthly_leaflet", height = "425px"))
-                                            ),
-                                             
+                                           ),
+                                           
                                            # === FIRE RETURN PERIOD VIEW ===
                                            conditionalPanel(
                                              condition = "input.ba_map_view == 'frp'",
@@ -272,7 +239,40 @@ mod_body_ui <- function(id) {
                                              mod_busy_spinner_ui("busy_spinner"),
                                              leafletOutput("ba_frp_leaflet", height = "450px")
                                            ),
+                                           
+                                       )
+                      )
+                    ),
+                    
+                    tabPanel(
+                      title = tags$span(title = "This tab is used to compare current land burned to historic values (Seasonal Overview) or to evaluate how the timing of the fire season compares to that of previous years (Daily Activity).", "Burned Area Time Series"),
+                      value = "BAtimeseries",
+                      conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
+                                       div(class = "plot-container",
 
+                                           # --- View toggle ---
+                                           shinyWidgets::radioGroupButtons(
+                                             inputId  = "ba_ts_view",
+                                             label    = NULL,
+                                             choices  = c("Monthly View" = "seasonal", "Annual View" = "daily"),
+                                             selected = "seasonal",
+                                             size     = "sm",
+                                             status   = "default"
+                                           ),
+
+                                           # === SEASONAL OVERVIEW ===
+                                           conditionalPanel(
+                                             condition = "input.ba_ts_view == 'seasonal'",
+                                             mod_busy_spinner_ui("busy_spinner"),
+                                             uiOutput("ba_plot_container")
+                                           ),
+
+                                           # === DAILY ACTIVITY ===
+                                           conditionalPanel(
+                                             condition = "input.ba_ts_view == 'daily'",
+                                             mod_busy_spinner_ui("busy_spinner"),
+                                             uiOutput("ba_daily_plot_container")
+                                           ),
                                        )
                       )
                     )
