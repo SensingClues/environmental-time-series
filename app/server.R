@@ -133,6 +133,27 @@ server <- function(input, output, session) {
     div(class = "ndvi-error-message", message)
   }
   
+  # Add reactivity for the more information section
+  rv_infosection <- reactiveValues(started = FALSE)
+  
+  observeEvent(
+    list(input$generate_ndvi_ts_figures,
+         input$generate_lc_figures,
+         input$generate_ndvi_delta_plot,
+         input$generate_ndvi_annual_change,
+         input$generate_ba_ts_figures,
+         input$generate_ba_daily_figures,
+         input$generate_ba_map_figures
+    ),
+    {
+      if (!rv_infosection$started) {
+        rv_infosection$started <- TRUE
+        session$sendCustomMessage("closeInfo", TRUE)
+      }
+    },
+    ignoreInit = TRUE
+  )
+  
   # Observe selected tab and update choices according to the one selected
   observeEvent(input$tabs, { 
     updateSelectInput(session, "country",
@@ -662,10 +683,6 @@ server <- function(input, output, session) {
         tags$tr(
           tags$td(class="source-callout row-even", "Intervention monitoring (plot scale)"),
           tags$td(class="source-callout row-even", "Sentinel-2, 100m, narrow time window")
-        ),
-        tags$tr(
-          tags$td(class = "source-callout row-odd", "Fire and burn area analysis"),
-          tags$td(class = "source-callout row-odd", "MODIS, 500m, Burned Area Explorer")
         )
       )
     )

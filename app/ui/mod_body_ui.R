@@ -11,60 +11,62 @@ mod_body_ui <- function(id) {
              position:fixed;
              top: calc(50%);
              left: calc(50% - 100px);
-             max-width: 300px}"))
+             max-width: 300px}")),
+      tags$script(HTML("Shiny.addCustomMessageHandler('closeInfo', function(message) {
+                          document.getElementById('InfoSection').removeAttribute('open');
+                        });"))
     ),
-  
-    # Tabset with panels for separate pasted (nested, currently one for the NDVI Explorer and one for the BA Explorer)
-    tabsetPanel(
-      id   = "tabs",
-      type = "tabs",
 
-      # NDVI Explorer
-      tabPanel(
-        title = "NDVI Explorer",
-        value = "NDVIexplorerTab",
-        # ndviInfoSection (collapsible)
-        div(class="tab-explain",
-            tags$details(
-              id    = "ndviInfoSection",
-              class = "collapsible-section",
-              tags$summary(
-                class = "collapsible-header",
-                HTML("<span style='bold;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
-              ),
-              tags$strong(HTML("<span>What is NDVI?</span>")),
-              p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
-              tags$strong('Which data source should I use?'),
-              uiOutput("ndvi_data_source_guidance"),
-              br(),
-              tags$strong('How to use this section'),
-              tags$ol(
-                tags$li(
-                  tags$strong(
-                    tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVItsTab\']\").tab(\'show\'); return false;',
-                           "NDVI Time Series")
-                  ),
-                  " — Start here to see the overall vegetation trend for your area. Check the Long-Term Trend card. If using Sentinel-2, consider switching to MODIS for a longer baseline."
-                ),
-                tags$li(
-                  tags$strong(
-                    tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'LCexplorerTab\']\").tab(\'show\'); return false;',
-                           "NDVI Land Cover Explorer")
-                  ),
-                  " — Drill down by land cover class to identify which class (Trees, Crops, Rangeland etc.) is driving any trend you observed."
-                ),
-                tags$li(
-                  tags$strong(
-                    tags$a(href = "#", onclick = '$(\"#ndvisubtabs a[data-value=\'NDVIdeltaTab\']\").tab(\'show\'); return false;',
-                           "NDVI Delta Map")
-                  ),
-                  " — Use the Annual Change view to see spatially where gains and losses are occurring within the project area."
-                )
-              )
+    # InfoSection (collapsible)
+    div(class="tab-explain",
+        tags$details(
+          id    = "InfoSection",
+          class = "collapsible-section",
+          open  = NA,
+          tags$summary(
+            class = "collapsible-header",
+            HTML("<span style='bold;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
+          ),
+          tags$strong(HTML("<span>General Information</span>")),
+          p("In order to use this application, first select which explorer view you want to use through the tabs below this section. Then, select the project area and filters of interest on the left panel and click on Generate Figure. For a short description, hover over a tab with your mouse or expand this information section."),
+          br(),
+          tags$strong(HTML("<span>What is NDVI?</span>")),
+          p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
+          tags$strong('Which data source should I use?'),
+          uiOutput("ndvi_data_source_guidance"),
+          br(),
+          tags$strong('How to use this section'),
+          tags$ol(
+            tags$li(
+              tags$strong("NDVI Delta Map"),
+              " — Use the Annual Change view to see spatially where gains and losses are occurring within the project area."),
+            tags$li(
+              tags$strong("NDVI Land Cover Explorer"),
+              " — Drill down by land cover class to identify which class (Trees, Crops, Rangeland etc.) is driving any trend you observed."
             ),
-            tags$script(HTML(
-              "document.addEventListener('DOMContentLoaded', function() {
-                var el = document.getElementById('ndviInfoSection');
+            tags$li(
+              tags$strong("NDVI Time Series"),
+              " — Use this view to analyze the selected year's vegetation health compared to historic trends for your area."
+            )
+          ),
+          br(),
+          tags$strong(HTML("<span>What is the Burned Area Explorer?</span>")),
+          p("The Burned Area Explorer uses aggregate satellige image information to identify the so-called burn scar (blackened soil after a fire) and its starting date. It is based on MODIS-data at a 500m resolution."),
+          tags$strong('How to use this section'),
+          tags$ol(
+            tags$li(
+              tags$strong("Burned Area Map Explorer"),
+              " — Use the Monthly View to see where fires occurred in the selected month and year. Use the Interactive Map to investigate interactively where fires occurred in the selected month and year. Use the Fire Return Period to analyze in which areas fires occur most regularly."
+            ),
+            tags$li(
+              tags$strong("Burned Area Time Series"),
+              " — Use the Monthly View to analyze the selected year's burned area compared to historic trends for your area. Use the annual view to analyze when fires occurred in the selected years and compare them."
+            )
+          )
+        ),
+        tags$script(HTML(
+          "document.addEventListener('DOMContentLoaded', function() {
+                var el = document.getElementById('InfoSection');
                 if (el) {
                   var summary = el.querySelector('summary');
                   summary.addEventListener('click', function() {
@@ -75,8 +77,18 @@ mod_body_ui <- function(id) {
                   });
                 }
               });"
-            ))),
+        ))),
+    
+      
+    # Tabset with panels for separate pasted (nested, currently one for the NDVI Explorer and one for the BA Explorer)
+    tabsetPanel(
+      id   = "tabs",
+      type = "tabs",
 
+      # NDVI Explorer
+      tabPanel(
+        title = "NDVI Explorer",
+        value = "NDVIexplorerTab",
         tabsetPanel(id   = "ndvisubtabs",
                     type = "tabs",
                     
@@ -153,32 +165,6 @@ mod_body_ui <- function(id) {
       tabPanel(
         title = "Burned Area Explorer",
         value = "BAexplorerTab",
-        
-        div(class="tab-explain",
-            tags$details(
-              id    = "baInfoSection",
-              class = "collapsible-section",
-              tags$summary(
-                class = "collapsible-header",
-                HTML("<span style='bold;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
-              ),
-              tags$strong(HTML("<span>What is the Burned Area Explorer?</span>")),
-              p("The Burned Area Explorer uses aggregate satellige image information to identify the so-called burn scar (blackened soil after a fire) and its starting date."),
-            ),
-            tags$script(HTML(
-              "document.addEventListener('DOMContentLoaded', function() {
-                var el = document.getElementById('baInfoSection');
-                if (el) {
-                  var summary = el.querySelector('summary');
-                  summary.addEventListener('click', function() {
-                    setTimeout(function() {
-                      var icon = summary.querySelector('.expand-icon');
-                      icon.style.transform = el.hasAttribute('open') ? 'rotate(180deg)' : 'rotate(0deg)';
-                    }, 100);
-                  });
-                }
-              });"
-            ))),
         
         tabsetPanel(id   = "basubtabs",
                     type = "tabs",

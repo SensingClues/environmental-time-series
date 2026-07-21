@@ -89,7 +89,8 @@ mod_sidebar_ui <- function(id) {
                                      "Built area"          = "Built_Area",
                                      "Bare ground"         = "Bare_ground"
                                    ),
-                                   selected = ""),
+                                   selected = "",
+                                   selectize = FALSE),
                        actionButton("generate_ndvi_ts_figures", "Generate Figure", class = "action_button")
                      )),
     
