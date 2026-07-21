@@ -2290,38 +2290,60 @@ plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
   # Check if there is data for the specified month
   if (nrow(data_filtered) == 0) stop(paste("No data available for month:", month_to_plot))
   
-  # Define a color palette for Delta NDVI values
-  brgr_colors <- colorNumeric(
-    palette = c("darkred", "firebrick1", "darkgray", "yellowgreen", "darkgreen"),
+  # Calculate symmetric colour limits like plot_annual_ndvi_leaflet
+  quants <- quantile(data_filtered$delta_ndvi,
+                     c(0.02, 0.98),
+                     na.rm = TRUE)
+  
+  max_abs <- max(abs(quants), na.rm = TRUE)
+  if (max_abs == 0 || is.na(max_abs)) max_abs <- 0.1
+  
+  zlim_range <- c(-max_abs, max_abs)
+  
+  # Same diverging palette as annual NDVI change
+  pal <- leaflet::colorNumeric(
+    palette = c("#8B0000", "#CC3300", "darkgray", "#66BB6A", "#1B5E20"),
     domain = zlim_range,
-    na.color = NA
+    na.color = "transparent"
   )
   
-  # Add squishing to clamp out-of-bound values
+  # Clamp values to colour limits
   data_filtered <- data_filtered %>%
-    mutate(delta_ndvi_clamped = scales::squish(delta_ndvi, zlim_range))  # Clamp values
+    dplyr::mutate(
+      delta_ndvi_clamped = scales::squish(delta_ndvi, zlim_range)
+    )
   
-  # Create the Leaflet map
-  map <- leaflet(data_filtered) %>%
-    addProviderTiles(providers[[basemap]]) %>%  # Add the basemap
-    addCircleMarkers(
-      lng = ~x,  # Longitude
-      lat = ~y,  # Latitude
-      radius = 4,  # Marker size
-      color = ~brgr_colors(delta_ndvi_clamped),  # Use clamped values for color
-      fillOpacity = 0.7,  # Circle transparency
+  # Create leaflet map
+  map <- leaflet::leaflet(data_filtered) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~x,
+      lat = ~y,
+      radius = 3,
+      stroke = FALSE,
+      fillOpacity = 0.8,
+      fillColor = ~pal(delta_ndvi_clamped),
       popup = ~paste0(
-        "<b>Delta NDVI:</b> ", round(delta_ndvi, 2), "<br>",
-        "<b>Longitude:</b> ", round(x, 2), "<br>",
-        "<b>Latitude:</b> ", round(y, 2)
-      )  # Add popup for each point
+        "<b>Delta NDVI:</b> ", round(delta_ndvi, 3), "<br>",
+        "<b>Month:</b> ", month_to_plot, "<br>",
+        "<b>Longitude:</b> ", round(x, 3), "<br>",
+        "<b>Latitude:</b> ", round(y, 3)
+      )
     ) %>%
-    addLegend(
-      "bottomright",  # Position of the legend
-      pal = brgr_colors,  # Use the same color palette
-      values = zlim_range,  # Range of Delta NDVI
-      title = "Delta NDVI",
-      opacity = 1
+    leaflet::addLegend(
+      position = "bottomright",
+      colors = c(
+        pal(-max_abs),
+        pal(0),
+        pal(max_abs)
+      ),
+      labels = c(
+        "Largest loss",
+        "No change",
+        "Largest gain"
+      ),
+      title = "Monthly vegetation change",
+      opacity = 0.8
     )
   
   # Save the plot if save_path is provided
