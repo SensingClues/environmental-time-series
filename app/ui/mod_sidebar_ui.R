@@ -45,10 +45,13 @@ mod_sidebar_ui <- function(id) {
     h3(i18n$t("labels.sidebarTitle")),
     
     # Generic input selectors 
-    div(selectInput("country", "Select project area", 
+    div(selectInput("country", "Select project area",
                     selected = "Zambia",
-                    choices = c("Mponda, Zambia" = "Zambia", "Ancares Courel, Spain" = "Spain", 
-                                "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")), # Add more countries as needed
+                    choices = c("\U0001F7E2 Mponda, Zambia" = "Zambia", "\U0001F534 Ancares Courel, Spain" = "Spain",
+                                "\U0001F534 Stara Planina, Bulgaria" = "Bulgaria", "\U0001F534 Kasigau, Kenya" = "Kenya")), # Add more countries as needed
+        tags$p(class = "aoi-status-legend",
+               style = "margin:-4px 0 6px; font-size:0.8em; color:#666;",
+               HTML("\U0001F7E2 Active &nbsp;\U00B7&nbsp; \U0001F534 End-of-life (2025)")),
         leafletOutput("map", height = "165px"), # Adds leaflet map for the AoI
         br(),
         conditionalPanel(

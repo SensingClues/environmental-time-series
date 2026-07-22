@@ -37,13 +37,16 @@ server <- function(input, output, session) {
   
   # Create selector choice sets based on the selected tab (NDVI or BA Explorer)
   countrychoices_rv <- reactiveValues(
-    choice_set =   list(NDVIexplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
-                                            "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya"),
-                        BAexplorerTab = c("West Lunga, Zambia" = "Zambia_WL"),
-                        ScenarioExplorerTab = c("Mponda, Zambia" = "Zambia_Mponda", "Ancares Courel, Spain" = "Spain", 
-                                                "Stara Planina, Bulgaria" = "Bulgaria", "Kasigau, Kenya" = "Kenya")),
+    # Labels are prefixed with a status dot: \U0001F7E2 (green) = active, \U0001F534 (red) = end-of-life.
+    # Unicode escapes are used (not raw emoji) so the glyphs survive any source-file encoding.
+    # The dot is stripped by selected_country_label() so it never reaches figure titles.
+    choice_set =   list(NDVIexplorerTab = c("\U0001F7E2 Mponda, Zambia" = "Zambia_Mponda", "\U0001F534 Ancares Courel, Spain" = "Spain",
+                                            "\U0001F534 Stara Planina, Bulgaria" = "Bulgaria", "\U0001F534 Kasigau, Kenya" = "Kenya"),
+                        BAexplorerTab = c("\U0001F7E2 Mponda, Zambia" = "Zambia_Mponda", "\U0001F7E2 West Lunga, Zambia" = "Zambia_WL"),
+                        ScenarioExplorerTab = c("\U0001F7E2 Mponda, Zambia" = "Zambia_Mponda", "\U0001F534 Ancares Courel, Spain" = "Spain",
+                                                "\U0001F534 Stara Planina, Bulgaria" = "Bulgaria", "\U0001F534 Kasigau, Kenya" = "Kenya")),
     selected_set = list(NDVIexplorerTab = "Zambia_Mponda", 
-                        BAexplorerTab = "Zambia_WL",
+                        BAexplorerTab = "Zambia_Mponda",
                         ScenarioExplorerTab = "Zambia_Mponda")
   )
   
@@ -91,7 +94,9 @@ server <- function(input, output, session) {
   selected_country_label <- function(country_value = input$country, tab_value = input$tabs) {
     choices <- countrychoices_rv$choice_set[[tab_value]]
     label <- names(choices)[match(country_value, unname(choices))]
-    if (length(label) == 0L || is.na(label)) country_value else label
+    if (length(label) == 0L || is.na(label)) return(country_value)
+    # Drop the leading status dot (🟢/🔴) so it never leaks into titles/messages.
+    trimws(sub("^[^[:alpha:]]+", "", label))
   }
 
   selected_resolution_label <- function(resolution_value = input$resolution, tab_value = input$tabs) {
@@ -567,9 +572,16 @@ server <- function(input, output, session) {
     error_message_rv(NULL) # Clear any previous errors
 
     tryCatch({
-      # Use only the base country name for file lookup (e.g. "Zambia_Mponda" -> "Zambia")
-      aoi_country_key <- sub("_.*", "", input$country)
-      aoi_files <- list.files(file.path(data_dir, "AoI"), pattern = paste0("AoI_.*", aoi_country_key, ".*\\.geojson$"))
+      # Prefer an AoI file matching the full project-area key (e.g. "Zambia_WL"),
+      # so distinct areas within one country map to distinct AoI files. Fall back to
+      # the base country name (e.g. "Zambia") for areas whose AoI file is not named
+      # per project area (e.g. Mponda -> AoI_Zambia_By_Life_Connected.geojson).
+      aoi_dir   <- file.path(data_dir, "AoI")
+      aoi_files <- list.files(aoi_dir, pattern = paste0("AoI_.*", input$country, ".*\\.geojson$"))
+      if (length(aoi_files) == 0) {
+        aoi_country_key <- sub("_.*", "", input$country)
+        aoi_files <- list.files(aoi_dir, pattern = paste0("AoI_.*", aoi_country_key, ".*\\.geojson$"))
+      }
       if (length(aoi_files) == 0) {
         stop("No Area of Interest file found for the selected country.")
       }
