@@ -1443,7 +1443,34 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
   test_data <- test_data %>%
     dplyr::mutate(date = as.Date(paste0(test_year, "-", Month, "-01")))
 
-  plotly::plot_ly() %>%
+  # Monthly burned-area deviation from the historical average.
+  # For fire, more burning than usual is the adverse direction, so the colour
+  # mapping is inverted relative to NDVI: positive deviation (more fire) = red,
+  # negative deviation (less fire) = green.
+  anomaly_df <- test_data %>%
+    dplyr::select(Month, date, test_val = mean_val) %>%
+    dplyr::left_join(dplyr::select(train_data, Month, hist_val = mean_val), by = "Month") %>%
+    dplyr::mutate(
+      anomaly   = test_val - hist_val,
+      bar_color = ifelse(anomaly >= 0, "#D55E00", "#009E73"),
+      hover_bar = paste0(
+        "Month: ", format(date, "%b %Y"), "<br>",
+        "Deviation: ", sprintf("%+.1f", anomaly), " km²<br>",
+        "Burned Area: ", sprintf("%.1f", test_val), " km²<br>",
+        "Historical average: ", sprintf("%.1f", hist_val), " km²"
+      )
+    )
+
+  common_xaxis <- list(
+    title      = "Month",
+    tickmode   = "linear",
+    dtick      = "M1",
+    tickformat = "%b",
+    tickangle  = -45,
+    showgrid   = FALSE
+  )
+
+  p1 <- plotly::plot_ly() %>%
     plotly::add_ribbons(
       data          = train_data,
       x             = ~date,
@@ -1460,27 +1487,20 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
       data          = train_data,
       x             = ~date, y = ~mean_val,
       name          = "Historical monthly average",
-      line          = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      line          = list(width = 2.5, dash = "dash", color = "#0072B2"),
       hovertemplate = "Month: %{x|%b}<br>Historical avg: %{y:.1f} km²<extra></extra>"
     ) %>%
     plotly::add_lines(
       data          = test_data,
       x             = ~date, y = ~mean_val,
       name          = paste0("Burned Area ", test_year),
-      line          = list(width = 3, color = "#0072B2"),
-      marker        = list(size = 7, color = "#0072B2"),
+      line          = list(width = 3, color = "#E69F00"),
+      marker        = list(size = 7, color = "#E69F00"),
       mode          = "lines+markers",
       hovertemplate = "Month: %{x|%b %Y}<br>Burned Area: %{y:.1f} km²<extra></extra>"
     ) %>%
     plotly::layout(
-      xaxis     = list(
-        title      = "Month",
-        tickmode   = "linear",
-        dtick      = "M1",
-        tickformat = "%b",
-        tickangle  = -45,
-        showgrid   = FALSE
-      ),
+      xaxis     = common_xaxis,
       yaxis     = list(
         title     = "Burned Area (km²)",
         showgrid  = TRUE,
@@ -1491,6 +1511,38 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
       legend    = list(orientation = "h", x = 1, y = 1.05,
                        xanchor = "right", yanchor = "top"),
       margin    = list(t = 50, r = 30, l = 60, b = 60)
+    )
+
+  # Inline hover content (avoid %{text}: plotly.R bar + single point omits `text` → literal "%{text}")
+  p2 <- plotly::plot_ly(
+    data          = anomaly_df,
+    x             = ~date,
+    y             = ~anomaly,
+    type          = "bar",
+    marker        = list(color = anomaly_df$bar_color),
+    hovertemplate = ~paste0(hover_bar, "<extra></extra>"),
+    showlegend    = FALSE
+  ) %>%
+    plotly::layout(
+      xaxis    = common_xaxis,
+      yaxis    = list(
+        title         = "Burned Area deviation (km²)",
+        zeroline      = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
+        showgrid      = TRUE, gridcolor = "rgba(0,0,0,0.08)"
+      ),
+      template = "plotly_white",
+      margin   = list(t = 30, r = 30, l = 60, b = 80)
+    )
+
+  plotly::subplot(
+    p1, p2,
+    nrows   = 2,
+    shareX  = TRUE,
+    heights = c(0.58, 0.42),
+    titleY  = TRUE
+  ) %>%
+    plotly::layout(
+      margin = list(t = 20, r = 30, l = 60, b = 80)
     )
 }
 
