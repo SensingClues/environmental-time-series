@@ -1546,6 +1546,207 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
     )
 }
 
+# --- Burned Area Explorer insight cards (Wilcoxon + Seasonal Mann–Kendall) -----------
+
+ba_insight_wilcox_tooltip <- function() {
+  paste(
+    "This result is based on a Wilcoxon signed-rank test applied to monthly burned-area deviations for the selected year.",
+    "It checks whether fire activity in the selected year is significantly different from the historical monthly average.",
+    sep = "\n"
+  )
+}
+
+ba_insight_smk_tooltip <- function() {
+  paste(
+    "This result is based on the Seasonal Mann–Kendall test.",
+    "It evaluates whether burned area shows a consistent long-term increase or decrease over multiple years while accounting for seasonal patterns.",
+    "The test is run only when at least 60 monthly samples (5 years) are available.",
+    sep = "\n"
+  )
+}
+
+#' Wilcoxon (monthly burned-area deviations vs 0) and Seasonal Mann–Kendall on the
+#' full monthly series. SMK/Sen run only when there are at least 60 monthly points (5 years).
+#' @param train_raw,test_raw per-file burned-area summaries (get_ba_summary_fast output:
+#'   columns YearMonth, Year, Month, BurnedArea_Size).
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months)
+compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL) {
+  # Historical monthly climatology
+  climatology_df <- train_raw %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(climatology = mean(BurnedArea_Size, na.rm = TRUE), .groups = "drop")
+
+  # Selected-year monthly deviations from climatology
+  test_monthly <- test_raw %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(BurnedArea_Size = mean(BurnedArea_Size, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::left_join(climatology_df, by = "Month") %>%
+    dplyr::mutate(anomaly = BurnedArea_Size - climatology)
+
+  anom <- stats::na.omit(test_monthly$anomaly)
+  wilcox_p <- NA_real_
+  wilcox_median <- NA_real_
+  if (length(anom) >= 3L) {
+    wt <- stats::wilcox.test(anom, mu = 0)
+    wilcox_p <- unname(wt$p.value)
+    wilcox_median <- stats::median(anom)
+  }
+
+  smk_p <- NA_real_
+  sen_slope <- NA_real_
+  ba_monthly_full <- dplyr::bind_rows(train_raw, test_raw) %>%
+    dplyr::mutate(YearMonth = as.Date(YearMonth)) %>%
+    dplyr::distinct(YearMonth, .keep_all = TRUE) %>%
+    dplyr::arrange(YearMonth)
+  smk_n_months <- nrow(ba_monthly_full)
+  smk_min_months <- 60L
+  if (smk_n_months >= smk_min_months) {
+    st <- ba_monthly_full$YearMonth[1]
+    ba_ts <- stats::ts(
+      ba_monthly_full$BurnedArea_Size,
+      start = c(lubridate::year(st), lubridate::month(st)),
+      frequency = 12
+    )
+    smk <- tryCatch(trend::smk.test(ba_ts), error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(ba_ts), error = function(e) NULL)
+    if (!is.null(smk)) smk_p <- unname(smk$p.value)
+    if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
+  }
+
+  list(
+    wilcox_p = wilcox_p,
+    wilcox_median = wilcox_median,
+    smk_p = smk_p,
+    sen_slope = sen_slope,
+    smk_n_months = smk_n_months
+  )
+}
+
+#' Shiny UI: Current Year Fire Activity card (uses compute_ba_explorer_stats output).
+#' Colour meaning is inverted relative to NDVI: more fire than usual is the adverse
+#' direction (red); less fire than usual is favourable (green).
+ba_insight_wilcox_card_ui <- function(stats) {
+  if (is.null(stats)) return(NULL)
+  p   <- stats$wilcox_p
+  med <- stats$wilcox_median
+  plain_text <- "Fire activity this year is within the expected range for this area."
+  if (is.na(p)) {
+    main <- "Not enough data for this summary"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+    plain_text <- "There is not enough monthly data to compare this year with usual conditions."
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
+    main <- "Above normal fire activity"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- "Fire activity this year is notably higher than usual - this may indicate elevated fire risk or pressure on the landscape."
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
+    main <- "Below normal fire activity"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- "Fire activity this year is notably lower than usual."
+  } else {
+    main <- "No significant difference from normal"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  shiny::tags$div(
+    class = "ndvi-insight-card",
+    shiny::tags$h4(
+      class = "ndvi-insight-card__heading",
+      "Current Year Fire Activity",
+      shiny::tags$span(
+        title = ba_insight_wilcox_tooltip(),
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      class = ndvi_insight_main_class(col),
+      main
+    ),
+    shiny::tags$div(
+      class = "ndvi-insight-card__footer",
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
+    )
+  )
+}
+
+#' Shiny UI: Long-Term Fire Trend card (Seasonal Mann–Kendall + Sen slope sign).
+#' Colour meaning is inverted relative to NDVI: an increasing trend in burned area is
+#' the adverse direction (red); a decreasing trend is favourable (green).
+ba_insight_smk_card_ui <- function(stats, year_range_label = NULL) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$smk_p
+  slope <- stats$sen_slope
+  n_m <- stats$smk_n_months
+  year_phrase <- if (!is.null(year_range_label) && nzchar(year_range_label)) {
+    paste0(" over ", year_range_label)
+  } else {
+    " over the available data period"
+  }
+  if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
+  smk_min_months <- 60L
+  plain_text <- paste0("Fire activity has been broadly consistent", year_phrase, ".")
+  if (!is.na(n_m) && n_m < smk_min_months) {
+    main <- "Long-term trend not shown (insufficient series length)"
+    col <- "#555555"
+    p_lab <- paste0(
+      "Seasonal Mann–Kendall applies only with ≥5 years of monthly data (",
+      smk_min_months,
+      " months). Current series: ",
+      n_m,
+      " month",
+      if (n_m == 1L) "" else "s",
+      "."
+    )
+    plain_text <- "There is not enough monthly data to show a reliable long-term trend."
+  } else if (is.na(p) || is.na(slope)) {
+    main <- "Long-term trend cannot be assessed from this series"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+    plain_text <- "The available data could not produce a reliable trend summary."
+  } else if (p < 0.05 && slope > 0) {
+    main <- "Significant increasing trend"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Burned area has been increasing over time", year_phrase,
+                         " - this may indicate a worsening fire regime and warrants closer monitoring.")
+  } else if (p < 0.05 && slope < 0) {
+    main <- "Significant decreasing trend"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Burned area has been declining over time", year_phrase,
+                         " - a positive sign for this landscape.")
+  } else {
+    main <- "No significant long-term trend"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  shiny::tags$div(
+    class = "ndvi-insight-card",
+    shiny::tags$h4(
+      class = "ndvi-insight-card__heading",
+      "Long-Term Fire Trend",
+      shiny::tags$span(
+        title = ba_insight_smk_tooltip(),
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      class = ndvi_insight_main_class(col),
+      main
+    ),
+    shiny::tags$div(
+      class = "ndvi-insight-card__footer",
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
+    )
+  )
+}
+
 # Interactive Plotly daily burn activity chart — one filled line per year.
 # daily_data: data frame with columns date, km2, year (character).
 # selected_years: character vector of years to plot (determines legend order).

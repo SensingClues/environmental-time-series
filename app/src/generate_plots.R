@@ -162,37 +162,41 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
 
   if (return_plot == TRUE) {
     # Fast path: read one file at a time, skip pixel-level raster→dataframe conversion.
-    # Cache train summary (historical data changes only when new files are added).
+    # Cache train summary + raw monthly series (historical data changes only when new
+    # files are added). The raw series feeds the long-term (Seasonal Mann–Kendall) stat.
     cache_path <- file.path(cache_dir,
                             paste0("ba_ts_", country_name, "_", resolution, "_train.rds"))
 
+    train_raw        <- NULL
+    train_ba_summary <- NULL
     if (file.exists(cache_path)) {
       cached <- readRDS(cache_path)
-      if (isTRUE(cached$n_files == nrow(train_files_df))) {
+      if (isTRUE(cached$n_files == nrow(train_files_df)) && !is.null(cached$raw)) {
         train_ba_summary <- cached$data
-      } else {
-        train_raw        <- get_ba_summary_fast(train_files_df, data_path, aoi_proj)
-        train_ba_summary <- get_summary_ba_df(ba_df = train_raw)
-        saveRDS(list(data = train_ba_summary, n_files = nrow(train_files_df)), cache_path)
+        train_raw        <- cached$raw
       }
-    } else {
+    }
+    if (is.null(train_raw)) {
       if (!dir.exists(cache_dir)) {
         dir.create(cache_dir, recursive = TRUE)
       }
-
       train_raw        <- get_ba_summary_fast(train_files_df, data_path, aoi_proj)
       train_ba_summary <- get_summary_ba_df(ba_df = train_raw)
-      saveRDS(list(data = train_ba_summary, n_files = nrow(train_files_df)), cache_path)
+      saveRDS(list(data = train_ba_summary, raw = train_raw,
+                   n_files = nrow(train_files_df)), cache_path)
     }
 
     test_raw        <- get_ba_summary_fast(test_files_df, data_path, aoi_proj)
     test_ba_summary <- get_summary_ba_df(ba_df = test_raw)
 
-    return(plot_ba_timeseries_plotly(
+    ba_plot <- plot_ba_timeseries_plotly(
       train_data = train_ba_summary,
       test_data  = test_ba_summary,
       test_year  = end_year
-    ))
+    )
+    ba_stats <- compute_ba_explorer_stats(train_raw = train_raw, test_raw = test_raw)
+
+    return(list(plot = ba_plot, stats = ba_stats))
   }
 
   # Slow path (PNG): full pixel-level raster processing

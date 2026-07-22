@@ -1367,11 +1367,32 @@ server <- function(input, output, session) {
   # Reactive flag and plot object for BA timeseries
   ba_ts_ready    <- reactiveVal(FALSE)
   ba_ts_plot_obj <- reactiveVal(NULL)
+  ba_ts_stats    <- reactiveVal(NULL)
 
   output$ba_ts_plot_output <- plotly::renderPlotly({
     p <- ba_ts_plot_obj()
     shiny::req(p)
     p
+  })
+
+  ba_year_range_label <- function(country_name = input$country, resolution = input$resolution) {
+    years <- get_available_years(data_dir, "BurnedArea", country_name, resolution)
+    if (length(years) == 0L) {
+      return("")
+    }
+    if (min(years) == max(years)) as.character(min(years)) else paste0(min(years), "-", max(years))
+  }
+
+  output$ba_wilcoxon_card <- renderUI({
+    s <- ba_ts_stats()
+    if (is.null(s) || !isTRUE(ba_ts_ready())) return(NULL)
+    ba_insight_wilcox_card_ui(s)
+  })
+
+  output$ba_smk_card <- renderUI({
+    s <- ba_ts_stats()
+    if (is.null(s) || !isTRUE(ba_ts_ready())) return(NULL)
+    ba_insight_smk_card_ui(s, year_range_label = ba_year_range_label())
   })
 
   # Render a container for the plot or error message
@@ -1390,6 +1411,7 @@ server <- function(input, output, session) {
   observeEvent(list(input$tabs, input$basubtabs), {
     ba_ts_ready(FALSE)
     ba_ts_plot_obj(NULL)
+    ba_ts_stats(NULL)
     error_message_rv(NULL)
   })
 
@@ -1494,6 +1516,7 @@ server <- function(input, output, session) {
     
     # To be extra sure that no figure is shown, clear previous error messages
     ba_ts_ready(FALSE)
+    ba_ts_stats(NULL)
     error_message_rv(NULL)
 
     # Get user inputs
@@ -1505,7 +1528,7 @@ server <- function(input, output, session) {
     end_year  <- selected_end$end_year
     
     tryCatch({
-      ba_plot <- generate_ba_timeseries(
+      ba_result <- generate_ba_timeseries(
         country_name    = country_name,
         resolution      = resolution,
         end_year        = end_year,
@@ -1515,12 +1538,14 @@ server <- function(input, output, session) {
         return_plot     = TRUE,
         figure_filename = NULL
       )
-      ba_ts_plot_obj(ba_plot)
+      ba_ts_plot_obj(ba_result$plot)
+      ba_ts_stats(ba_result$stats)
       ba_ts_ready(TRUE)
       error_message_rv(NULL)
     }, error = function(e) {
       ba_ts_ready(FALSE)
       ba_ts_plot_obj(NULL)
+      ba_ts_stats(NULL)
       error_message_rv(e$message)
       showNotification(HTML("The figure cannot be generated due to missing data.
        Please contact us at
