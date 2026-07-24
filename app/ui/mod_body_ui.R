@@ -25,13 +25,13 @@ mod_body_ui <- function(id) {
           open  = NA,
           tags$summary(
             class = "collapsible-header",
-            HTML("<span style='bold;'>More information</span><i class='material-icons expand-icon'>expand_more</i>"),
+            HTML("<i class='material-icons expand-icon'>expand_more</i><span style='bold;'>More information</span>"),
           ),
           tags$strong(HTML("<span>General Information</span>")),
-          p("In order to use this application, first select which explorer view you want to use through the tabs below this section. Then, select the project area and filters of interest on the left panel and click on Generate Figure. For a short description, hover over a tab with your mouse or expand this information section."),
+          p("To use this application, first select either the NDVI Explorer or the Burned Area Explorer from the tabs below. Then select your project area and filters in the left panel and click Generate Figure. Hover over a tab for a short description or expand this section for more information."),
           br(),
           tags$strong(HTML("<span>What is NDVI?</span>")),
-          p("NDVI (Normalised Difference Vegetation Index) is a satellite-based measure of vegetation greenness. Values range from −1 to 1 — higher values indicate healthy, dense vegetation; lower values indicate stressed vegetation or bare surfaces such as sand, rock, or snow."),
+          p("The NDVI Explorer uses the Normalised Difference Vegetation Index (NDVI) to monitor vegetation health over time. NDVI values range from −1 to 1, with higher values indicating healthy vegetation and lower values indicating stressed vegetation or bare surfaces."),
           tags$strong('Which data source should I use?'),
           uiOutput("ndvi_data_source_guidance"),
           br(),
@@ -56,11 +56,11 @@ mod_body_ui <- function(id) {
           tags$ol(
             tags$li(
               tags$strong("Burned Area Map Explorer"),
-              " — Use the Monthly View to see where fires occurred in the selected month and year. Use the Interactive Map to investigate interactively where fires occurred in the selected month and year. Use the Fire Return Period to analyze in which areas fires occur most regularly."
+              HTML(" — Use the <b><i>Monthly View</b></i> to locate fires, the <b><i>Interactive Map</b></i> to explore fire locations, and the <b><i>Fire Return Period</b></i> to identify frequently burned areas.")
             ),
             tags$li(
               tags$strong("Burned Area Time Series"),
-              " — Use the Monthly View to analyze the selected year's burned area compared to historic trends for your area. Use the annual view to analyze when fires occurred in the selected years and compare them."
+              HTML(" — Use the <b><i>Monthly View</b></i> to compare the selected year with historical trends, and the <b><i>Annual View</b></i> to compare burned area across years and analyse fire timing.")
             )
           )
         ),

@@ -149,8 +149,9 @@ display: none;
 .collapsible-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   cursor: pointer;
+  gap: 8px;
 }
 
 .collapsible-header .expand-icon {
