@@ -93,7 +93,7 @@ mod_body_ui <- function(id) {
                     type = "tabs",
                     
                     tabPanel(
-                      title = tags$span(title = "This map shows how vegetation greenness has changed compared to the same month in previous years (Monthly view) or between two selected years (Annual change view). Green = improvement. Red = decline. Use it to identify gains and losses over time across the selected area.", "NDVI Delta Map"),
+                      title = tags$span(title = "This map shows how vegetation greenness has changed compared to the same month in previous years (Monthly View) or between two selected years (Annual Change View). Green = improvement. Red = decline. Use it to identify gains and losses over time across the selected area.", "NDVI Delta Map"),
                       value = "NDVIdeltaTab",
                       conditionalPanel(
                         condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVIdeltaTab'",
@@ -102,7 +102,7 @@ mod_body_ui <- function(id) {
                           shinyWidgets::radioGroupButtons(
                             inputId  = "ndvi_delta_view",
                             label    = NULL,
-                            choices  = c("Monthly view" = "monthly", "Annual change view" = "annual"),
+                            choices  = c("Monthly View" = "monthly", "Annual Change View" = "annual"),
                             selected = "monthly",
                             size     = "sm",
                             status   = "default"
@@ -130,7 +130,7 @@ mod_body_ui <- function(id) {
                     ),
                     
                     tabPanel(
-                      title = tags$span(title = "Displays NDVI time series for the selected area. Switch between monthly and annual views to explore vegetation dynamics over time.", "NDVI Time Series"),
+                      title = tags$span(title = "Displays NDVI time series for the selected area to explore vegetation dynamics over time.", "NDVI Time Series"),
                       value = "NDVItsTab",
                       conditionalPanel(condition = "input.tabs == 'NDVIexplorerTab' && input.ndvisubtabs == 'NDVItsTab'",
                                        div(
@@ -231,7 +231,7 @@ mod_body_ui <- function(id) {
                     ),
                     
                     tabPanel(
-                      title = tags$span(title = "This tab is used to compare current land burned to historic values (Seasonal Overview) or to evaluate how the timing of the fire season compares to that of previous years (Daily Activity).", "Burned Area Time Series"),
+                      title = tags$span(title = "This tab is used to compare current land burned to historic values (Monthly View) or to evaluate how the timing of the fire season compares to that of previous years (Annual View).", "Burned Area Time Series"),
                       value = "BAtimeseries",
                       conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries'",
                                        div(class = "plot-container",
