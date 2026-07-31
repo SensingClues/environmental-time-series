@@ -2082,12 +2082,26 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
   this_and_last_year <- tail(this_and_last_year, n = 2)
   data_filtered <- data_filtered %>%
     dplyr::filter(Year %in% this_and_last_year)
-  
+
+  # Panel shape from the data extent rather than a fixed guess. One degree of
+  # longitude is shorter than one of latitude away from the equator, so the true
+  # aspect depends on the AoI: height/width runs from ~0.4 (Bulgaria) to ~1.9
+  # (Mponda). The previous hardcoded aspect.ratio = 2.5 forced tall, narrow panels
+  # for every AoI and left the rest of the canvas white.
+  x_rng     <- range(data_filtered$x, na.rm = TRUE)
+  y_rng     <- range(data_filtered$y, na.rm = TRUE)
+  lat_scale <- cos(mean(y_rng) * pi / 180)
+  if (!is.finite(lat_scale) || lat_scale <= 0) lat_scale <- 1
+  coord_ratio <- 1 / lat_scale
+  panel_ratio <- (diff(y_rng) * coord_ratio) / diff(x_rng)
+  if (!is.finite(panel_ratio) || panel_ratio <= 0) panel_ratio <- 1
+
   # Generate the plot
   map_plot <- ggplot(data_filtered, aes(x = x, y = y, fill = NDVI)) +
     geom_raster() +
     scale_fill_gradientn(colors = brgr_colors(10), limits = zlim_range,
                          oob = scales::squish) +
+    coord_fixed(ratio = coord_ratio) +
     facet_wrap(~ YearMonth, ncol = ncol) +
     labs(
       title = paste0("NDVI development over the years - ",
@@ -2098,29 +2112,38 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
     ) +
     theme_minimal() +
     theme(
-      aspect.ratio = 2.5, # Keep a consistent aspect ratio
       panel.spacing = unit(1, "lines"), # Space between panels
       strip.text = element_text(size = 12), # Adjust facet labels
-      axis.text.x = element_text(hjust = 1, size = 15), 
-      axis.text.y = element_text(size = 15), 
+      axis.text.x = element_text(hjust = 1, size = 15),
+      axis.text.y = element_text(size = 15),
       axis.title.x = element_text(size = 20, margin = margin(15, 0, 0, 0)),
       axis.title.y = element_text(size = 20, margin = margin(0, 15, 0, 0)),
       plot.title = element_text(size = 20, hjust = 0.5)
     )
-  
+
   # Save the plot if save_path is provided
   if (!is.null(save_path)) {
     # Ensure the save directory exists
     if (!dir.exists(save_path)) {
       dir.create(save_path, recursive = TRUE)
     }
-    
+
+    # Size the canvas to the panels so the PNG carries no dead margin. Height stays
+    # at plot_height and the width follows from the panel aspect, capped so a very
+    # wide AoI cannot produce a huge file. Depends only on the AoI, so every
+    # resolution of the same area now yields the same canvas.
+    n_panels  <- max(length(unique(data_filtered$YearMonth)), 1L)
+    n_col     <- max(min(ncol, n_panels), 1L)
+    n_row     <- ceiling(n_panels / n_col)
+    panel_h   <- max((plot_height - 2.0) / n_row, 1)  # minus title + axis labels
+    fig_width <- min(n_col * (panel_h / panel_ratio) + 2.5, 24)  # plus y axis + legend
+
     # Save the plot to the specified location
     ggsave(filename = file.path(save_path, filename),
-           plot = map_plot, width = plot_width,
+           plot = map_plot, width = fig_width,
            height = plot_height, units = "in")
   }
-  
+
   # Return the plot
   return(map_plot)
 }
