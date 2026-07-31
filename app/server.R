@@ -710,81 +710,85 @@ server <- function(input, output, session) {
     div(class = "ndvi-callout", p(text))
   })
 
-  output$ndvi_health_summary_card <- renderUI({
-    s <- ndvi_ts_stats()
-    if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
-    if (identical(s$view, "annual")) return(NULL)
+  # Overall status banner for the Monthly View — disabled, kept for reinstatement.
+  # Superseded by the dated Vegetation Condition banner (output$wilcoxon_card), which
+  # now sits above the chart. Reviving it also needs
+  # uiOutput("ndvi_health_summary_card") in the NDVI Time Series panel of mod_body_ui.R.
+  # output$ndvi_health_summary_card <- renderUI({
+  #   s <- ndvi_ts_stats()
+  #   if (is.null(s) || !isTRUE(ndvi_ts_ready())) return(NULL)
+  #   if (identical(s$view, "annual")) return(NULL)
 
-    # Determine status from long-term trend and current-year condition.
-    status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05 &&
-                  !is.null(s$sen_slope) && !is.na(s$sen_slope) && s$sen_slope < 0) {
-      "Degrading"
-    } else if (!is.null(s$wilcox_p) && !is.na(s$wilcox_p) && s$wilcox_p < 0.05 &&
-               !is.null(s$wilcox_median) && !is.na(s$wilcox_median) && s$wilcox_median < 0) {
-      "Mild stress"
-    } else {
-      "Stable"
-    }
-    status_color <- switch(status,
-      "Stable" = "#4CAF50",
-      "Mild stress" = "#FFC107",
-      "Degrading" = "#F44336",
-      "#9E9E9E"
-    )
-    status_explanation <- switch(status,
-      "Stable" = "No significant change compared to historical data.",
-      "Mild stress" = "Vegetation health is below its usual range this year.",
-      "Degrading" = "Long-term vegetation health is declining compared to historical data.",
-      "No significant change compared to historical data."
-    )
+  #   # Determine status from long-term trend and current-year condition.
+  #   status <- if (!is.null(s$smk_p) && !is.na(s$smk_p) && s$smk_p < 0.05 &&
+  #                 !is.null(s$sen_slope) && !is.na(s$sen_slope) && s$sen_slope < 0) {
+  #     "Degrading"
+  #   } else if (!is.null(s$wilcox_p) && !is.na(s$wilcox_p) && s$wilcox_p < 0.05 &&
+  #              !is.null(s$wilcox_median) && !is.na(s$wilcox_median) && s$wilcox_median < 0) {
+  #     "Mild stress"
+  #   } else {
+  #     "Stable"
+  #   }
+  #   status_color <- switch(status,
+  #     "Stable" = "#4CAF50",
+  #     "Mild stress" = "#FFC107",
+  #     "Degrading" = "#F44336",
+  #     "#9E9E9E"
+  #   )
+  #   status_explanation <- switch(status,
+  #     "Stable" = "No significant change compared to historical data.",
+  #     "Mild stress" = "Vegetation health is below its usual range this year.",
+  #     "Degrading" = "Long-term vegetation health is declining compared to historical data.",
+  #     "No significant change compared to historical data."
+  #   )
 
-    # Data coverage from available files
-    years_avail <- get_available_years(data_dir, "NDVI", input$country, input$resolution)
-    res_label   <- dplyr::case_when(
-      grepl("Sentinel", input$resolution) ~ "Sentinel-2",
-      grepl("MODIS",    input$resolution) ~ "MODIS",
-      TRUE                                ~ "satellite"
-    )
-    coverage <- if (length(years_avail) > 0) {
-      sprintf("Based on %s data from %d to %d", res_label, min(years_avail), max(years_avail))
-    } else {
-      "Based on available data"
-    }
+  #   # Data coverage from available files
+  #   years_avail <- get_available_years(data_dir, "NDVI", input$country, input$resolution)
+  #   res_label   <- dplyr::case_when(
+  #     grepl("Sentinel", input$resolution) ~ "Sentinel-2",
+  #     grepl("MODIS",    input$resolution) ~ "MODIS",
+  #     TRUE                                ~ "satellite"
+  #   )
+  #   coverage <- if (length(years_avail) > 0) {
+  #     sprintf("Based on %s data from %d to %d", res_label, min(years_avail), max(years_avail))
+  #   } else {
+  #     "Based on available data"
+  #   }
 
-    # MODIS recommendation when Sentinel-2 is selected
-    is_sentinel <- grepl("Sentinel", input$resolution, ignore.case = TRUE)
-    recommendation <- if (is_sentinel) {
-      modis_years <- get_available_years(data_dir, "NDVI", input$country, "MODIS_1000")
-      if (length(modis_years) >= 2L) {
-        sprintf("Switch to MODIS for a longer-term perspective covering %d–%d.",
-                min(modis_years), max(modis_years))
-      } else ndvi_error_ui(error_msg)
-    } else NULL
+  #   # MODIS recommendation when Sentinel-2 is selected
+  #   is_sentinel <- grepl("Sentinel", input$resolution, ignore.case = TRUE)
+  #   recommendation <- if (is_sentinel) {
+  #     modis_years <- get_available_years(data_dir, "NDVI", input$country, "MODIS_1000")
+  #     if (length(modis_years) >= 2L) {
+  #       sprintf("Switch to MODIS for a longer-term perspective covering %d–%d.",
+  #               min(modis_years), max(modis_years))
+  #     } else ndvi_error_ui(error_msg)
+  #   } else NULL
 
-    div(
-      style = paste0(
-        "background:", status_color, "22; border-left:4px solid ", status_color,
-        "; padding:12px; margin-bottom:16px; border-radius:4px;"
-      ),
-      fluidRow(
-        column(6,
-          tags$strong("Overall status:"), tags$br(),
-          tags$span(
-            style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"),
-            tags$span(class = "ndvi-status-dot", style = paste0("background:", status_color, ";")),
-            status
-          ),
-          tags$br(),
-          tags$span(style = "font-size:0.92em; color:#333;", status_explanation)
-        ),
-        column(6,
-          tags$strong("Data coverage:"), tags$br(),
-          tags$span(coverage),
-          if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
-        )
-      )
-    )
-  })
+  #   div(
+  #     style = paste0(
+  #       "background:", status_color, "22; border-left:4px solid ", status_color,
+  #       "; padding:12px; margin-bottom:16px; border-radius:4px;"
+  #     ),
+  #     fluidRow(
+  #       column(6,
+  #         tags$strong("Overall status:"), tags$br(),
+  #         tags$span(
+  #           style = paste0("font-size:1.2em; color:", status_color, "; font-weight:bold;"),
+  #           tags$span(class = "ndvi-status-dot", style = paste0("background:", status_color, ";")),
+  #           status
+  #         ),
+  #         tags$br(),
+  #         tags$span(style = "font-size:0.92em; color:#333;", status_explanation)
+  #       ),
+  #       column(6,
+  #         tags$strong("Data coverage:"), tags$br(),
+  #         tags$span(coverage),
+  #         if (!is.null(recommendation)) tagList(tags$br(), tags$em(recommendation)) else NULL
+  #       )
+  #     )
+  #   )
+  # })
 
   output$ndvi_annual_summary_card <- renderUI({
     s <- ndvi_ts_stats()

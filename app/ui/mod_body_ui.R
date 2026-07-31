@@ -145,14 +145,15 @@ mod_body_ui <- function(id) {
                                          #   status   = "default"
                                          # ),
                                          mod_busy_spinner_ui("busy_spinner"),
-                                         uiOutput("ndvi_health_summary_card"),
+                                         # Overall status banner — disabled, see output$ndvi_health_summary_card in server.R
+                                         # uiOutput("ndvi_health_summary_card"),
+                                         uiOutput("wilcoxon_card"),
                                          uiOutput("ndvi_annual_summary_card"),
                                          uiOutput("ndvi_ts_plot_container"),
                                          div(
                                            class = "ndvi-ts-insight-cards",
                                            style = "margin-top: 16px;",
                                            fluidRow(
-                                             column(12, uiOutput("wilcoxon_card")),
                                              column(12, uiOutput("smk_card"))
                                            )
                                          )

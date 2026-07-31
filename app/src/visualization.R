@@ -698,7 +698,8 @@ ndvi_insight_smk_tooltip <- function() {
 
 #' Wilcoxon (monthly anomalies vs 0) and Seasonal Mann–Kendall on full monthly series.
 #' SMK/Sen run only when there are at least 60 monthly points (5 years).
-#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months)
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months, test_year,
+#'   train_year_label)
 compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
@@ -734,12 +735,26 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
     if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
   }
 
+  # Both sides of the comparison, read from the data rather than the sidebar: the
+  # year selection is clamped to the available range before the files are picked.
+  test_years <- if (is.null(test_monthly) || nrow(test_monthly) == 0L) {
+    integer(0)
+  } else {
+    stats::na.omit(lubridate::year(test_monthly$YearMonth))
+  }
+  test_year <- if (length(test_years) == 0L) NA_integer_ else max(test_years)
+  # "" when the baseline is empty; ndvi_monthly_year_span_label() handles the
+  # single-year case too.
+  train_year_label <- ndvi_monthly_year_span_label(train_monthly)
+
   list(
     wilcox_p = wilcox_p,
     wilcox_median = wilcox_median,
     smk_p = smk_p,
     sen_slope = sen_slope,
-    smk_n_months = smk_n_months
+    smk_n_months = smk_n_months,
+    test_year = test_year,
+    train_year_label = train_year_label
   )
 }
 
@@ -782,7 +797,7 @@ insight_banner_ui <- function(heading, tooltip, main, col, p_lab, plain_text) {
   )
 }
 
-#' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
+#' Shiny UI: selected-year Condition card (uses compute_ndvi_explorer_stats output).
 ndvi_insight_wilcox_card_ui <- function(stats, land_cover_class = NULL) {
   if (is.null(stats)) return(NULL)
   p <- stats$wilcox_p
@@ -791,47 +806,55 @@ ndvi_insight_wilcox_card_ui <- function(stats, land_cover_class = NULL) {
     gsub("_", " ", land_cover_class) else NULL
   subject <- if (!is.null(lc_label)) paste0(lc_label, " NDVI") else "Vegetation health"
   area_phrase <- if (!is.null(lc_label)) paste0("for ", lc_label, " in this area") else "for this area"
-  plain_text <- paste0(subject, " this year is within the expected range ", area_phrase, ".")
+
+  # Name the year under test; "Current" would be wrong for any earlier selection.
+  year_lab <- if (is.null(stats$test_year) || is.na(stats$test_year)) {
+    NULL
+  } else {
+    as.character(stats$test_year)
+  }
+  heading <- if (is.null(year_lab)) "Vegetation Condition" else paste0(year_lab, " Vegetation Condition")
+  # Subject position ("Vegetation health in 2019 is ...") vs object position
+  # ("compare 2019 with ..."); fall back to the vaguer wording when the year
+  # cannot be determined.
+  period_subj <- if (is.null(year_lab)) "this year" else paste0("in ", year_lab)
+  period_obj  <- if (is.null(year_lab)) "this year" else year_lab
+  # History the year is measured against, e.g. "the 2001-2018 average"
+  hist_lab     <- stats$train_year_label
+  has_hist     <- !is.null(hist_lab) && nzchar(hist_lab)
+  baseline_avg <- if (has_hist) paste0("the ", hist_lab, " average") else "usual conditions"
+  baseline_cmp <- if (has_hist) paste0("the ", hist_lab, " average") else "usual"
+
+  plain_text <- paste0(subject, " ", period_subj, " is within the expected range ", area_phrase,
+                       ", based on ", baseline_avg, ".")
   if (is.na(p)) {
     main <- "Not enough data for this summary"
     col <- "#555555"
     p_lab <- "p-value: N/A"
-    plain_text <- "There is not enough monthly data to compare this year with usual conditions."
+    plain_text <- paste0("There is not enough monthly data to compare ", period_obj, " with ", baseline_avg, ".")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
     main <- "Above normal vegetation"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- paste0(subject, " this year is notably better than usual.")
+    plain_text <- paste0(subject, " ", period_subj, " is notably better than ", baseline_cmp, ".")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
     main <- "Below normal vegetation"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- paste0(subject, " this year is notably worse than usual - this may indicate drought, land degradation, or other stress.")
+    plain_text <- paste0(subject, " ", period_subj, " is notably worse than ", baseline_cmp,
+                         " - this may indicate drought, land degradation, or other stress.")
   } else {
     main <- "No significant difference from normal"
     col <- "#555555"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
   }
-  shiny::tags$div(
-    class = "ndvi-insight-card",
-    shiny::tags$h4(
-      class = "ndvi-insight-card__heading",
-      "Current Year Condition",
-      shiny::tags$span(
-        title = ndvi_insight_wilcox_tooltip(),
-        class = "ndvi-help-icon",
-        "ⓘ"
-      )
-    ),
-    shiny::tags$div(
-      class = ndvi_insight_main_class(col),
-      main
-    ),
-    shiny::tags$div(
-      class = "ndvi-insight-card__footer",
-      shiny::tags$div(p_lab),
-      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
-    )
+  insight_banner_ui(
+    heading    = heading,
+    tooltip    = ndvi_insight_wilcox_tooltip(),
+    main       = main,
+    col        = col,
+    p_lab      = p_lab,
+    plain_text = plain_text
   )
 }
 
