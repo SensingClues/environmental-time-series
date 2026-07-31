@@ -753,6 +753,35 @@ ndvi_insight_main_class <- function(col) {
   }
 }
 
+#' Shiny UI: insight content rendered as a coloured banner.
+#' Same look as the NDVI summary banners (tinted bar, 4px coloured left border),
+#' but carrying the full insight-card content: heading with help icon, coloured
+#' verdict, plain-language explanation and p-value. `col` drives the tint, the
+#' border, the status dot and the verdict text so the three always agree.
+insight_banner_ui <- function(heading, tooltip, main, col, p_lab, plain_text) {
+  shiny::tags$div(
+    class = "insight-banner",
+    style = paste0("background:", col, "22; border-left:4px solid ", col, ";"),
+    shiny::tags$div(
+      class = "insight-banner__title",
+      heading,
+      shiny::tags$span(
+        title = tooltip,
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(
+      class = "insight-banner__main",
+      style = paste0("color:", col, ";"),
+      shiny::tags$span(class = "ndvi-status-dot", style = paste0("background:", col, ";")),
+      main
+    ),
+    shiny::tags$div(class = "insight-banner__plain", plain_text),
+    shiny::tags$div(class = "insight-banner__pvalue", p_lab)
+  )
+}
+
 #' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
 ndvi_insight_wilcox_card_ui <- function(stats, land_cover_class = NULL) {
   if (is.null(stats)) return(NULL)
@@ -1604,6 +1633,29 @@ compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL,
   train_raw <- keep_season(train_raw)
   test_raw  <- keep_season(test_raw)
 
+  # Year actually under test, read from the data rather than the sidebar: the
+  # selection is clamped to the available range before the files are picked.
+  test_year <- if (is.null(test_raw) || nrow(test_raw) == 0) {
+    NA_integer_
+  } else {
+    max(as.integer(test_raw$Year), na.rm = TRUE)
+  }
+
+  # Baseline the test year is measured against. Only years before the selected one
+  # are in train_raw, so an early selection means a shorter history — worth naming.
+  train_years <- if (is.null(train_raw) || nrow(train_raw) == 0) {
+    integer(0)
+  } else {
+    sort(unique(as.integer(train_raw$Year)))
+  }
+  train_year_label <- if (length(train_years) == 0L) {
+    NULL
+  } else if (length(train_years) == 1L) {
+    as.character(train_years)
+  } else {
+    paste0(min(train_years), "–", max(train_years))
+  }
+
   # Historical monthly climatology
   climatology_df <- train_raw %>%
     dplyr::group_by(Month) %>%
@@ -1669,11 +1721,14 @@ compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL,
     smk_n_months = smk_n_months,
     smk_min_months = smk_min_months,
     season_months = season_months,
-    season_label = ba_season_label(season_months)
+    season_label = ba_season_label(season_months),
+    test_year = test_year,
+    train_year_label = train_year_label,
+    train_n_years = length(train_years)
   )
 }
 
-#' Shiny UI: Current Year Fire Activity card (uses compute_ba_explorer_stats output).
+#' Shiny UI: selected-year Fire Activity card (uses compute_ba_explorer_stats output).
 #' Colour meaning is inverted relative to NDVI: more fire than usual is the adverse
 #' direction (red); less fire than usual is favourable (green).
 ba_insight_wilcox_card_ui <- function(stats) {
@@ -1683,52 +1738,67 @@ ba_insight_wilcox_card_ui <- function(stats) {
   season_lab <- stats$season_label
   # "this year" becomes "this fire season" once the months are filtered
   period  <- if (is.null(season_lab)) "this year" else "this fire season"
-  heading <- if (is.null(season_lab)) {
-    "Current Year Fire Activity"
+  # Name the year under test; "Current" would be wrong for any earlier selection.
+  year_lab <- if (is.null(stats$test_year) || is.na(stats$test_year)) {
+    NULL
   } else {
-    paste0("Current Fire Season Activity (", season_lab, ")")
+    as.character(stats$test_year)
   }
-  plain_text <- paste0("Fire activity ", period, " is within the expected range for this area.")
+  year_prefix <- if (is.null(year_lab)) "" else paste0(year_lab, " ")
+  heading <- if (is.null(season_lab)) {
+    paste0(year_prefix, "Fire Activity")
+  } else {
+    paste0(year_prefix, "Fire Season Activity (", season_lab, ")")
+  }
+
+  # Name both sides of the comparison in the explanation: the period under test
+  # ("Jun-Nov 2019") and the history it is measured against ("2001-2018").
+  period_label <- if (is.null(year_lab)) {
+    NULL
+  } else if (is.null(season_lab)) {
+    year_lab
+  } else {
+    paste0(season_lab, " ", year_lab)
+  }
+  # Subject position ("Fire activity in Jun-Nov 2019 is ...") vs object position
+  # ("compare Jun-Nov 2019 with ..."); fall back to the vaguer wording when the
+  # year cannot be determined.
+  period_subj <- if (is.null(period_label)) period else paste0("in ", period_label)
+  period_obj  <- if (is.null(period_label)) period else period_label
+  hist_lab    <- stats$train_year_label
+  baseline_avg <- if (is.null(hist_lab)) "usual conditions" else paste0("the ", hist_lab, " average")
+  baseline_cmp <- if (is.null(hist_lab)) "usual" else paste0("the ", hist_lab, " average")
+
+  plain_text <- paste0("Fire activity ", period_subj, " is within the expected range for this area, based on ",
+                       baseline_avg, ".")
   if (is.na(p)) {
     main <- "Not enough data for this summary"
     col <- "#555555"
     p_lab <- "p-value: N/A"
-    plain_text <- paste0("There is not enough monthly data to compare ", period, " with usual conditions.")
+    plain_text <- paste0("There is not enough monthly data to compare ", period_obj, " with ", baseline_avg, ".")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
     main <- "Above normal fire activity"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- paste0("Fire activity ", period, " is notably higher than usual - this may indicate elevated fire risk or pressure on the landscape.")
+    plain_text <- paste0("Fire activity ", period_subj, " is notably higher than ", baseline_cmp,
+                         " - this may indicate elevated fire risk or pressure on the landscape.")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
     main <- "Below normal fire activity"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- paste0("Fire activity ", period, " is notably lower than usual.")
+    plain_text <- paste0("Fire activity ", period_subj, " is notably lower than ", baseline_cmp, ".")
   } else {
     main <- "No significant difference from normal"
     col <- "#555555"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
   }
-  shiny::tags$div(
-    class = "ndvi-insight-card",
-    shiny::tags$h4(
-      class = "ndvi-insight-card__heading",
-      heading,
-      shiny::tags$span(
-        title = ba_insight_wilcox_tooltip(season_lab),
-        class = "ndvi-help-icon",
-        "ⓘ"
-      )
-    ),
-    shiny::tags$div(
-      class = ndvi_insight_main_class(col),
-      main
-    ),
-    shiny::tags$div(
-      class = "ndvi-insight-card__footer",
-      shiny::tags$div(p_lab),
-      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
-    )
+  insight_banner_ui(
+    heading    = heading,
+    tooltip    = ba_insight_wilcox_tooltip(season_lab),
+    main       = main,
+    col        = col,
+    p_lab      = p_lab,
+    plain_text = plain_text
   )
 }
 
@@ -1787,26 +1857,13 @@ ba_insight_smk_card_ui <- function(stats, year_range_label = NULL) {
     col <- "#555555"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
   }
-  shiny::tags$div(
-    class = "ndvi-insight-card",
-    shiny::tags$h4(
-      class = "ndvi-insight-card__heading",
-      if (is.null(season_lab)) "Long-Term Fire Trend" else paste0("Long-Term Fire Trend (", season_lab, ")"),
-      shiny::tags$span(
-        title = ba_insight_smk_tooltip(season_lab, smk_min_months),
-        class = "ndvi-help-icon",
-        "ⓘ"
-      )
-    ),
-    shiny::tags$div(
-      class = ndvi_insight_main_class(col),
-      main
-    ),
-    shiny::tags$div(
-      class = "ndvi-insight-card__footer",
-      shiny::tags$div(p_lab),
-      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
-    )
+  insight_banner_ui(
+    heading    = if (is.null(season_lab)) "Long-Term Fire Trend" else paste0("Long-Term Fire Trend (", season_lab, ")"),
+    tooltip    = ba_insight_smk_tooltip(season_lab, smk_min_months),
+    main       = main,
+    col        = col,
+    p_lab      = p_lab,
+    plain_text = plain_text
   )
 }
 

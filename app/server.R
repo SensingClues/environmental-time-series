@@ -1401,11 +1401,14 @@ server <- function(input, output, session) {
     ba_insight_wilcox_card_ui(s)
   })
 
-  output$ba_smk_card <- renderUI({
-    s <- ba_ts_stats()
-    if (is.null(s) || !isTRUE(ba_ts_ready())) return(NULL)
-    ba_insight_smk_card_ui(s, year_range_label = ba_year_range_label())
-  })
+  # Long-Term Fire Trend card for the Monthly View — disabled, kept for reinstatement.
+  # Reviving it also needs uiOutput("ba_smk_card") in the Seasonal Overview panel of
+  # mod_body_ui.R. Shares the Monthly View's stats, so no extra computation is needed.
+  # output$ba_smk_card <- renderUI({
+  #   s <- ba_ts_stats()
+  #   if (is.null(s) || !isTRUE(ba_ts_ready())) return(NULL)
+  #   ba_insight_smk_card_ui(s, year_range_label = ba_year_range_label())
+  # })
 
   # Render a container for the plot or error message
   output$ba_plot_container <- renderUI({

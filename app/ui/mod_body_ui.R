@@ -250,21 +250,10 @@ mod_body_ui <- function(id) {
                                            conditionalPanel(
                                              condition = "input.ba_ts_view == 'seasonal'",
                                              mod_busy_spinner_ui("busy_spinner"),
-                                             div(
-                                               class = "ndvi-ts-insight-cards",
-                                               style = "margin-bottom: 16px;",
-                                               fluidRow(
-                                                 column(12, uiOutput("ba_smk_card"))
-                                               )
-                                             ),
+                                             uiOutput("ba_wilcoxon_card"),
                                              uiOutput("ba_plot_container"),
-                                             div(
-                                               class = "ndvi-ts-insight-cards",
-                                               style = "margin-top: 16px;",
-                                               fluidRow(
-                                                 column(12, uiOutput("ba_wilcoxon_card"))
-                                               )
-                                             )
+                                             # Long-Term Fire Trend card — disabled, see output$ba_smk_card in server.R
+                                             # uiOutput("ba_smk_card"),
                                            ),
 
                                            # === DAILY ACTIVITY ===

@@ -693,6 +693,34 @@ table.lc-landcover-tooltip-table thead tr {
   vertical-align: baseline;
 }
 
+/* Insight banner: insight-card content in the coloured summary-banner style.
+   Background tint, left border and text colour are set inline (data-driven). */
+.insight-banner {
+  padding: 12px;
+  margin-bottom: 16px;
+  border-radius: 4px;
+}
+.insight-banner__title {
+  font-weight: bold;
+}
+.insight-banner__main {
+  font-size: 1.2em;
+  font-weight: bold;
+  line-height: 1.3;
+  margin-top: 2px;
+}
+.insight-banner__plain {
+  font-size: 0.92em;
+  color: #333;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+.insight-banner__pvalue {
+  font-size: 0.85em;
+  color: #666;
+  margin-top: 4px;
+}
+
 .ndvi-ts-plot-stack {
   display: flex;
   flex-direction: column;
