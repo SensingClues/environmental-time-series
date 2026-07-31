@@ -1485,9 +1485,23 @@ plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
 
 # Interactive Plotly BA time series matching NDVI TS style: ribbon + historical mean + current year line.
 plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
-                                       test_year = NULL, season_months = 1:12) {
+                                       test_year = NULL, season_months = 1:12,
+                                       train_year_label = NULL) {
   season_months <- normalize_season_months(season_months)
   season_lab    <- ba_season_label(season_months)
+
+  # Name the baseline years in the legend, as the NDVI monthly chart does: the
+  # summary passed in is aggregated by month, so the years are otherwise invisible.
+  hist_suffix <- if (!is.null(train_year_label) && nzchar(train_year_label)) {
+    paste0(" (", train_year_label, ")")
+  } else {
+    ""
+  }
+  test_suffix <- if (!is.null(test_year) && nzchar(as.character(test_year))) {
+    paste0(" (", test_year, ")")
+  } else {
+    ""
+  }
 
   train_data <- train_data %>%
     dplyr::mutate(
@@ -1532,7 +1546,7 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
       ymin          = ~lower_ci,
       ymax          = ~upper_ci,
       text          = ~hover_text,
-      name          = "Historic range",
+      name          = paste0("Historic range", hist_suffix),
       legendgroup   = "historic",
       fillcolor     = "rgba(39, 129, 207, 0.2)",
       line          = list(color = "transparent"),
@@ -1541,14 +1555,14 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
     plotly::add_lines(
       data          = train_data,
       x             = ~date, y = ~mean_val,
-      name          = "Historical monthly average",
+      name          = paste0("Historical monthly average", hist_suffix),
       line          = list(width = 2.5, dash = "dash", color = "#0072B2"),
       hovertemplate = "Month: %{x|%b}<br>Historical avg: %{y:.1f} km²<extra></extra>"
     ) %>%
     plotly::add_lines(
       data          = test_data,
       x             = ~date, y = ~mean_val,
-      name          = paste0("Burned Area ", test_year),
+      name          = paste0("Burned Area", test_suffix),
       line          = list(width = 3, color = "#E69F00"),
       marker        = list(size = 7, color = "#E69F00"),
       mode          = "lines+markers",
@@ -1893,27 +1907,76 @@ ba_insight_smk_card_ui <- function(stats, year_range_label = NULL) {
 # Interactive Plotly daily burn activity chart — one filled line per year.
 # daily_data: data frame with columns date, km2, year (character).
 # selected_years: character vector of years to plot (determines legend order).
-plot_ba_daily_activity <- function(daily_data, selected_years) {
+# season_months: months of the selected fire season; fixes the x-axis window.
+# month_coverage: distinct year/month rows for which source files exist. Days are
+#   zero-filled only inside this coverage, so a month with no file stays absent
+#   instead of being drawn as a confident zero.
+plot_ba_daily_activity <- function(daily_data, selected_years, season_months = 1:12,
+                                   month_coverage = NULL) {
+  season_months <- normalize_season_months(season_months)
   year_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7")
   names(year_colors) <- as.character(selected_years[seq_len(min(length(selected_years), 4))])
+
+  # Span the whole selected season. Days without fire produce no rows, so an
+  # auto-ranged axis would silently drop quiet months (e.g. Jan-Apr) and imply
+  # the season selector had not been applied. Dates are overlaid onto 2000.
+  season_start <- as.Date(sprintf("2000-%02d-01", min(season_months)))
+  season_end   <- seq(as.Date(sprintf("2000-%02d-01", max(season_months))),
+                      by = "month", length.out = 2L)[2L] - 1L
 
   p <- plotly::plot_ly()
 
   for (i in seq_along(selected_years)) {
-    yr    <- as.character(selected_years[i])
-    col   <- year_colors[[yr]]
-    ydata <- if (!is.null(daily_data)) dplyr::filter(daily_data, year == yr) else NULL
+    yr     <- as.character(selected_years[i])
+    yr_int <- as.integer(selected_years[i])
+    col    <- year_colors[[yr]]
+    observed <- if (!is.null(daily_data)) dplyr::filter(daily_data, year == yr) else NULL
 
-    if (is.null(ydata) || nrow(ydata) == 0) {
+    # Months this year actually has files for; without a coverage table assume the
+    # whole selected season.
+    months_avail <- if (is.null(month_coverage)) {
+      season_months
+    } else {
+      sort(unique(month_coverage$month[month_coverage$year == yr_int]))
+    }
+    months_avail <- intersect(months_avail, season_months)
+
+    # One row per covered day, so quiet days read as 0 rather than leaving the line
+    # to interpolate across them or stop altogether.
+    grid_dates <- if (length(months_avail) == 0L) {
+      as.Date(character(0))
+    } else {
+      all_days <- seq(
+        as.Date(sprintf("%d-%02d-01", yr_int, min(months_avail))),
+        seq(as.Date(sprintf("%d-%02d-01", yr_int, max(months_avail))),
+            by = "month", length.out = 2L)[2L] - 1L,
+        by = "day"
+      )
+      all_days[as.integer(format(all_days, "%m")) %in% months_avail]
+    }
+
+    if (length(grid_dates) == 0L) {
       p <- p %>%
         plotly::add_lines(
           x    = as.Date(NA), y = as.numeric(NA),
-          name = paste0(yr, " — no fire activity detected"),
+          name = paste0(yr, " — no data available"),
           line = list(color = col, width = 2),
           showlegend = TRUE
         )
     } else {
-      ydata <- dplyr::arrange(ydata, date)
+      # Sum first: two monthly files could in principle report the same date.
+      obs <- if (is.null(observed) || nrow(observed) == 0L) {
+        data.frame(date = as.Date(character(0)), km2 = numeric(0))
+      } else {
+        observed %>%
+          dplyr::group_by(date) %>%
+          dplyr::summarise(km2 = sum(km2, na.rm = TRUE), .groups = "drop")
+      }
+      had_fire <- nrow(obs) > 0L
+      ydata <- data.frame(date = grid_dates) %>%
+        dplyr::left_join(obs, by = "date") %>%
+        dplyr::mutate(km2 = ifelse(is.na(km2), 0, km2)) %>%
+        dplyr::arrange(date)
       ydata$date_overlay <- as.Date(
         paste0("2000-", format(ydata$date, "%m-%d")))
       r_val <- strtoi(substr(col, 2, 3), 16L)
@@ -1925,7 +1988,7 @@ plot_ba_daily_activity <- function(daily_data, selected_years) {
           data          = ydata,
           x             = ~date_overlay, y = ~km2,
           customdata    = ~date,
-          name          = yr,
+          name          = if (had_fire) yr else paste0(yr, " — no fire activity detected"),
           line          = list(color = col, width = 2.5),
           fill          = "tozeroy",
           fillcolor     = fill_col,
@@ -1936,7 +1999,9 @@ plot_ba_daily_activity <- function(daily_data, selected_years) {
 
   p %>%
     plotly::layout(
-      xaxis     = list(title = "Date", tickformat = "%b %d", tickangle = -45, showgrid = FALSE),
+      xaxis     = list(title = "Date", tickformat = "%b %d", tickangle = -45, showgrid = FALSE,
+                       range = c(format(season_start, "%Y-%m-%d"),
+                                 format(season_end,   "%Y-%m-%d"))),
       yaxis     = list(title = "Burned Area (km²) per day", showgrid = TRUE,
                        gridcolor = "rgba(0,0,0,0.08)"),
       template  = "plotly_white",

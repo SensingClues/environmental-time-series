@@ -1493,7 +1493,13 @@ server <- function(input, output, session) {
       }))
       if (nrow(all_daily) == 0) all_daily <- NULL
 
-      ba_daily_plot_obj(plot_ba_daily_activity(all_daily, selected_years))
+      # Which year/month files exist, so quiet days can be drawn as zero without
+      # inventing zeros for months that have no data at all.
+      month_coverage <- dplyr::distinct(files_df, year, month)
+
+      ba_daily_plot_obj(plot_ba_daily_activity(all_daily, selected_years,
+                                               season_months  = season_months,
+                                               month_coverage = month_coverage))
       error_message_rv(NULL)
     }, error = function(e) {
       ba_daily_plot_obj(NULL)

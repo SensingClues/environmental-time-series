@@ -216,14 +216,17 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
     test_raw        <- get_ba_summary_fast(test_files_df, data_path, aoi_proj)
     test_ba_summary <- get_summary_ba_df(ba_df = test_raw)
 
-    ba_plot <- plot_ba_timeseries_plotly(
-      train_data    = train_ba_summary,
-      test_data     = test_ba_summary,
-      test_year     = end_year,
-      season_months = season_months
-    )
+    # Stats first: the plot legend reuses their baseline year label so the chart and
+    # the insight card can never name different histories.
     ba_stats <- compute_ba_explorer_stats(train_raw = train_raw, test_raw = test_raw,
                                           season_months = season_months)
+    ba_plot <- plot_ba_timeseries_plotly(
+      train_data       = train_ba_summary,
+      test_data        = test_ba_summary,
+      test_year        = end_year,
+      season_months    = season_months,
+      train_year_label = ba_stats$train_year_label
+    )
 
     return(list(plot = ba_plot, stats = ba_stats))
   }
