@@ -1433,7 +1433,10 @@ plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
 
 # Interactive Plotly BA time series matching NDVI TS style: ribbon + historical mean + current year line.
 plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
-                                       test_year = NULL) {
+                                       test_year = NULL, season_months = 1:12) {
+  season_months <- normalize_season_months(season_months)
+  season_lab    <- ba_season_label(season_months)
+
   train_data <- train_data %>%
     dplyr::mutate(
       date       = as.Date(paste0(test_year, "-", Month, "-01")),
@@ -1462,7 +1465,7 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
     )
 
   common_xaxis <- list(
-    title      = "Month",
+    title      = if (is.null(season_lab)) "Month" else paste0("Month (fire season ", season_lab, ")"),
     tickmode   = "linear",
     dtick      = "M1",
     tickformat = "%b",
@@ -1548,29 +1551,59 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
 
 # --- Burned Area Explorer insight cards (Wilcoxon + Seasonal Mann–Kendall) -----------
 
-ba_insight_wilcox_tooltip <- function() {
+ba_insight_wilcox_tooltip <- function(season_label = NULL) {
+  season_line <- if (is.null(season_label)) {
+    "All months of the selected year are included."
+  } else {
+    paste0("Only the selected fire season (", season_label, ") is included.")
+  }
   paste(
     "This result is based on a Wilcoxon signed-rank test applied to monthly burned-area deviations for the selected year.",
     "It checks whether fire activity in the selected year is significantly different from the historical monthly average.",
+    season_line,
     sep = "\n"
   )
 }
 
-ba_insight_smk_tooltip <- function() {
+ba_insight_smk_tooltip <- function(season_label = NULL, min_months = 60L) {
+  season_line <- if (is.null(season_label)) {
+    "All months are included; each calendar month counts as one season."
+  } else {
+    paste0("Only the selected fire season (", season_label,
+           ") is included; each month of that season counts as one season.")
+  }
   paste(
     "This result is based on the Seasonal Mann–Kendall test.",
     "It evaluates whether burned area shows a consistent long-term increase or decrease over multiple years while accounting for seasonal patterns.",
-    "The test is run only when at least 60 monthly samples (5 years) are available.",
+    season_line,
+    paste0("The test is run only when at least 5 complete years (", min_months,
+           " monthly samples) are available."),
     sep = "\n"
   )
 }
 
 #' Wilcoxon (monthly burned-area deviations vs 0) and Seasonal Mann–Kendall on the
-#' full monthly series. SMK/Sen run only when there are at least 60 monthly points (5 years).
+#' monthly series, both restricted to the selected fire season. SMK/Sen run only when
+#' at least 5 years of season months are available (60 points for a full year, 30 for a
+#' 6-month season), because each selected month is treated as one "season".
 #' @param train_raw,test_raw per-file burned-area summaries (get_ba_summary_fast output:
 #'   columns YearMonth, Year, Month, BurnedArea_Size).
-#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months)
-compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL) {
+#' @param season_months months of the selected fire season (defaults to the full year).
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months, smk_min_months,
+#'   season_months, season_label)
+compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL,
+                                      season_months = 1:12) {
+  season_months <- normalize_season_months(season_months)
+  n_season      <- length(season_months)
+
+  # Restrict both series to the selected fire season
+  keep_season <- function(df) {
+    if (is.null(df) || nrow(df) == 0) return(df)
+    df %>% dplyr::filter(as.integer(Month) %in% season_months)
+  }
+  train_raw <- keep_season(train_raw)
+  test_raw  <- keep_season(test_raw)
+
   # Historical monthly climatology
   climatology_df <- train_raw %>%
     dplyr::group_by(Month) %>%
@@ -1595,21 +1628,36 @@ compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL) {
   smk_p <- NA_real_
   sen_slope <- NA_real_
   ba_monthly_full <- dplyr::bind_rows(train_raw, test_raw) %>%
-    dplyr::mutate(YearMonth = as.Date(YearMonth)) %>%
+    dplyr::mutate(
+      YearMonth = as.Date(YearMonth),
+      year_num  = as.integer(format(as.Date(YearMonth), "%Y")),
+      month_num = as.integer(Month)
+    ) %>%
     dplyr::distinct(YearMonth, .keep_all = TRUE) %>%
     dplyr::arrange(YearMonth)
-  smk_n_months <- nrow(ba_monthly_full)
-  smk_min_months <- 60L
+
+  # The seasonal tests need a regular series (one value per season month per year);
+  # trend::smk.test cannot handle gaps, so incomplete years are dropped.
+  complete_years <- ba_monthly_full %>%
+    dplyr::group_by(year_num) %>%
+    dplyr::summarise(n_months = dplyr::n_distinct(month_num), .groups = "drop") %>%
+    dplyr::filter(n_months == n_season) %>%
+    dplyr::pull(year_num)
+
+  smk_series     <- ba_monthly_full %>% dplyr::filter(year_num %in% complete_years)
+  smk_n_months   <- nrow(smk_series)
+  smk_min_months <- 5L * n_season
   if (smk_n_months >= smk_min_months) {
-    st <- ba_monthly_full$YearMonth[1]
     ba_ts <- stats::ts(
-      ba_monthly_full$BurnedArea_Size,
-      start = c(lubridate::year(st), lubridate::month(st)),
-      frequency = 12
+      smk_series$BurnedArea_Size,
+      start     = c(min(complete_years), 1),
+      frequency = n_season
     )
-    smk <- tryCatch(trend::smk.test(ba_ts), error = function(e) NULL)
+    # A single-month season has no seasons to pool, so plain Mann–Kendall applies
+    trend_test <- if (n_season > 1L) trend::smk.test else trend::mk.test
+    tt  <- tryCatch(trend_test(ba_ts), error = function(e) NULL)
     sen <- tryCatch(trend::sens.slope(ba_ts), error = function(e) NULL)
-    if (!is.null(smk)) smk_p <- unname(smk$p.value)
+    if (!is.null(tt)) smk_p <- unname(tt$p.value)
     if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
   }
 
@@ -1618,7 +1666,10 @@ compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL) {
     wilcox_median = wilcox_median,
     smk_p = smk_p,
     sen_slope = sen_slope,
-    smk_n_months = smk_n_months
+    smk_n_months = smk_n_months,
+    smk_min_months = smk_min_months,
+    season_months = season_months,
+    season_label = ba_season_label(season_months)
   )
 }
 
@@ -1629,22 +1680,30 @@ ba_insight_wilcox_card_ui <- function(stats) {
   if (is.null(stats)) return(NULL)
   p   <- stats$wilcox_p
   med <- stats$wilcox_median
-  plain_text <- "Fire activity this year is within the expected range for this area."
+  season_lab <- stats$season_label
+  # "this year" becomes "this fire season" once the months are filtered
+  period  <- if (is.null(season_lab)) "this year" else "this fire season"
+  heading <- if (is.null(season_lab)) {
+    "Current Year Fire Activity"
+  } else {
+    paste0("Current Fire Season Activity (", season_lab, ")")
+  }
+  plain_text <- paste0("Fire activity ", period, " is within the expected range for this area.")
   if (is.na(p)) {
     main <- "Not enough data for this summary"
     col <- "#555555"
     p_lab <- "p-value: N/A"
-    plain_text <- "There is not enough monthly data to compare this year with usual conditions."
+    plain_text <- paste0("There is not enough monthly data to compare ", period, " with usual conditions.")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
     main <- "Above normal fire activity"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- "Fire activity this year is notably higher than usual - this may indicate elevated fire risk or pressure on the landscape."
+    plain_text <- paste0("Fire activity ", period, " is notably higher than usual - this may indicate elevated fire risk or pressure on the landscape.")
   } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
     main <- "Below normal fire activity"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-    plain_text <- "Fire activity this year is notably lower than usual."
+    plain_text <- paste0("Fire activity ", period, " is notably lower than usual.")
   } else {
     main <- "No significant difference from normal"
     col <- "#555555"
@@ -1654,9 +1713,9 @@ ba_insight_wilcox_card_ui <- function(stats) {
     class = "ndvi-insight-card",
     shiny::tags$h4(
       class = "ndvi-insight-card__heading",
-      "Current Year Fire Activity",
+      heading,
       shiny::tags$span(
-        title = ba_insight_wilcox_tooltip(),
+        title = ba_insight_wilcox_tooltip(season_lab),
         class = "ndvi-help-icon",
         "ⓘ"
       )
@@ -1681,19 +1740,23 @@ ba_insight_smk_card_ui <- function(stats, year_range_label = NULL) {
   p <- stats$smk_p
   slope <- stats$sen_slope
   n_m <- stats$smk_n_months
+  season_lab <- stats$season_label
   year_phrase <- if (!is.null(year_range_label) && nzchar(year_range_label)) {
     paste0(" over ", year_range_label)
   } else {
     " over the available data period"
   }
+  # Restrict the wording to the selected fire season when one is set
+  if (!is.null(season_lab)) year_phrase <- paste0(" in ", season_lab, year_phrase)
   if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
-  smk_min_months <- 60L
+  smk_min_months <- stats$smk_min_months
+  if (is.null(smk_min_months) || !is.numeric(smk_min_months)) smk_min_months <- 60L
   plain_text <- paste0("Fire activity has been broadly consistent", year_phrase, ".")
   if (!is.na(n_m) && n_m < smk_min_months) {
     main <- "Long-term trend not shown (insufficient series length)"
     col <- "#555555"
     p_lab <- paste0(
-      "Seasonal Mann–Kendall applies only with ≥5 years of monthly data (",
+      "Seasonal Mann–Kendall applies only with ≥5 complete years of monthly data (",
       smk_min_months,
       " months). Current series: ",
       n_m,
@@ -1728,9 +1791,9 @@ ba_insight_smk_card_ui <- function(stats, year_range_label = NULL) {
     class = "ndvi-insight-card",
     shiny::tags$h4(
       class = "ndvi-insight-card__heading",
-      "Long-Term Fire Trend",
+      if (is.null(season_lab)) "Long-Term Fire Trend" else paste0("Long-Term Fire Trend (", season_lab, ")"),
       shiny::tags$span(
-        title = ba_insight_smk_tooltip(),
+        title = ba_insight_smk_tooltip(season_lab, smk_min_months),
         class = "ndvi-help-icon",
         "ⓘ"
       )

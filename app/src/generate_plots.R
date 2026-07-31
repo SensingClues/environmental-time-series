@@ -112,11 +112,16 @@ generate_timeseries <- function(country_name = NULL, resolution = NULL,
 generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
                                    end_year = NULL, end_month = NULL,
                                    figures_dir = NULL, data_dir = NULL,
-                                   return_plot = FALSE, figure_filename = NULL
+                                   return_plot = FALSE, figure_filename = NULL,
+                                   season_months = 1:12
 ) {
-  
+
   ### Set paths and define parameters
-  
+
+  # Fire season (months) the user selected; everything below (plot, ribbon,
+  # climatology and statistics) is restricted to these months.
+  season_months <- normalize_season_months(season_months)
+
   # figure path
   figure_path <- file.path(figures_dir, figure_filename)
   
@@ -145,17 +150,34 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
   ### Subselect filenames according to date
   # get NDVI filenames dataframe (includes date info)
   files_df <- get_ba_filename_df(ba_files = ba_files)
-  
+
+  # Keep only the selected fire season months
+  files_df <- files_df %>% dplyr::filter(month %in% season_months)
+  if (nrow(files_df) == 0) {
+    stop("No burned area data available for the selected fire season (months ",
+         paste(range(season_months), collapse = "-"), ").")
+  }
+
   # Given date selected, split file into test data and train data
   # test filenames
   test_files_df <- filter(files_df, between(dates, start_date, end_date))
-  
+  if (nrow(test_files_df) == 0) {
+    stop("No burned area data available for ", end_year,
+         " within the selected fire season (months ",
+         paste(range(season_months), collapse = "-"), ").")
+  }
+
   # get train filenames (train interval: prior to test interval start)
   months_in_test <- c(test_files_df$month)
-  year_in_test   <- test_files_df$year
-  train_files_df <- files_df %>% 
+  year_in_test   <- max(test_files_df$year)
+  train_files_df <- files_df %>%
     dplyr::filter(month %in% months_in_test & year < year_in_test)
   #train_files_df <- files_df[(files_df$dates< start_date),]
+  if (nrow(train_files_df) == 0) {
+    stop("No historical burned area data available before ", year_in_test,
+         " within the selected fire season (months ",
+         paste(range(season_months), collapse = "-"), ").")
+  }
 
   aoi_proj <- get_aoi_vector(aoi_files = aoi_files, aoi_path = aoi_path,
                              projection = "EPSG:4326")
@@ -164,8 +186,13 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
     # Fast path: read one file at a time, skip pixel-level raster→dataframe conversion.
     # Cache train summary + raw monthly series (historical data changes only when new
     # files are added). The raw series feeds the long-term (Seasonal Mann–Kendall) stat.
+    # Season is part of the cache key: a different season means a different
+    # train subset (and equal file counts across seasons would otherwise
+    # silently reuse the wrong cache).
     cache_path <- file.path(cache_dir,
-                            paste0("ba_ts_", country_name, "_", resolution, "_train.rds"))
+                            paste0("ba_ts_", country_name, "_", resolution,
+                                   "_m", paste(range(season_months), collapse = "-"),
+                                   "_train.rds"))
 
     train_raw        <- NULL
     train_ba_summary <- NULL
@@ -190,11 +217,13 @@ generate_ba_timeseries <- function(country_name = NULL, resolution = NULL,
     test_ba_summary <- get_summary_ba_df(ba_df = test_raw)
 
     ba_plot <- plot_ba_timeseries_plotly(
-      train_data = train_ba_summary,
-      test_data  = test_ba_summary,
-      test_year  = end_year
+      train_data    = train_ba_summary,
+      test_data     = test_ba_summary,
+      test_year     = end_year,
+      season_months = season_months
     )
-    ba_stats <- compute_ba_explorer_stats(train_raw = train_raw, test_raw = test_raw)
+    ba_stats <- compute_ba_explorer_stats(train_raw = train_raw, test_raw = test_raw,
+                                          season_months = season_months)
 
     return(list(plot = ba_plot, stats = ba_stats))
   }

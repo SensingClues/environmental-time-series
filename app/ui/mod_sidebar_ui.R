@@ -119,7 +119,11 @@ mod_sidebar_ui <- function(id) {
     
     # Burned Area Time Series — Seasonal Overview
     conditionalPanel(condition = "input.tabs == 'BAexplorerTab' && input.basubtabs == 'BAtimeseries' && input.ba_ts_view == 'seasonal'",
-                     div(actionButton("generate_ba_ts_figures", "Generate Figure", class = "action_button"))
+                     div(
+                       sliderInput("ba_ts_season_months", "Select fire season (months)",
+                                   min = 1, max = 12, value = c(6, 11), step = 1),
+                       actionButton("generate_ba_ts_figures", "Generate Figure", class = "action_button")
+                     )
     ),
 
     # Burned Area Time Series — Daily Activity

@@ -434,6 +434,28 @@ get_summary_ndvi_df <- function(ndvi_df = NULL) {
   return(summary_ndvi_df)
 }
 
+# --- Fire season helpers ------------------------------------------------------
+
+# Clean up a fire season selection (e.g. the sliderInput range c(6, 11)) into a
+# sorted vector of valid month numbers. Falls back to the full year.
+normalize_season_months <- function(season_months = NULL) {
+  if (is.null(season_months)) return(1:12)
+  months <- suppressWarnings(as.integer(season_months))
+  months <- sort(unique(months[!is.na(months) & months >= 1 & months <= 12]))
+  # A sliderInput range gives the two end points: expand to the full interval
+  if (length(months) == 2L) months <- seq(months[1], months[2])
+  if (length(months) == 0L) 1:12 else months
+}
+
+# Short label for the selected fire season, e.g. "Jun-Nov". NULL for a full year,
+# so callers can leave season wording out when nothing is filtered.
+ba_season_label <- function(season_months = NULL) {
+  months <- normalize_season_months(season_months)
+  if (length(months) == 12L) return(NULL)
+  if (length(months) == 1L) return(month.abb[months])
+  paste0(month.abb[min(months)], "-", month.abb[max(months)])
+}
+
 # Extract daily burned area (km²) for one year from a set of monthly TIF files.
 # pixel_area_km2: area per raster cell (e.g. 0.25 for 500m).
 get_ba_daily_activity <- function(files_df, data_path, year_val, pixel_area_km2 = 0.25) {

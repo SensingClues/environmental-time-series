@@ -1469,7 +1469,7 @@ server <- function(input, output, session) {
     country_name   <- input$country
     resolution     <- input$resolution
     selected_years <- as.integer(input$ba_daily_years)
-    season_months  <- seq(input$ba_season_months[1], input$ba_season_months[2])
+    season_months  <- normalize_season_months(input$ba_season_months)
     res_m          <- as.numeric(gsub("[^0-9]", "", resolution))
     pixel_area_km2 <- (res_m / 1000)^2
 
@@ -1538,7 +1538,20 @@ server <- function(input, output, session) {
     selected_end <- available_year_end("BurnedArea", country_name, resolution, input$year)
     end_month <- selected_end$end_month
     end_year  <- selected_end$end_year
-    
+
+    # Fire season selected in the sidebar (same control as the Annual View)
+    season_months <- normalize_season_months(input$ba_ts_season_months)
+    if (min(season_months) > end_month) {
+      showNotification(
+        paste0("The selected fire season starts after the last available month for ",
+               end_year, " (", month.name[end_month],
+               "). Please widen the fire season or choose another year."),
+        type = "warning", duration = 8
+      )
+      message("Fire season starts after last available month; nothing to plot.")
+      return()
+    }
+
     tryCatch({
       ba_result <- generate_ba_timeseries(
         country_name    = country_name,
@@ -1548,7 +1561,8 @@ server <- function(input, output, session) {
         figures_dir     = figures_dir,
         data_dir        = data_dir,
         return_plot     = TRUE,
-        figure_filename = NULL
+        figure_filename = NULL,
+        season_months   = season_months
       )
       ba_ts_plot_obj(ba_result$plot)
       ba_ts_stats(ba_result$stats)
