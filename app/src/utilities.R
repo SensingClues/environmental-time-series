@@ -95,6 +95,64 @@ get_filenames <- function(filepath = NULL, data_type = "NDVI",
   return(out_files)
 }
 
+get_data_path <- function(data_dir = NULL, data_type = "NDVI",
+                          country_name = NULL, resolution = NULL) {
+  file.path(data_dir, data_type, country_name, paste0(resolution, "m_resolution"))
+}
+
+get_available_dates <- function(data_dir = NULL, data_type = "NDVI",
+                                country_name = NULL, resolution = NULL) {
+  data_path <- get_data_path(data_dir, data_type, country_name, resolution)
+  if (!dir.exists(data_path)) {
+    return(data.frame(year = integer(0), month = integer(0), dates = as.Date(character(0))))
+  }
+
+  files <- tryCatch(
+    get_filenames(
+      filepath = data_path,
+      data_type = data_type,
+      file_extension = ".tif",
+      country_name = country_name
+    ),
+    error = function(e) character(0)
+  )
+  if (length(files) == 0L) {
+    return(data.frame(year = integer(0), month = integer(0), dates = as.Date(character(0))))
+  }
+
+  files_df <- tryCatch(
+    if (identical(data_type, "BurnedArea")) {
+      get_ba_filename_df(files)
+    } else {
+      get_filename_df(files)
+    },
+    error = function(e) NULL
+  )
+  if (is.null(files_df) || nrow(files_df) == 0L) {
+    return(data.frame(year = integer(0), month = integer(0), dates = as.Date(character(0))))
+  }
+
+  files_df %>%
+    dplyr::distinct(year, month, dates) %>%
+    dplyr::arrange(year, month)
+}
+
+get_available_years <- function(data_dir = NULL, data_type = "NDVI",
+                                country_name = NULL, resolution = NULL,
+                                decreasing = FALSE) {
+  years <- sort(unique(get_available_dates(data_dir, data_type, country_name, resolution)$year))
+  if (isTRUE(decreasing)) rev(years) else years
+}
+
+get_available_month_names <- function(data_dir = NULL, data_type = "NDVI",
+                                      country_name = NULL, resolution = NULL,
+                                      year = NULL) {
+  dates_df <- get_available_dates(data_dir, data_type, country_name, resolution)
+  year <- suppressWarnings(as.integer(year))
+  months <- sort(unique(dates_df$month[dates_df$year == year]))
+  month.name[months]
+}
+
 ## get list of NDVI filenames in folder
 get_ndvi_filenames <- function(data_path = NULL, file_extension = ".tif", country_name = NULL) {
   
@@ -374,6 +432,28 @@ get_summary_ndvi_df <- function(ndvi_df = NULL) {
     )
   
   return(summary_ndvi_df)
+}
+
+# --- Fire season helpers ------------------------------------------------------
+
+# Clean up a fire season selection (e.g. the sliderInput range c(6, 11)) into a
+# sorted vector of valid month numbers. Falls back to the full year.
+normalize_season_months <- function(season_months = NULL) {
+  if (is.null(season_months)) return(1:12)
+  months <- suppressWarnings(as.integer(season_months))
+  months <- sort(unique(months[!is.na(months) & months >= 1 & months <= 12]))
+  # A sliderInput range gives the two end points: expand to the full interval
+  if (length(months) == 2L) months <- seq(months[1], months[2])
+  if (length(months) == 0L) 1:12 else months
+}
+
+# Short label for the selected fire season, e.g. "Jun-Nov". NULL for a full year,
+# so callers can leave season wording out when nothing is filtered.
+ba_season_label <- function(season_months = NULL) {
+  months <- normalize_season_months(season_months)
+  if (length(months) == 12L) return(NULL)
+  if (length(months) == 1L) return(month.abb[months])
+  paste0(month.abb[min(months)], "-", month.abb[max(months)])
 }
 
 # Extract daily burned area (km²) for one year from a set of monthly TIF files.

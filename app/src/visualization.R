@@ -89,13 +89,13 @@ plot_ndvi_timeseries <- function(train_data = NULL, test_data = NULL,
 #' @noRd
 land_cover_class_colors <- function() {
   c(
-    Bare_ground        = "#EDE9E4",
-    Built_Area         = "#ED022A",
-    Crops              = "#FFDB5C",
-    Flooded_vegetation = "#87D19E",
-    Rangeland          = "#A7D282",
-    Trees              = "#358221",
-    Water              = "#1A5BAB"
+    Bare_ground        = "#A1887F",
+    Built_Area         = "#78909C",
+    Crops              = "#F9A825",
+    Flooded_vegetation = "#00897B",
+    Rangeland          = "#8BC34A",
+    Trees              = "#2E7D32",
+    Water              = "#1565C0"
   )
 }
 
@@ -396,8 +396,10 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
   aoi_bbox_for_frame <- NULL
   aoi_ok <- !is.null(aoi_sf) && inherits(aoi_sf, "sf") && nrow(aoi_sf) > 0L &&
     !all(sf::st_is_empty(sf::st_geometry(aoi_sf)))
+  total_study_area_ha <- NA_real_
   if (isTRUE(aoi_ok)) {
     aoi_wgs <- lc_simplify_wgs84_for_plot(sf::st_transform(aoi_sf, 4326))
+    total_study_area_ha <- sum(as.numeric(sf::st_area(aoi_wgs)), na.rm = TRUE) / 10000
     bb_aoi <- sf::st_bbox(aoi_wgs)
     aoi_bbox_for_frame <- bb_aoi
     all_xmin <- c(all_xmin, bb_aoi[["xmin"]])
@@ -417,6 +419,13 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       text = "Study area"
     )
   }
+  if (is.na(total_study_area_ha) || total_study_area_ha <= 0) {
+    total_study_area_ha <- sum(vapply(geojson_files, function(fp) {
+      g <- sf::st_read(fp, quiet = TRUE)
+      g <- sf::st_transform(g, crs = 4326)
+      sum(as.numeric(sf::st_area(g)), na.rm = TRUE) / 10000
+    }, numeric(1)), na.rm = TRUE)
+  }
   for (i in seq_along(geojson_files)) {
     stem <- landuse_types[i]
     geojson_data <- sf::st_read(geojson_files[i], quiet = TRUE)
@@ -434,9 +443,15 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       "#999999"
     }
     area_ha <- sum(as.numeric(sf::st_area(geojson_data))) / 10000
+    area_ha_label <- format(round(area_ha), big.mark = ",", scientific = FALSE)
+    pct_label <- if (!is.na(total_study_area_ha) && total_study_area_ha > 0) {
+      paste0(" (", round((area_ha / total_study_area_ha) * 100), "% of study area)")
+    } else {
+      ""
+    }
     htxt <- paste0(
-      "<b>", htmltools::htmlEscape(pop_lab), "</b><br>",
-      "Area (hectares): ", round(area_ha, 3)
+      "<b>", htmltools::htmlEscape(pop_lab), "</b> - ",
+      area_ha_label, " ha", pct_label
     )
     bb <- bbox_by_stem[[stem]]
     all_xmin <- c(all_xmin, bb[["xmin"]])
@@ -480,8 +495,7 @@ plot_lulc_map_plotly_from_folder <- function(folder_path, aoi_sf = NULL) {
       center = cz$center,
       zoom = cz$zoom
     ),
-    margin = list(l = 4, r = 4, t = 24, b = 4),
-    title = list(text = "Land cover", font = list(size = 12), y = 0.98, yref = "paper")
+    margin = list(l = 4, r = 4, t = 24, b = 4)
   )
   list(p = p, bbox_by_stem = bbox_by_stem)
 }
@@ -508,8 +522,8 @@ plot_ndvi_landcover_with_map <- function(train_ndvi_summary_aoi = NULL,
     p_ts,
     mp$p,
     nrows = 1,
-    widths = c(0.5, 0.5),
-    margin = 0.06,
+    widths = c(0.7, 0.3),
+    margin = 0.04,
     titleY = TRUE
   )
   out <- out %>%
@@ -648,20 +662,17 @@ ndvi_anomaly_help_tooltip_text <- function() {
   )
 }
 
-# Shiny UI: tags$h4 title + tags$span circled-i with native multiline tooltip above plotlyOutput.
-ndvi_anomaly_titles_ui <- function(resolution = NULL) {
+# Shiny UI: tags$h4 title above plotlyOutput.
+ndvi_anomaly_titles_ui <- function(resolution = NULL, land_cover_class = NULL, view = "monthly") {
   res_suffix <- ndvi_resolution_title_suffix(resolution)
-  tip <- ndvi_anomaly_help_tooltip_text()
+  lc_suffix  <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    paste0(" — ", gsub("_", " ", land_cover_class)) else ""
+  base_title <- if (identical(view, "annual")) "Annual NDVI trend" else "NDVI time series"
   shiny::tags$div(
     class = "ndvi-anomaly-title-wrap",
     shiny::tags$h4(
       class = "ndvi-anomaly-title-h4",
-      paste0("NDVI Anomaly", res_suffix),
-      shiny::tags$span(
-        title = tip,
-        class = "ndvi-help-icon",
-        "ⓘ"
-      )
+      paste0(base_title, lc_suffix, res_suffix)
     )
   )
 }
@@ -687,7 +698,8 @@ ndvi_insight_smk_tooltip <- function() {
 
 #' Wilcoxon (monthly anomalies vs 0) and Seasonal Mann–Kendall on full monthly series.
 #' SMK/Sen run only when there are at least 60 monthly points (5 years).
-#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months)
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months, test_year,
+#'   train_year_label)
 compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
@@ -723,12 +735,26 @@ compute_ndvi_explorer_stats <- function(train_ndvi_df, test_ndvi_df) {
     if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
   }
 
+  # Both sides of the comparison, read from the data rather than the sidebar: the
+  # year selection is clamped to the available range before the files are picked.
+  test_years <- if (is.null(test_monthly) || nrow(test_monthly) == 0L) {
+    integer(0)
+  } else {
+    stats::na.omit(lubridate::year(test_monthly$YearMonth))
+  }
+  test_year <- if (length(test_years) == 0L) NA_integer_ else max(test_years)
+  # "" when the baseline is empty; ndvi_monthly_year_span_label() handles the
+  # single-year case too.
+  train_year_label <- ndvi_monthly_year_span_label(train_monthly)
+
   list(
     wilcox_p = wilcox_p,
     wilcox_median = wilcox_median,
     smk_p = smk_p,
     sen_slope = sen_slope,
-    smk_n_months = smk_n_months
+    smk_n_months = smk_n_months,
+    test_year = test_year,
+    train_year_label = train_year_label
   )
 }
 
@@ -742,58 +768,115 @@ ndvi_insight_main_class <- function(col) {
   }
 }
 
-#' Shiny UI: Current Year Condition card (uses compute_ndvi_explorer_stats output).
-ndvi_insight_wilcox_card_ui <- function(stats) {
-  if (is.null(stats)) return(NULL)
-  p <- stats$wilcox_p
-  med <- stats$wilcox_median
-  if (is.na(p)) {
-    main <- "Not enough data for this summary"
-    col <- "#555555"
-    p_lab <- "p-value: N/A"
-  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
-    main <- "Above normal vegetation"
-    col <- "#009E73"
-    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
-    main <- "Below normal vegetation"
-    col <- "#D55E00"
-    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-  } else {
-    main <- "No significant difference from normal"
-    col <- "#555555"
-    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
-  }
+#' Shiny UI: insight content rendered as a coloured banner.
+#' Same look as the NDVI summary banners (tinted bar, 4px coloured left border),
+#' but carrying the full insight-card content: heading with help icon, coloured
+#' verdict, plain-language explanation and p-value. `col` drives the tint, the
+#' border, the status dot and the verdict text so the three always agree.
+insight_banner_ui <- function(heading, tooltip, main, col, p_lab, plain_text) {
   shiny::tags$div(
-    class = "ndvi-insight-card",
-    shiny::tags$h4(
-      class = "ndvi-insight-card__heading",
-      "Current Year Condition",
+    class = "insight-banner",
+    style = paste0("background:", col, "22; border-left:4px solid ", col, ";"),
+    shiny::tags$div(
+      class = "insight-banner__title",
+      heading,
       shiny::tags$span(
-        title = ndvi_insight_wilcox_tooltip(),
+        title = tooltip,
         class = "ndvi-help-icon",
         "ⓘ"
       )
     ),
     shiny::tags$div(
-      class = ndvi_insight_main_class(col),
+      class = "insight-banner__main",
+      style = paste0("color:", col, ";"),
+      shiny::tags$span(class = "ndvi-status-dot", style = paste0("background:", col, ";")),
       main
     ),
-    shiny::tags$div(
-      class = "ndvi-insight-card__footer",
-      p_lab
-    )
+    shiny::tags$div(class = "insight-banner__plain", plain_text),
+    shiny::tags$div(class = "insight-banner__pvalue", p_lab)
+  )
+}
+
+#' Shiny UI: selected-year Condition card (uses compute_ndvi_explorer_stats output).
+ndvi_insight_wilcox_card_ui <- function(stats, land_cover_class = NULL) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$wilcox_p
+  med <- stats$wilcox_median
+  lc_label <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    gsub("_", " ", land_cover_class) else NULL
+  subject <- if (!is.null(lc_label)) paste0(lc_label, " NDVI") else "Vegetation health"
+  area_phrase <- if (!is.null(lc_label)) paste0("for ", lc_label, " in this area") else "for this area"
+
+  # Name the year under test; "Current" would be wrong for any earlier selection.
+  year_lab <- if (is.null(stats$test_year) || is.na(stats$test_year)) {
+    NULL
+  } else {
+    as.character(stats$test_year)
+  }
+  heading <- if (is.null(year_lab)) "Vegetation Condition" else paste0(year_lab, " Vegetation Condition")
+  # Subject position ("Vegetation health in 2019 is ...") vs object position
+  # ("compare 2019 with ..."); fall back to the vaguer wording when the year
+  # cannot be determined.
+  period_subj <- if (is.null(year_lab)) "this year" else paste0("in ", year_lab)
+  period_obj  <- if (is.null(year_lab)) "this year" else year_lab
+  # History the year is measured against, e.g. "the 2001-2018 average"
+  hist_lab     <- stats$train_year_label
+  has_hist     <- !is.null(hist_lab) && nzchar(hist_lab)
+  baseline_avg <- if (has_hist) paste0("the ", hist_lab, " average") else "usual conditions"
+  baseline_cmp <- if (has_hist) paste0("the ", hist_lab, " average") else "usual"
+
+  plain_text <- paste0(subject, " ", period_subj, " is within the expected range ", area_phrase,
+                       ", based on ", baseline_avg, ".")
+  if (is.na(p)) {
+    main <- "Not enough data for this summary"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+    plain_text <- paste0("There is not enough monthly data to compare ", period_obj, " with ", baseline_avg, ".")
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
+    main <- "Above normal vegetation"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " ", period_subj, " is notably better than ", baseline_cmp, ".")
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
+    main <- "Below normal vegetation"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " ", period_subj, " is notably worse than ", baseline_cmp,
+                         " - this may indicate drought, land degradation, or other stress.")
+  } else {
+    main <- "No significant difference from normal"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  insight_banner_ui(
+    heading    = heading,
+    tooltip    = ndvi_insight_wilcox_tooltip(),
+    main       = main,
+    col        = col,
+    p_lab      = p_lab,
+    plain_text = plain_text
   )
 }
 
 #' Shiny UI: Long-Term Trend card (Seasonal Mann–Kendall + Sen slope sign).
-ndvi_insight_smk_card_ui <- function(stats) {
+ndvi_insight_smk_card_ui <- function(stats, source_label = NULL, year_range_label = NULL, land_cover_class = NULL) {
   if (is.null(stats)) return(NULL)
   p <- stats$smk_p
   slope <- stats$sen_slope
   n_m <- stats$smk_n_months
+  lc_label <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    gsub("_", " ", land_cover_class) else NULL
+  source_label <- if (!is.null(source_label) && nzchar(source_label)) source_label else "the selected data source"
+  year_phrase <- if (!is.null(year_range_label) && nzchar(year_range_label)) {
+    paste0(" over ", year_range_label)
+  } else {
+    " over the available data period"
+  }
+  modis_hint <- if (!identical(source_label, "MODIS")) " Switch to MODIS for a longer-term view." else ""
   if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
   smk_min_months <- 60L
+  subject <- if (!is.null(lc_label)) paste0(lc_label, " vegetation health") else "Vegetation health"
+  plain_text <- paste0(subject, " has been broadly consistent", year_phrase, ".", modis_hint)
   if (!is.na(n_m) && n_m < smk_min_months) {
     main <- "Long-term trend not shown (insufficient series length)"
     col <- "#555555"
@@ -806,18 +889,26 @@ ndvi_insight_smk_card_ui <- function(stats) {
       if (n_m == 1L) "" else "s",
       "."
     )
+    plain_text <- paste0("There is not enough monthly data from ", source_label,
+                         " to show a reliable long-term trend.", modis_hint)
   } else if (is.na(p) || is.na(slope)) {
     main <- "Long-term trend cannot be assessed from this series"
     col <- "#555555"
     p_lab <- "p-value: N/A"
+    plain_text <- paste0("The available ", source_label,
+                         " data could not produce a reliable trend summary.", modis_hint)
   } else if (p < 0.05 && slope > 0) {
     main <- "Significant increasing trend"
     col <- "#009E73"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been improving over time", year_phrase,
+                         " - a positive sign for this landscape.")
   } else if (p < 0.05 && slope < 0) {
     main <- "Significant decreasing trend"
     col <- "#D55E00"
     p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been declining over time", year_phrase,
+                         " - this may indicate long-term degradation and warrants closer monitoring.")
   } else {
     main <- "No significant long-term trend"
     col <- "#555555"
@@ -840,7 +931,8 @@ ndvi_insight_smk_card_ui <- function(stats) {
     ),
     shiny::tags$div(
       class = "ndvi-insight-card__footer",
-      p_lab
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
     )
   )
 }
@@ -858,15 +950,17 @@ ndvi_monthly_year_span_label <- function(monthly_df) {
 
 #' Interactive NDVI time series vs training climatology and historic range (plotly).
 #' Titles with help icon: use ndvi_anomaly_titles_ui() in Shiny above plotlyOutput.
-plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
+plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL, land_cover_class = NULL) {
   train_monthly <- aggregate_monthly_ndvi(train_ndvi_df %>% dplyr::select(YearMonth, NDVI))
   test_monthly  <- aggregate_monthly_ndvi(test_ndvi_df %>% dplyr::select(YearMonth, NDVI))
 
   train_yr <- ndvi_monthly_year_span_label(train_monthly)
   test_yr <- ndvi_monthly_year_span_label(test_monthly)
-  name_ribbon <- if (nzchar(train_yr)) paste0("NDVI historic range (", train_yr, ")") else "NDVI historic range"
+  lc_label <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    paste0(" — ", gsub("_", " ", land_cover_class)) else ""
+  name_ribbon  <- if (nzchar(train_yr)) paste0("NDVI historic range (", train_yr, ")") else "NDVI historic range"
   name_current <- if (nzchar(test_yr)) paste0("Current NDVI (", test_yr, ")") else "Current NDVI"
-  name_clim <- if (nzchar(train_yr)) {
+  name_clim    <- if (nzchar(train_yr)) {
     paste0("Historical monthly average (", train_yr, ")")
   } else {
     "Historical monthly average"
@@ -939,7 +1033,7 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
   }
 
   ndvi_anomaly_y_axis <- list(
-    title = "NDVI Anomaly", zeroline = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
+    title = "NDVI Deviation", zeroline = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
     showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)"
   )
   if (!is.null(rng_anom)) {
@@ -964,15 +1058,15 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
       x               = ~YearMonth, y = ~NDVI,
       type            = "scatter", mode = "lines+markers",
       name            = name_current,
-      line            = list(width = 3, color = "#0072B2"),
-      marker          = list(size = 7, color = "#0072B2"),
+      line            = list(width = 3, color = "#E69F00"),
+      marker          = list(size = 7, color = "#E69F00"),
       hovertemplate   = "Date: %{x|%b %Y}<br>NDVI: %{y:.3f}<extra></extra>"
     ) %>%
     plotly::add_lines(
       data            = plot_df,
       x               = ~YearMonth, y = ~climatology,
       name            = name_clim,
-      line            = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      line            = list(width = 2.5, dash = "dash", color = "#0072B2"),
       hovertemplate   = "Date: %{x|%b %Y}<br>Historical average: %{y:.3f}<extra></extra>"
     ) %>%
     plotly::layout(
@@ -1017,6 +1111,298 @@ plot_ndvi_anomaly <- function(train_ndvi_df = NULL, test_ndvi_df = NULL) {
     plotly::layout(
       margin = list(t = 20, r = 30, l = 60, b = 80)
     )
+}
+
+#' Compute annual-view stats from complete years only (12 months of data).
+#' @return list(mk_p, mk_slope, n_years, year_range)
+compute_ndvi_annual_stats <- function(annual_df) {
+  # Only use complete years for all statistics
+  complete_df <- if ("is_complete" %in% names(annual_df)) {
+    annual_df[annual_df$is_complete == TRUE, ]
+  } else {
+    annual_df
+  }
+  n_years  <- nrow(complete_df)
+  mk_p     <- NA_real_
+  mk_slope <- NA_real_
+  min_yr   <- if (n_years > 0L) min(complete_df$year) else NA_integer_
+  max_yr   <- if (n_years > 0L) max(complete_df$year) else NA_integer_
+  year_range <- if (!is.na(min_yr) && !is.na(max_yr)) {
+    if (min_yr == max_yr) as.character(min_yr) else paste0(min_yr, "–", max_yr)
+  } else ""
+  if (n_years >= 5L) {
+    mk  <- tryCatch(trend::mk.test(complete_df$mean_ndvi),    error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(complete_df$mean_ndvi), error = function(e) NULL)
+    if (!is.null(mk))  mk_p     <- unname(mk$p.value)
+    if (!is.null(sen)) mk_slope <- as.numeric(sen$estimates)[1]
+  }
+  list(mk_p = mk_p, mk_slope = mk_slope, n_years = n_years, year_range = year_range)
+}
+
+#' Interactive annual NDVI trend chart (plotly) with box/whisker reference.
+#' Complete years (12 months) only used for statistics and the blue line.
+#' Incomplete years shown as orange open-circle markers.
+plot_ndvi_annual <- function(annual_df, land_cover_class = NULL) {
+
+  # Split complete vs incomplete years
+  has_complete <- "is_complete" %in% names(annual_df)
+  if (has_complete) {
+    complete_df   <- annual_df[annual_df$is_complete == TRUE,  ]
+    incomplete_df <- annual_df[annual_df$is_complete == FALSE, ]
+  } else {
+    complete_df   <- annual_df
+    incomplete_df <- annual_df[0L, ]
+  }
+  n_complete <- nrow(complete_df)
+
+  # Box-plot statistics from complete years only
+  ndvi_mean <- if (n_complete > 0L) mean(complete_df$mean_ndvi,   na.rm = TRUE) else NA_real_
+  ndvi_q1   <- if (n_complete > 0L) unname(quantile(complete_df$mean_ndvi, 0.25, na.rm = TRUE)) else NA_real_
+  ndvi_q3   <- if (n_complete > 0L) unname(quantile(complete_df$mean_ndvi, 0.75, na.rm = TRUE)) else NA_real_
+  ndvi_min  <- if (n_complete > 0L) min(complete_df$mean_ndvi,    na.rm = TRUE) else NA_real_
+  ndvi_max  <- if (n_complete > 0L) max(complete_df$mean_ndvi,    na.rm = TRUE) else NA_real_
+
+  yr_all_min <- min(annual_df$year)
+  yr_all_max <- max(annual_df$year)
+  yr_min     <- if (n_complete > 0L) min(complete_df$year) else yr_all_min
+  yr_max     <- if (n_complete > 0L) max(complete_df$year) else yr_all_max
+  x_pad      <- 0.4
+  # Dense x sequence gives good ribbon hover coverage at every year position
+  x_ribbon   <- seq(yr_min - x_pad, yr_max + x_pad, length.out = 60L)
+
+  # Mann-Kendall trend from complete years only
+  mk_result <- list(p = NA_real_, slope = NA_real_)
+  if (n_complete >= 3L) {
+    mk  <- tryCatch(trend::mk.test(complete_df$mean_ndvi),    error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(complete_df$mean_ndvi), error = function(e) NULL)
+    if (!is.null(mk))  mk_result$p     <- unname(mk$p.value)
+    if (!is.null(sen)) mk_result$slope <- as.numeric(sen$estimates)[1]
+  }
+
+  if (n_complete > 0L) {
+    complete_df$hover <- paste0(
+      "Year: ", complete_df$year, "<br>",
+      "Annual mean NDVI: ", sprintf("%.3f", complete_df$mean_ndvi), "<br>",
+      "Long-term average: ", sprintf("%.3f", ndvi_mean)
+    )
+  }
+
+  pad_y <- function(lo, hi, pad = 0.09) {
+    if (!is.finite(lo) || !is.finite(hi) || lo > hi) return(NULL)
+    if (abs(hi - lo) < 1e-9) {
+      p <- max(0.03, abs(lo) * 0.06 + 0.01)
+      return(c(lo - p, hi + p))
+    }
+    span <- hi - lo
+    c(max(-1.05, lo - pad * span - 0.02), min(1.05, hi + pad * span + 0.02))
+  }
+  vals_y <- c(complete_df$mean_ndvi,
+              if (nrow(incomplete_df) > 0L) incomplete_df$mean_ndvi else NULL,
+              ndvi_min, ndvi_max)
+  vals_y <- vals_y[is.finite(vals_y)]
+  rng_y  <- if (length(vals_y) > 0L) pad_y(min(vals_y), max(vals_y)) else NULL
+
+  y_axis <- list(title = "Annual Mean NDVI", showgrid = TRUE, gridcolor = "rgba(0,0,0,0.08)")
+  if (!is.null(rng_y)) { y_axis$range <- rng_y; y_axis$autorange <- FALSE }
+
+  note_text <- if (n_complete > 0L) {
+    sprintf("Annual data: %d–%d (complete years only)", min(complete_df$year), max(complete_df$year))
+  } else {
+    "No complete years (12 months) found in data"
+  }
+
+  fig <- plotly::plot_ly()
+
+  # Layer 1: IQR box (Q1-Q3), light grey fill
+  if (all(is.finite(c(ndvi_q1, ndvi_q3)))) {
+    iqr_hover_txt <- paste0("Typical range (25th-75th percentile):<br>",
+                             sprintf("%.3f", ndvi_q1), " to ", sprintf("%.3f", ndvi_q3))
+    fig <- fig %>% plotly::add_ribbons(
+      x             = x_ribbon,
+      ymin          = rep(ndvi_q1, length(x_ribbon)),
+      ymax          = rep(ndvi_q3, length(x_ribbon)),
+      name          = sprintf("Typical range (Q1-Q3: %.3f-%.3f)", ndvi_q1, ndvi_q3),
+      fillcolor     = "rgba(150,150,150,0.22)",
+      line          = list(color = "rgba(130,130,130,0.45)", width = 0.8),
+      text          = rep(iqr_hover_txt, length(x_ribbon)),
+      hovertemplate = "%{text}<extra></extra>"
+    )
+  }
+
+  # Layer 2: Min/Max dotted whisker lines
+  if (all(is.finite(c(ndvi_min, ndvi_max)))) {
+    fig <- fig %>%
+      plotly::add_segments(
+        x = yr_min - x_pad, xend = yr_max + x_pad,
+        y = ndvi_min, yend = ndvi_min,
+        line = list(color = "rgba(100,100,100,0.5)", dash = "dot", width = 1.3),
+        name = sprintf("Min/Max range (%.3f-%.3f)", ndvi_min, ndvi_max),
+        hovertemplate = sprintf("Historical minimum: %.3f<extra></extra>", ndvi_min)
+      ) %>%
+      plotly::add_segments(
+        x = yr_min - x_pad, xend = yr_max + x_pad,
+        y = ndvi_max, yend = ndvi_max,
+        line = list(color = "rgba(100,100,100,0.5)", dash = "dot", width = 1.3),
+        showlegend    = FALSE,
+        hovertemplate = sprintf("Historical maximum: %.3f<extra></extra>", ndvi_max)
+      )
+  }
+
+  # Layer 3: Long-term mean dashed line
+  if (is.finite(ndvi_mean)) {
+    fig <- fig %>% plotly::add_segments(
+      x = yr_min - x_pad, xend = yr_max + x_pad,
+      y = ndvi_mean, yend = ndvi_mean,
+      line = list(color = "rgba(80,80,80,0.65)", dash = "dash", width = 1.5),
+      name = sprintf("Long-term average (%.3f)", ndvi_mean),
+      hoverinfo = "skip"
+    )
+  }
+
+  # Layer 4: Trend line if Mann-Kendall p < 0.1
+  if (!is.na(mk_result$p) && mk_result$p < 0.1 && !is.na(mk_result$slope) && n_complete > 0L) {
+    mid_yr    <- mean(complete_df$year)
+    intercept <- ndvi_mean - mk_result$slope * (mid_yr - yr_min)
+    trend_y   <- intercept + mk_result$slope * (complete_df$year - yr_min)
+    trend_dir <- if (mk_result$slope > 0) "increasing" else "decreasing"
+    fig <- fig %>% plotly::add_lines(
+      x    = complete_df$year, y = trend_y,
+      line = list(color = "rgba(180,60,60,0.65)", dash = "dash", width = 1.8),
+      name = sprintf("Trend (%s, p = %.3f)", trend_dir, mk_result$p),
+      hoverinfo = "skip"
+    )
+  }
+
+  # Layer 5: Blue line + filled dots for complete years only
+  if (n_complete > 0L) {
+    fig <- fig %>%
+      plotly::add_lines(
+        data = complete_df, x = ~year, y = ~mean_ndvi,
+        line = list(width = 2.5, color = "#0072B2"),
+        name = "Annual mean NDVI",
+        hoverinfo = "skip"
+      ) %>%
+      plotly::add_markers(
+        data          = complete_df, x = ~year, y = ~mean_ndvi,
+        marker        = list(color = "#0072B2", size = 8),
+        showlegend    = FALSE,
+        hovertemplate = ~paste0(hover, "<extra></extra>")
+      )
+  }
+
+  # Layer 6: Orange open-circle markers for incomplete years
+  if (nrow(incomplete_df) > 0L) {
+    n_mo_vec <- if ("n_months" %in% names(incomplete_df)) incomplete_df$n_months
+                else rep(NA_integer_, nrow(incomplete_df))
+    incomplete_df$hover_inc <- paste0(
+      "Year: ", incomplete_df$year, " (incomplete - excluded from statistics)<br>",
+      "Annual mean NDVI: ", sprintf("%.3f", incomplete_df$mean_ndvi), "<br>",
+      "Months available: ", n_mo_vec, " of 12"
+    )
+    inc_label <- if (nrow(incomplete_df) == 1L && !is.na(n_mo_vec[1])) {
+      sprintf("Incomplete year (%d/12 months)", n_mo_vec[1])
+    } else {
+      "Incomplete years (< 12 months)"
+    }
+    fig <- fig %>% plotly::add_markers(
+      data          = incomplete_df, x = ~year, y = ~mean_ndvi,
+      marker        = list(color = "#E69F00", size = 9, symbol = "circle-open",
+                           line = list(width = 2.5, color = "#E69F00")),
+      name          = inc_label,
+      hovertemplate = ~paste0(hover_inc, "<extra></extra>")
+    )
+  }
+
+  fig %>% plotly::layout(
+    xaxis = list(
+      title    = "Year",
+      tickmode = "linear",
+      dtick    = 1,
+      showgrid = FALSE,
+      range    = c(yr_all_min - x_pad - 0.1, yr_all_max + x_pad + 0.1)
+    ),
+    yaxis     = y_axis,
+    template  = "plotly_white",
+    hovermode = "closest",
+    legend    = list(orientation = "h", x = 1, y = 1.08, xanchor = "right", yanchor = "top"),
+    margin    = list(t = 65, r = 30, l = 60, b = 60),
+    annotations = list(list(
+      x = 0, xref = "paper", y = 1.055, yref = "paper",
+      text      = note_text,
+      showarrow = FALSE,
+      font      = list(size = 10, color = "#666666"),
+      xanchor   = "left",
+      yanchor   = "bottom"
+    ))
+  )
+}
+
+#' Shiny UI: Long-Term Annual Trend card (Mann-Kendall on annual means).
+ndvi_annual_trend_card_ui <- function(stats, land_cover_class = NULL) {
+  if (is.null(stats)) return(NULL)
+  p      <- stats$mk_p
+  slope  <- stats$mk_slope
+  n_yrs  <- stats$n_years
+  yr_rng <- stats$year_range
+  lc_label   <- if (!is.null(land_cover_class) && nzchar(land_cover_class))
+    gsub("_", " ", land_cover_class) else NULL
+  subject     <- if (!is.null(lc_label)) paste0(lc_label, " vegetation health") else "Vegetation health"
+  year_phrase <- if (!is.null(yr_rng) && nzchar(yr_rng)) paste0(" over ", yr_rng) else " over the available data period"
+  min_yrs <- 5L
+
+  if (is.na(n_yrs) || n_yrs < min_yrs) {
+    main       <- "Long-term trend not shown (insufficient data)"
+    col        <- "#555555"
+    n_yrs_show <- if (!is.null(n_yrs) && !is.na(n_yrs)) n_yrs else 0L
+    p_lab      <- paste0("At least ", min_yrs, " years required. Current: ", n_yrs_show,
+                         " year", if (n_yrs_show == 1L) "" else "s", ".")
+    plain_text <- "Not enough annual data to show a reliable long-term trend."
+  } else if (is.na(p) || is.na(slope)) {
+    main       <- "Long-term trend cannot be assessed"
+    col        <- "#555555"
+    p_lab      <- "p-value: N/A"
+    plain_text <- "The available data could not produce a reliable trend summary."
+  } else if (p < 0.05 && slope > 0) {
+    main       <- "Significant increasing trend"
+    col        <- "#009E73"
+    p_lab      <- paste0("Mann–Kendall p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been improving over time", year_phrase,
+                         " — a positive sign for this landscape.")
+  } else if (p < 0.05 && slope < 0) {
+    main       <- "Significant decreasing trend"
+    col        <- "#D55E00"
+    p_lab      <- paste0("Mann–Kendall p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been declining over time", year_phrase,
+                         " — this may indicate long-term degradation and warrants monitoring.")
+  } else {
+    main       <- "No significant long-term trend"
+    col        <- "#555555"
+    p_lab      <- paste0("Mann–Kendall p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0(subject, " has been broadly consistent", year_phrase, ".")
+  }
+
+  shiny::tags$div(
+    class = "ndvi-insight-card",
+    shiny::tags$h4(
+      class = "ndvi-insight-card__heading",
+      "Long-Term Annual Trend",
+      shiny::tags$span(
+        title = paste(
+          "Based on the Mann–Kendall test applied to annual mean NDVI values.",
+          "Checks whether vegetation shows a consistent increase or decrease over the full data record.",
+          "Requires at least 5 years of data."
+        ),
+        class = "ndvi-help-icon",
+        "ⓘ"
+      )
+    ),
+    shiny::tags$div(class = ndvi_insight_main_class(col), main),
+    shiny::tags$div(
+      class = "ndvi-insight-card__footer",
+      shiny::tags$div(p_lab),
+      shiny::tags$div(class = "ndvi-insight-card__plain", plain_text)
+    )
+  )
 }
 
 # Function to plot Burned Area distribution
@@ -1099,7 +1485,24 @@ plot_ba_timeseries <- function(train_data = NULL, test_data = NULL,
 
 # Interactive Plotly BA time series matching NDVI TS style: ribbon + historical mean + current year line.
 plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
-                                       test_year = NULL) {
+                                       test_year = NULL, season_months = 1:12,
+                                       train_year_label = NULL) {
+  season_months <- normalize_season_months(season_months)
+  season_lab    <- ba_season_label(season_months)
+
+  # Name the baseline years in the legend, as the NDVI monthly chart does: the
+  # summary passed in is aggregated by month, so the years are otherwise invisible.
+  hist_suffix <- if (!is.null(train_year_label) && nzchar(train_year_label)) {
+    paste0(" (", train_year_label, ")")
+  } else {
+    ""
+  }
+  test_suffix <- if (!is.null(test_year) && nzchar(as.character(test_year))) {
+    paste0(" (", test_year, ")")
+  } else {
+    ""
+  }
+
   train_data <- train_data %>%
     dplyr::mutate(
       date       = as.Date(paste0(test_year, "-", Month, "-01")),
@@ -1109,14 +1512,41 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
   test_data <- test_data %>%
     dplyr::mutate(date = as.Date(paste0(test_year, "-", Month, "-01")))
 
-  plotly::plot_ly() %>%
+  # Monthly burned-area deviation from the historical average.
+  # For fire, more burning than usual is the adverse direction, so the colour
+  # mapping is inverted relative to NDVI: positive deviation (more fire) = red,
+  # negative deviation (less fire) = green.
+  anomaly_df <- test_data %>%
+    dplyr::select(Month, date, test_val = mean_val) %>%
+    dplyr::left_join(dplyr::select(train_data, Month, hist_val = mean_val), by = "Month") %>%
+    dplyr::mutate(
+      anomaly   = test_val - hist_val,
+      bar_color = ifelse(anomaly >= 0, "#D55E00", "#009E73"),
+      hover_bar = paste0(
+        "Month: ", format(date, "%b %Y"), "<br>",
+        "Deviation: ", sprintf("%+.1f", anomaly), " km²<br>",
+        "Burned Area: ", sprintf("%.1f", test_val), " km²<br>",
+        "Historical average: ", sprintf("%.1f", hist_val), " km²"
+      )
+    )
+
+  common_xaxis <- list(
+    title      = if (is.null(season_lab)) "Month" else paste0("Month (fire season ", season_lab, ")"),
+    tickmode   = "linear",
+    dtick      = "M1",
+    tickformat = "%b",
+    tickangle  = -45,
+    showgrid   = FALSE
+  )
+
+  p1 <- plotly::plot_ly() %>%
     plotly::add_ribbons(
       data          = train_data,
       x             = ~date,
       ymin          = ~lower_ci,
       ymax          = ~upper_ci,
       text          = ~hover_text,
-      name          = "Historic range",
+      name          = paste0("Historic range", hist_suffix),
       legendgroup   = "historic",
       fillcolor     = "rgba(39, 129, 207, 0.2)",
       line          = list(color = "transparent"),
@@ -1125,28 +1555,21 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
     plotly::add_lines(
       data          = train_data,
       x             = ~date, y = ~mean_val,
-      name          = "Historical monthly average",
-      line          = list(width = 2.5, dash = "dash", color = "#E69F00"),
+      name          = paste0("Historical monthly average", hist_suffix),
+      line          = list(width = 2.5, dash = "dash", color = "#0072B2"),
       hovertemplate = "Month: %{x|%b}<br>Historical avg: %{y:.1f} km²<extra></extra>"
     ) %>%
     plotly::add_lines(
       data          = test_data,
       x             = ~date, y = ~mean_val,
-      name          = paste0("Burned Area ", test_year),
-      line          = list(width = 3, color = "#0072B2"),
-      marker        = list(size = 7, color = "#0072B2"),
+      name          = paste0("Burned Area", test_suffix),
+      line          = list(width = 3, color = "#E69F00"),
+      marker        = list(size = 7, color = "#E69F00"),
       mode          = "lines+markers",
       hovertemplate = "Month: %{x|%b %Y}<br>Burned Area: %{y:.1f} km²<extra></extra>"
     ) %>%
     plotly::layout(
-      xaxis     = list(
-        title      = "Month",
-        tickmode   = "linear",
-        dtick      = "M1",
-        tickformat = "%b",
-        tickangle  = -45,
-        showgrid   = FALSE
-      ),
+      xaxis     = common_xaxis,
       yaxis     = list(
         title     = "Burned Area (km²)",
         showgrid  = TRUE,
@@ -1158,32 +1581,404 @@ plot_ba_timeseries_plotly <- function(train_data = NULL, test_data = NULL,
                        xanchor = "right", yanchor = "top"),
       margin    = list(t = 50, r = 30, l = 60, b = 60)
     )
+
+  # Inline hover content (avoid %{text}: plotly.R bar + single point omits `text` → literal "%{text}")
+  p2 <- plotly::plot_ly(
+    data          = anomaly_df,
+    x             = ~date,
+    y             = ~anomaly,
+    type          = "bar",
+    marker        = list(color = anomaly_df$bar_color),
+    hovertemplate = ~paste0(hover_bar, "<extra></extra>"),
+    showlegend    = FALSE
+  ) %>%
+    plotly::layout(
+      xaxis    = common_xaxis,
+      yaxis    = list(
+        title         = "Burned Area deviation (km²)",
+        zeroline      = TRUE, zerolinewidth = 2, zerolinecolor = "gray50",
+        showgrid      = TRUE, gridcolor = "rgba(0,0,0,0.08)"
+      ),
+      template = "plotly_white",
+      margin   = list(t = 30, r = 30, l = 60, b = 80)
+    )
+
+  plotly::subplot(
+    p1, p2,
+    nrows   = 2,
+    shareX  = TRUE,
+    heights = c(0.58, 0.42),
+    titleY  = TRUE
+  ) %>%
+    plotly::layout(
+      margin = list(t = 20, r = 30, l = 60, b = 80)
+    )
+}
+
+# --- Burned Area Explorer insight cards (Wilcoxon + Seasonal Mann–Kendall) -----------
+
+ba_insight_wilcox_tooltip <- function(season_label = NULL) {
+  season_line <- if (is.null(season_label)) {
+    "All months of the selected year are included."
+  } else {
+    paste0("Only the selected fire season (", season_label, ") is included.")
+  }
+  paste(
+    "This result is based on a Wilcoxon signed-rank test applied to monthly burned-area deviations for the selected year.",
+    "It checks whether fire activity in the selected year is significantly different from the historical monthly average.",
+    season_line,
+    sep = "\n"
+  )
+}
+
+ba_insight_smk_tooltip <- function(season_label = NULL, min_months = 60L) {
+  season_line <- if (is.null(season_label)) {
+    "All months are included; each calendar month counts as one season."
+  } else {
+    paste0("Only the selected fire season (", season_label,
+           ") is included; each month of that season counts as one season.")
+  }
+  paste(
+    "This result is based on the Seasonal Mann–Kendall test.",
+    "It evaluates whether burned area shows a consistent long-term increase or decrease over multiple years while accounting for seasonal patterns.",
+    season_line,
+    paste0("The test is run only when at least 5 complete years (", min_months,
+           " monthly samples) are available."),
+    sep = "\n"
+  )
+}
+
+#' Wilcoxon (monthly burned-area deviations vs 0) and Seasonal Mann–Kendall on the
+#' monthly series, both restricted to the selected fire season. SMK/Sen run only when
+#' at least 5 years of season months are available (60 points for a full year, 30 for a
+#' 6-month season), because each selected month is treated as one "season".
+#' @param train_raw,test_raw per-file burned-area summaries (get_ba_summary_fast output:
+#'   columns YearMonth, Year, Month, BurnedArea_Size).
+#' @param season_months months of the selected fire season (defaults to the full year).
+#' @return list(wilcox_p, wilcox_median, smk_p, sen_slope, smk_n_months, smk_min_months,
+#'   season_months, season_label)
+compute_ba_explorer_stats <- function(train_raw = NULL, test_raw = NULL,
+                                      season_months = 1:12) {
+  season_months <- normalize_season_months(season_months)
+  n_season      <- length(season_months)
+
+  # Restrict both series to the selected fire season
+  keep_season <- function(df) {
+    if (is.null(df) || nrow(df) == 0) return(df)
+    df %>% dplyr::filter(as.integer(Month) %in% season_months)
+  }
+  train_raw <- keep_season(train_raw)
+  test_raw  <- keep_season(test_raw)
+
+  # Year actually under test, read from the data rather than the sidebar: the
+  # selection is clamped to the available range before the files are picked.
+  test_year <- if (is.null(test_raw) || nrow(test_raw) == 0) {
+    NA_integer_
+  } else {
+    max(as.integer(test_raw$Year), na.rm = TRUE)
+  }
+
+  # Baseline the test year is measured against. Only years before the selected one
+  # are in train_raw, so an early selection means a shorter history — worth naming.
+  train_years <- if (is.null(train_raw) || nrow(train_raw) == 0) {
+    integer(0)
+  } else {
+    sort(unique(as.integer(train_raw$Year)))
+  }
+  train_year_label <- if (length(train_years) == 0L) {
+    NULL
+  } else if (length(train_years) == 1L) {
+    as.character(train_years)
+  } else {
+    paste0(min(train_years), "–", max(train_years))
+  }
+
+  # Historical monthly climatology
+  climatology_df <- train_raw %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(climatology = mean(BurnedArea_Size, na.rm = TRUE), .groups = "drop")
+
+  # Selected-year monthly deviations from climatology
+  test_monthly <- test_raw %>%
+    dplyr::group_by(Month) %>%
+    dplyr::summarise(BurnedArea_Size = mean(BurnedArea_Size, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::left_join(climatology_df, by = "Month") %>%
+    dplyr::mutate(anomaly = BurnedArea_Size - climatology)
+
+  anom <- stats::na.omit(test_monthly$anomaly)
+  wilcox_p <- NA_real_
+  wilcox_median <- NA_real_
+  if (length(anom) >= 3L) {
+    wt <- stats::wilcox.test(anom, mu = 0)
+    wilcox_p <- unname(wt$p.value)
+    wilcox_median <- stats::median(anom)
+  }
+
+  smk_p <- NA_real_
+  sen_slope <- NA_real_
+  ba_monthly_full <- dplyr::bind_rows(train_raw, test_raw) %>%
+    dplyr::mutate(
+      YearMonth = as.Date(YearMonth),
+      year_num  = as.integer(format(as.Date(YearMonth), "%Y")),
+      month_num = as.integer(Month)
+    ) %>%
+    dplyr::distinct(YearMonth, .keep_all = TRUE) %>%
+    dplyr::arrange(YearMonth)
+
+  # The seasonal tests need a regular series (one value per season month per year);
+  # trend::smk.test cannot handle gaps, so incomplete years are dropped.
+  complete_years <- ba_monthly_full %>%
+    dplyr::group_by(year_num) %>%
+    dplyr::summarise(n_months = dplyr::n_distinct(month_num), .groups = "drop") %>%
+    dplyr::filter(n_months == n_season) %>%
+    dplyr::pull(year_num)
+
+  smk_series     <- ba_monthly_full %>% dplyr::filter(year_num %in% complete_years)
+  smk_n_months   <- nrow(smk_series)
+  smk_min_months <- 5L * n_season
+  if (smk_n_months >= smk_min_months) {
+    ba_ts <- stats::ts(
+      smk_series$BurnedArea_Size,
+      start     = c(min(complete_years), 1),
+      frequency = n_season
+    )
+    # A single-month season has no seasons to pool, so plain Mann–Kendall applies
+    trend_test <- if (n_season > 1L) trend::smk.test else trend::mk.test
+    tt  <- tryCatch(trend_test(ba_ts), error = function(e) NULL)
+    sen <- tryCatch(trend::sens.slope(ba_ts), error = function(e) NULL)
+    if (!is.null(tt)) smk_p <- unname(tt$p.value)
+    if (!is.null(sen)) sen_slope <- as.numeric(sen$estimates)[1]
+  }
+
+  list(
+    wilcox_p = wilcox_p,
+    wilcox_median = wilcox_median,
+    smk_p = smk_p,
+    sen_slope = sen_slope,
+    smk_n_months = smk_n_months,
+    smk_min_months = smk_min_months,
+    season_months = season_months,
+    season_label = ba_season_label(season_months),
+    test_year = test_year,
+    train_year_label = train_year_label,
+    train_n_years = length(train_years)
+  )
+}
+
+#' Shiny UI: selected-year Fire Activity card (uses compute_ba_explorer_stats output).
+#' Colour meaning is inverted relative to NDVI: more fire than usual is the adverse
+#' direction (red); less fire than usual is favourable (green).
+ba_insight_wilcox_card_ui <- function(stats) {
+  if (is.null(stats)) return(NULL)
+  p   <- stats$wilcox_p
+  med <- stats$wilcox_median
+  season_lab <- stats$season_label
+  # "this year" becomes "this fire season" once the months are filtered
+  period  <- if (is.null(season_lab)) "this year" else "this fire season"
+  # Name the year under test; "Current" would be wrong for any earlier selection.
+  year_lab <- if (is.null(stats$test_year) || is.na(stats$test_year)) {
+    NULL
+  } else {
+    as.character(stats$test_year)
+  }
+  year_prefix <- if (is.null(year_lab)) "" else paste0(year_lab, " ")
+  heading <- if (is.null(season_lab)) {
+    paste0(year_prefix, "Fire Activity")
+  } else {
+    paste0(year_prefix, "Fire Season Activity (", season_lab, ")")
+  }
+
+  # Name both sides of the comparison in the explanation: the period under test
+  # ("Jun-Nov 2019") and the history it is measured against ("2001-2018").
+  period_label <- if (is.null(year_lab)) {
+    NULL
+  } else if (is.null(season_lab)) {
+    year_lab
+  } else {
+    paste0(season_lab, " ", year_lab)
+  }
+  # Subject position ("Fire activity in Jun-Nov 2019 is ...") vs object position
+  # ("compare Jun-Nov 2019 with ..."); fall back to the vaguer wording when the
+  # year cannot be determined.
+  period_subj <- if (is.null(period_label)) period else paste0("in ", period_label)
+  period_obj  <- if (is.null(period_label)) period else period_label
+  hist_lab    <- stats$train_year_label
+  baseline_avg <- if (is.null(hist_lab)) "usual conditions" else paste0("the ", hist_lab, " average")
+  baseline_cmp <- if (is.null(hist_lab)) "usual" else paste0("the ", hist_lab, " average")
+
+  plain_text <- paste0("Fire activity ", period_subj, " is within the expected range for this area, based on ",
+                       baseline_avg, ".")
+  if (is.na(p)) {
+    main <- "Not enough data for this summary"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+    plain_text <- paste0("There is not enough monthly data to compare ", period_obj, " with ", baseline_avg, ".")
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med > 0) {
+    main <- "Above normal fire activity"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Fire activity ", period_subj, " is notably higher than ", baseline_cmp,
+                         " - this may indicate elevated fire risk or pressure on the landscape.")
+  } else if (!is.na(p) && p < 0.05 && !is.na(med) && med < 0) {
+    main <- "Below normal fire activity"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Fire activity ", period_subj, " is notably lower than ", baseline_cmp, ".")
+  } else {
+    main <- "No significant difference from normal"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  insight_banner_ui(
+    heading    = heading,
+    tooltip    = ba_insight_wilcox_tooltip(season_lab),
+    main       = main,
+    col        = col,
+    p_lab      = p_lab,
+    plain_text = plain_text
+  )
+}
+
+#' Shiny UI: Long-Term Fire Trend card (Seasonal Mann–Kendall + Sen slope sign).
+#' Colour meaning is inverted relative to NDVI: an increasing trend in burned area is
+#' the adverse direction (red); a decreasing trend is favourable (green).
+ba_insight_smk_card_ui <- function(stats, year_range_label = NULL) {
+  if (is.null(stats)) return(NULL)
+  p <- stats$smk_p
+  slope <- stats$sen_slope
+  n_m <- stats$smk_n_months
+  season_lab <- stats$season_label
+  year_phrase <- if (!is.null(year_range_label) && nzchar(year_range_label)) {
+    paste0(" over ", year_range_label)
+  } else {
+    " over the available data period"
+  }
+  # Restrict the wording to the selected fire season when one is set
+  if (!is.null(season_lab)) year_phrase <- paste0(" in ", season_lab, year_phrase)
+  if (is.null(n_m) || !is.numeric(n_m)) n_m <- NA_integer_
+  smk_min_months <- stats$smk_min_months
+  if (is.null(smk_min_months) || !is.numeric(smk_min_months)) smk_min_months <- 60L
+  plain_text <- paste0("Fire activity has been broadly consistent", year_phrase, ".")
+  if (!is.na(n_m) && n_m < smk_min_months) {
+    main <- "Long-term trend not shown (insufficient series length)"
+    col <- "#555555"
+    p_lab <- paste0(
+      "Seasonal Mann–Kendall applies only with ≥5 complete years of monthly data (",
+      smk_min_months,
+      " months). Current series: ",
+      n_m,
+      " month",
+      if (n_m == 1L) "" else "s",
+      "."
+    )
+    plain_text <- "There is not enough monthly data to show a reliable long-term trend."
+  } else if (is.na(p) || is.na(slope)) {
+    main <- "Long-term trend cannot be assessed from this series"
+    col <- "#555555"
+    p_lab <- "p-value: N/A"
+    plain_text <- "The available data could not produce a reliable trend summary."
+  } else if (p < 0.05 && slope > 0) {
+    main <- "Significant increasing trend"
+    col <- "#D55E00"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Burned area has been increasing over time", year_phrase,
+                         " - this may indicate a worsening fire regime and warrants closer monitoring.")
+  } else if (p < 0.05 && slope < 0) {
+    main <- "Significant decreasing trend"
+    col <- "#009E73"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+    plain_text <- paste0("Burned area has been declining over time", year_phrase,
+                         " - a positive sign for this landscape.")
+  } else {
+    main <- "No significant long-term trend"
+    col <- "#555555"
+    p_lab <- paste0("p-value: ", format(round(p, 3), nsmall = 3))
+  }
+  insight_banner_ui(
+    heading    = if (is.null(season_lab)) "Long-Term Fire Trend" else paste0("Long-Term Fire Trend (", season_lab, ")"),
+    tooltip    = ba_insight_smk_tooltip(season_lab, smk_min_months),
+    main       = main,
+    col        = col,
+    p_lab      = p_lab,
+    plain_text = plain_text
+  )
 }
 
 # Interactive Plotly daily burn activity chart — one filled line per year.
 # daily_data: data frame with columns date, km2, year (character).
 # selected_years: character vector of years to plot (determines legend order).
-plot_ba_daily_activity <- function(daily_data, selected_years) {
+# season_months: months of the selected fire season; fixes the x-axis window.
+# month_coverage: distinct year/month rows for which source files exist. Days are
+#   zero-filled only inside this coverage, so a month with no file stays absent
+#   instead of being drawn as a confident zero.
+plot_ba_daily_activity <- function(daily_data, selected_years, season_months = 1:12,
+                                   month_coverage = NULL) {
+  season_months <- normalize_season_months(season_months)
   year_colors <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7")
   names(year_colors) <- as.character(selected_years[seq_len(min(length(selected_years), 4))])
+
+  # Span the whole selected season. Days without fire produce no rows, so an
+  # auto-ranged axis would silently drop quiet months (e.g. Jan-Apr) and imply
+  # the season selector had not been applied. Dates are overlaid onto 2000.
+  season_start <- as.Date(sprintf("2000-%02d-01", min(season_months)))
+  season_end   <- seq(as.Date(sprintf("2000-%02d-01", max(season_months))),
+                      by = "month", length.out = 2L)[2L] - 1L
 
   p <- plotly::plot_ly()
 
   for (i in seq_along(selected_years)) {
-    yr    <- as.character(selected_years[i])
-    col   <- year_colors[[yr]]
-    ydata <- if (!is.null(daily_data)) dplyr::filter(daily_data, year == yr) else NULL
+    yr     <- as.character(selected_years[i])
+    yr_int <- as.integer(selected_years[i])
+    col    <- year_colors[[yr]]
+    observed <- if (!is.null(daily_data)) dplyr::filter(daily_data, year == yr) else NULL
 
-    if (is.null(ydata) || nrow(ydata) == 0) {
+    # Months this year actually has files for; without a coverage table assume the
+    # whole selected season.
+    months_avail <- if (is.null(month_coverage)) {
+      season_months
+    } else {
+      sort(unique(month_coverage$month[month_coverage$year == yr_int]))
+    }
+    months_avail <- intersect(months_avail, season_months)
+
+    # One row per covered day, so quiet days read as 0 rather than leaving the line
+    # to interpolate across them or stop altogether.
+    grid_dates <- if (length(months_avail) == 0L) {
+      as.Date(character(0))
+    } else {
+      all_days <- seq(
+        as.Date(sprintf("%d-%02d-01", yr_int, min(months_avail))),
+        seq(as.Date(sprintf("%d-%02d-01", yr_int, max(months_avail))),
+            by = "month", length.out = 2L)[2L] - 1L,
+        by = "day"
+      )
+      all_days[as.integer(format(all_days, "%m")) %in% months_avail]
+    }
+
+    if (length(grid_dates) == 0L) {
       p <- p %>%
         plotly::add_lines(
           x    = as.Date(NA), y = as.numeric(NA),
-          name = paste0(yr, " — no fire activity detected"),
+          name = paste0(yr, " — no data available"),
           line = list(color = col, width = 2),
           showlegend = TRUE
         )
     } else {
-      ydata <- dplyr::arrange(ydata, date)
+      # Sum first: two monthly files could in principle report the same date.
+      obs <- if (is.null(observed) || nrow(observed) == 0L) {
+        data.frame(date = as.Date(character(0)), km2 = numeric(0))
+      } else {
+        observed %>%
+          dplyr::group_by(date) %>%
+          dplyr::summarise(km2 = sum(km2, na.rm = TRUE), .groups = "drop")
+      }
+      had_fire <- nrow(obs) > 0L
+      ydata <- data.frame(date = grid_dates) %>%
+        dplyr::left_join(obs, by = "date") %>%
+        dplyr::mutate(km2 = ifelse(is.na(km2), 0, km2)) %>%
+        dplyr::arrange(date)
+      ydata$date_overlay <- as.Date(
+        paste0("2000-", format(ydata$date, "%m-%d")))
       r_val <- strtoi(substr(col, 2, 3), 16L)
       g_val <- strtoi(substr(col, 4, 5), 16L)
       b_val <- strtoi(substr(col, 6, 7), 16L)
@@ -1191,19 +1986,22 @@ plot_ba_daily_activity <- function(daily_data, selected_years) {
       p <- p %>%
         plotly::add_lines(
           data          = ydata,
-          x             = ~date, y = ~km2,
-          name          = yr,
+          x             = ~date_overlay, y = ~km2,
+          customdata    = ~date,
+          name          = if (had_fire) yr else paste0(yr, " — no fire activity detected"),
           line          = list(color = col, width = 2.5),
           fill          = "tozeroy",
           fillcolor     = fill_col,
-          hovertemplate = paste0("%{x|%d %B %Y} — %{y:.2f} km² burned<extra>", yr, "</extra>")
+          hovertemplate = paste0("%{customdata|%d %B %Y} — %{y:.2f} km² burned<extra>", yr, "</extra>")
         )
     }
   }
 
   p %>%
     plotly::layout(
-      xaxis     = list(title = "Date", tickformat = "%b %d", tickangle = -45, showgrid = FALSE),
+      xaxis     = list(title = "Date", tickformat = "%b %d", tickangle = -45, showgrid = FALSE,
+                       range = c(format(season_start, "%Y-%m-%d"),
+                                 format(season_end,   "%Y-%m-%d"))),
       yaxis     = list(title = "Burned Area (km²) per day", showgrid = TRUE,
                        gridcolor = "rgba(0,0,0,0.08)"),
       template  = "plotly_white",
@@ -1263,8 +2061,8 @@ plot_grouped_training_ndvi_timeseries <- function(train_data_grouped = NULL,
 
 # Function to plot 2D maps for a specific month over several years
 plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
-                           plot_width = 15, plot_height = 8,
-                           zlim_range = c(-0.7, 0.7), ncol = 6,
+                           plot_width = 20, plot_height = 10,
+                           zlim_range = c(-0.7, 0.7), ncol = 2,
                            save_path = NULL, filename = "NDVI_maps.png") {
   # Set plot size
   options(repr.plot.width = plot_width, repr.plot.height = plot_height)
@@ -1281,15 +2079,29 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
     dplyr::select(Year) %>%
     unique() %>%
     pull()
-  this_and_last_year <- tail(this_and_last_year, n = 4)
+  this_and_last_year <- tail(this_and_last_year, n = 2)
   data_filtered <- data_filtered %>%
     dplyr::filter(Year %in% this_and_last_year)
-  
+
+  # Panel shape from the data extent rather than a fixed guess. One degree of
+  # longitude is shorter than one of latitude away from the equator, so the true
+  # aspect depends on the AoI: height/width runs from ~0.4 (Bulgaria) to ~1.9
+  # (Mponda). The previous hardcoded aspect.ratio = 2.5 forced tall, narrow panels
+  # for every AoI and left the rest of the canvas white.
+  x_rng     <- range(data_filtered$x, na.rm = TRUE)
+  y_rng     <- range(data_filtered$y, na.rm = TRUE)
+  lat_scale <- cos(mean(y_rng) * pi / 180)
+  if (!is.finite(lat_scale) || lat_scale <= 0) lat_scale <- 1
+  coord_ratio <- 1 / lat_scale
+  panel_ratio <- (diff(y_rng) * coord_ratio) / diff(x_rng)
+  if (!is.finite(panel_ratio) || panel_ratio <= 0) panel_ratio <- 1
+
   # Generate the plot
   map_plot <- ggplot(data_filtered, aes(x = x, y = y, fill = NDVI)) +
     geom_raster() +
     scale_fill_gradientn(colors = brgr_colors(10), limits = zlim_range,
                          oob = scales::squish) +
+    coord_fixed(ratio = coord_ratio) +
     facet_wrap(~ YearMonth, ncol = ncol) +
     labs(
       title = paste0("NDVI development over the years - ",
@@ -1300,29 +2112,38 @@ plot_ndvi_maps <- function(data = NULL, month_to_plot = "01",
     ) +
     theme_minimal() +
     theme(
-      aspect.ratio = 2.5, # Keep a consistent aspect ratio
       panel.spacing = unit(1, "lines"), # Space between panels
       strip.text = element_text(size = 12), # Adjust facet labels
-      axis.text.x = element_text(hjust = 1, size = 15), 
-      axis.text.y = element_text(size = 15), 
+      axis.text.x = element_text(hjust = 1, size = 15),
+      axis.text.y = element_text(size = 15),
       axis.title.x = element_text(size = 20, margin = margin(15, 0, 0, 0)),
       axis.title.y = element_text(size = 20, margin = margin(0, 15, 0, 0)),
       plot.title = element_text(size = 20, hjust = 0.5)
     )
-  
+
   # Save the plot if save_path is provided
   if (!is.null(save_path)) {
     # Ensure the save directory exists
     if (!dir.exists(save_path)) {
       dir.create(save_path, recursive = TRUE)
     }
-    
+
+    # Size the canvas to the panels so the PNG carries no dead margin. Height stays
+    # at plot_height and the width follows from the panel aspect, capped so a very
+    # wide AoI cannot produce a huge file. Depends only on the AoI, so every
+    # resolution of the same area now yields the same canvas.
+    n_panels  <- max(length(unique(data_filtered$YearMonth)), 1L)
+    n_col     <- max(min(ncol, n_panels), 1L)
+    n_row     <- ceiling(n_panels / n_col)
+    panel_h   <- max((plot_height - 2.0) / n_row, 1)  # minus title + axis labels
+    fig_width <- min(n_col * (panel_h / panel_ratio) + 2.5, 24)  # plus y axis + legend
+
     # Save the plot to the specified location
     ggsave(filename = file.path(save_path, filename),
-           plot = map_plot, width = plot_width,
+           plot = map_plot, width = fig_width,
            height = plot_height, units = "in")
   }
-  
+
   # Return the plot
   return(map_plot)
 }
@@ -1497,6 +2318,14 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
   geojson_files <- geojson_files[ord]
   landuse_types <- landuse_types[ord]
   
+  # Pre-calculate total study area (Improvement 7: for percentage in tooltip)
+  total_study_area_ha <- 0
+  for (file in geojson_files) {
+    gj <- sf::st_read(file, quiet = TRUE)
+    gj <- sf::st_transform(gj, crs = 4326)
+    total_study_area_ha <- total_study_area_ha + sum(as.numeric(sf::st_area(gj)) / 10000)
+  }
+  
   pal_named <- land_cover_class_colors()
   hex_by_stem <- vapply(landuse_types, function(stem) {
     k <- geojson_stem_to_class_key(stem)
@@ -1520,7 +2349,7 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     landuse_type <- landuse_types[i]
     
     # Read the GeoJSON file
-    geojson_data <- sf::st_read(file)
+    geojson_data <- sf::st_read(file, quiet = TRUE)
     
     # Transform the GeoJSON data to WGS 84 (EPSG:4326)
     geojson_data <- sf::st_transform(geojson_data, crs = 4326)
@@ -1533,6 +2362,19 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
     } else {
       landuse_type
     }
+    
+    # Improvement 7: Format tooltip with class name, hectares (with commas), and percentage
+    areas_ha <- as.numeric(sf::st_area(geojson_data)) / 10000
+    pct <- if (total_study_area_ha > 0) round((areas_ha / total_study_area_ha) * 100) else 0
+    popup_text <- paste0(
+      htmltools::htmlEscape(pop_lab),
+      " — ",
+      format(round(areas_ha), big.mark = ","),
+      " ha (",
+      pct,
+      "% of study area)"
+    )
+    
     map <- map %>%
       addPolygons(
         data         = geojson_data,
@@ -1542,10 +2384,7 @@ plot_geojsons_from_a_folder <- function(folder_path, save_path = NULL, filename 
         fillOpacity  = 0.3,
         group        = landuse_type,
         layerId      = rep(landuse_type, nrow(geojson_data)),
-        popup        = paste0(
-          "<strong>", htmltools::htmlEscape(pop_lab), "</strong><br>",
-          "Area (hectares): ", round(as.numeric(sf::st_area(geojson_data)) / 10000, 3)
-        )
+        popup        = popup_text
       )
   }
   
@@ -1935,38 +2774,60 @@ plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
   # Check if there is data for the specified month
   if (nrow(data_filtered) == 0) stop(paste("No data available for month:", month_to_plot))
   
-  # Define a color palette for Delta NDVI values
-  brgr_colors <- colorNumeric(
-    palette = c("darkred", "firebrick1", "darkgray", "yellowgreen", "darkgreen"),
+  # Calculate symmetric colour limits like plot_annual_ndvi_leaflet
+  quants <- quantile(data_filtered$delta_ndvi,
+                     c(0.02, 0.98),
+                     na.rm = TRUE)
+  
+  max_abs <- max(abs(quants), na.rm = TRUE)
+  if (max_abs == 0 || is.na(max_abs)) max_abs <- 0.1
+  
+  zlim_range <- c(-max_abs, max_abs)
+  
+  # Same diverging palette as annual NDVI change
+  pal <- leaflet::colorNumeric(
+    palette = c("#8B0000", "#CC3300", "darkgray", "#66BB6A", "#1B5E20"),
     domain = zlim_range,
-    na.color = NA
+    na.color = "transparent"
   )
   
-  # Add squishing to clamp out-of-bound values
+  # Clamp values to colour limits
   data_filtered <- data_filtered %>%
-    mutate(delta_ndvi_clamped = scales::squish(delta_ndvi, zlim_range))  # Clamp values
+    dplyr::mutate(
+      delta_ndvi_clamped = scales::squish(delta_ndvi, zlim_range)
+    )
   
-  # Create the Leaflet map
-  map <- leaflet(data_filtered) %>%
-    addProviderTiles(providers[[basemap]]) %>%  # Add the basemap
-    addCircleMarkers(
-      lng = ~x,  # Longitude
-      lat = ~y,  # Latitude
-      radius = 4,  # Marker size
-      color = ~brgr_colors(delta_ndvi_clamped),  # Use clamped values for color
-      fillOpacity = 0.7,  # Circle transparency
+  # Create leaflet map
+  map <- leaflet::leaflet(data_filtered) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~x,
+      lat = ~y,
+      radius = 3,
+      stroke = FALSE,
+      fillOpacity = 0.8,
+      fillColor = ~pal(delta_ndvi_clamped),
       popup = ~paste0(
-        "<b>Delta NDVI:</b> ", round(delta_ndvi, 2), "<br>",
-        "<b>Longitude:</b> ", round(x, 2), "<br>",
-        "<b>Latitude:</b> ", round(y, 2)
-      )  # Add popup for each point
+        "<b>Delta NDVI:</b> ", round(delta_ndvi, 3), "<br>",
+        "<b>Month:</b> ", month_to_plot, "<br>",
+        "<b>Longitude:</b> ", round(x, 3), "<br>",
+        "<b>Latitude:</b> ", round(y, 3)
+      )
     ) %>%
-    addLegend(
-      "bottomright",  # Position of the legend
-      pal = brgr_colors,  # Use the same color palette
-      values = zlim_range,  # Range of Delta NDVI
-      title = "Delta NDVI",
-      opacity = 1
+    leaflet::addLegend(
+      position = "bottomright",
+      colors = c(
+        pal(-max_abs),
+        pal(0),
+        pal(max_abs)
+      ),
+      labels = c(
+        "Largest loss",
+        "No change",
+        "Largest gain"
+      ),
+      title = "Monthly vegetation change",
+      opacity = 0.8
     )
   
   # Save the plot if save_path is provided
@@ -1981,4 +2842,121 @@ plot_delta_ndvi_streetview <- function(data = NULL, month_to_plot = "01",
   }
   
   return(map)  # Return the Leaflet map
+}
+
+# Compute per-pixel annual mean NDVI delta between two years
+compute_annual_ndvi_change <- function(year_a, year_b, country_name, resolution, data_dir) {
+  data_path <- file.path(data_dir, "NDVI", country_name, paste0(resolution, "m_resolution"))
+  aoi_country <- sub("_.*", "", country_name)
+  aoi_path    <- file.path(data_dir, "AoI")
+  aoi_files   <- get_filenames(aoi_path, "AoI", ".geojson", aoi_country)
+  aoi_proj    <- get_aoi_vector(aoi_files[[1]], aoi_path, "EPSG:4326")
+
+  ndvi_files <- get_filenames(data_path, "NDVI", ".tif", country_name)
+  files_df   <- get_filename_df(ndvi_files)
+
+  load_year_mean <- function(yr) {
+    yr_files <- files_df[files_df$year == as.integer(yr), ]
+    if (nrow(yr_files) == 0L) stop("No NDVI files for year ", yr)
+    rast <- get_ndvi_raster(yr_files$filenames, data_path, "EPSG:4326", yr_files$dates, aoi_proj)
+    terra::mean(rast, na.rm = TRUE)
+  }
+
+  rast_a <- load_year_mean(year_a)
+  rast_b <- load_year_mean(year_b)
+  delta_rast <- rast_b - rast_a
+
+  df_a     <- as.data.frame(rast_a,    xy = TRUE); names(df_a)[3]     <- "ndvi_a"
+  df_b     <- as.data.frame(rast_b,    xy = TRUE); names(df_b)[3]     <- "ndvi_b"
+  df_delta <- as.data.frame(delta_rast, xy = TRUE); names(df_delta)[3] <- "delta"
+
+  delta_df <- merge(df_a, df_b, by = c("x", "y"))
+  delta_df <- merge(delta_df, df_delta, by = c("x", "y"))
+  delta_df <- delta_df[!is.na(delta_df$delta), ]
+
+  pos_rast <- terra::ifel(delta_rast > 0, 1, NA)
+  neg_rast <- terra::ifel(delta_rast < 0, 1, NA)
+  valid_rast <- terra::ifel(!is.na(delta_rast), 1, NA)
+  pos_km2  <- round(sum(terra::expanse(pos_rast, unit = "km"), na.rm = TRUE), 1)
+  neg_km2  <- round(sum(terra::expanse(neg_rast, unit = "km"), na.rm = TRUE), 1)
+  total_km2 <- round(sum(terra::expanse(valid_rast, unit = "km"), na.rm = TRUE), 1)
+
+  list(delta_df = delta_df, pos_km2 = pos_km2, neg_km2 = neg_km2,
+       total_km2 = total_km2,
+       year_a = year_a, year_b = year_b, country_name = country_name)
+}
+
+# Render annual NDVI change as a Leaflet map with diverging colour scale
+plot_annual_ndvi_leaflet <- function(result) {
+  delta_df <- result$delta_df
+  year_a   <- result$year_a
+  year_b   <- result$year_b
+
+  quants   <- quantile(delta_df$delta, c(0.02, 0.98), na.rm = TRUE)
+  max_abs  <- max(abs(quants), na.rm = TRUE)
+  if (max_abs == 0 || is.na(max_abs)) max_abs <- 0.1
+
+  pal <- leaflet::colorNumeric(
+    palette  = c("#8B0000", "#CC3300", "#FFFFFF", "#66BB6A", "#1B5E20"),
+    domain   = c(-max_abs, max_abs),
+    na.color = "transparent"
+  )
+
+  leaflet::leaflet(delta_df) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~x, lat = ~y,
+      radius = 3, stroke = FALSE, fillOpacity = 0.8,
+      fillColor = ~pal(scales::squish(delta, c(-max_abs, max_abs))),
+      popup = ~paste0(
+        "<b>Delta NDVI:</b> ", round(delta, 3), "<br>",
+        "<b>Baseline NDVI (", year_a, "):</b> ", round(ndvi_a, 3), "<br>",
+        "<b>Comparison NDVI (", year_b, "):</b> ", round(ndvi_b, 3)
+      )
+    ) %>%
+    leaflet::addLegend(
+      position = "bottomright",
+      pal      = pal,
+      values   = ~scales::squish(delta, c(-max_abs, max_abs)),
+      title    = paste0("Annual NDVI Change<br>", year_a, " → ", year_b),
+      opacity  = 0.8
+    )
+}
+
+# Plain-language legend variant for annual NDVI change. Defined after the
+# original renderer so this version is the one used by the app.
+plot_annual_ndvi_leaflet <- function(result) {
+  delta_df <- result$delta_df
+  year_a   <- result$year_a
+  year_b   <- result$year_b
+
+  quants   <- quantile(delta_df$delta, c(0.02, 0.98), na.rm = TRUE)
+  max_abs  <- max(abs(quants), na.rm = TRUE)
+  if (max_abs == 0 || is.na(max_abs)) max_abs <- 0.1
+
+  pal <- leaflet::colorNumeric(
+    palette  = c("#8B0000", "#CC3300", "#FFFFFF", "#66BB6A", "#1B5E20"),
+    domain   = c(-max_abs, max_abs),
+    na.color = "transparent"
+  )
+
+  leaflet::leaflet(delta_df) %>%
+    leaflet::addTiles() %>%
+    leaflet::addCircleMarkers(
+      lng = ~x, lat = ~y,
+      radius = 3, stroke = FALSE, fillOpacity = 0.8,
+      fillColor = ~pal(scales::squish(delta, c(-max_abs, max_abs))),
+      popup = ~paste0(
+        "<b>Delta NDVI:</b> ", round(delta, 3), "<br>",
+        "<b>Baseline NDVI (", year_a, "):</b> ", round(ndvi_a, 3), "<br>",
+        "<b>Comparison NDVI (", year_b, "):</b> ", round(ndvi_b, 3)
+      )
+    ) %>%
+    leaflet::addLegend(
+      position = "bottomright",
+      colors   = c(pal(-max_abs), pal(0), pal(max_abs)),
+      labels   = c("Large loss", "No change", "Large gain"),
+      title    = paste0("Annual vegetation change<br>", year_a, " to ", year_b),
+      opacity  = 0.8
+    )
 }
